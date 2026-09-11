@@ -25,6 +25,9 @@ type mockAPI struct {
 	deletedClients2 []string
 	addedDNS        []string
 	deletedDNS      []string
+	updatedAdlists  []int
+	updatedClients  []int
+	updatedDomains  []int
 
 	listGroupsErr      error
 	listAdlistsErr     error
@@ -41,6 +44,9 @@ type mockAPI struct {
 	deleteClientsErr   error
 	addDNSErr          error
 	deleteDNSErr       error
+	updateAdlistErr    error
+	updateClientErr    error
+	updateDomainErr    error
 
 	nextGroupID int
 }
@@ -141,6 +147,19 @@ func (m *mockAPI) CreateClient(ip, comment string, groups []int) (*pihole.APICli
 func (m *mockAPI) DeleteClients(ips []string) error {
 	m.deletedClients2 = append(m.deletedClients2, ips...)
 	return m.deleteClientsErr
+}
+
+func (m *mockAPI) UpdateAdlist(id int, groups []int) error {
+	m.updatedAdlists = append(m.updatedAdlists, id)
+	return m.updateAdlistErr
+}
+func (m *mockAPI) UpdateClient(id int, groups []int) error {
+	m.updatedClients = append(m.updatedClients, id)
+	return m.updateClientErr
+}
+func (m *mockAPI) UpdateDomain(id int, groups []int) error {
+	m.updatedDomains = append(m.updatedDomains, id)
+	return m.updateDomainErr
 }
 
 // --- Diff function tests ---
@@ -418,6 +437,7 @@ func TestDiffClients(t *testing.T) {
 			[]config.ClientEntry{{Match: "192.168.1.100"}},
 			nil,
 			"[forseti]",
+			nil,
 		)
 		if len(diff.Adds) != 1 || diff.Adds[0].Key != "192.168.1.100" {
 			t.Errorf("expected add, got %v", diff.Adds)
@@ -429,6 +449,7 @@ func TestDiffClients(t *testing.T) {
 			[]config.ClientEntry{{Match: "192.168.1.100"}},
 			[]pihole.APIClient{{ID: 1, Client: "192.168.1.100", Comment: "[forseti]"}},
 			"[forseti]",
+			nil,
 		)
 		if diff.Unchanged != 1 {
 			t.Errorf("unchanged = %d, want 1", diff.Unchanged)
@@ -440,6 +461,7 @@ func TestDiffClients(t *testing.T) {
 			nil,
 			[]pihole.APIClient{{ID: 1, Client: "192.168.1.200", Comment: "[forseti]"}},
 			"[forseti]",
+			nil,
 		)
 		if len(diff.Deletes) != 1 || diff.Deletes[0].Key != "192.168.1.200" {
 			t.Errorf("expected delete, got %v", diff.Deletes)
@@ -451,9 +473,224 @@ func TestDiffClients(t *testing.T) {
 			nil,
 			[]pihole.APIClient{{ID: 1, Client: "192.168.1.200", Comment: "manual"}},
 			"[forseti]",
+			nil,
 		)
 		if len(diff.Deletes) != 0 {
 			t.Errorf("should not delete unmanaged client, got %v", diff.Deletes)
+		}
+	})
+
+	t.Run("client with changed groups is update", func(t *testing.T) {
+		nameToID := map[string]int{"trusted": 2}
+		diff := diffClients(
+			[]config.ClientEntry{{Match: "192.168.1.100", Groups: []string{"trusted"}}},
+			[]pihole.APIClient{{ID: 5, Client: "192.168.1.100", Comment: "[forseti]", Groups: []int{1}}},
+			"[forseti]",
+			nameToID,
+		)
+		if len(diff.Updates) != 1 {
+			t.Errorf("expected 1 update, got %d", len(diff.Updates))
+		}
+		if len(diff.Updates) > 0 && diff.Updates[0].ID != 5 {
+			t.Errorf("update ID = %d, want 5", diff.Updates[0].ID)
+		}
+		if diff.Unchanged != 0 {
+			t.Errorf("unchanged = %d, want 0", diff.Unchanged)
+		}
+	})
+
+	t.Run("unmanaged client with different groups is not an update", func(t *testing.T) {
+		nameToID := map[string]int{"trusted": 2}
+		diff := diffClients(
+			nil,
+			[]pihole.APIClient{{ID: 5, Client: "10.0.0.1", Comment: "manual", Groups: []int{1}}},
+			"[forseti]",
+			nameToID,
+		)
+		if len(diff.Updates) != 0 {
+			t.Errorf("should not produce update for unmanaged client, got %v", diff.Updates)
+		}
+		if len(diff.Adds) != 0 {
+			t.Errorf("should not produce add for unmanaged client, got %v", diff.Adds)
+		}
+		if len(diff.Deletes) != 0 {
+			t.Errorf("should not produce delete for unmanaged client, got %v", diff.Deletes)
+		}
+	})
+}
+
+func TestDiffAdlistsGroupDrift(t *testing.T) {
+	nameToID := map[string]int{"ads": 1, "tracking": 2}
+
+	t.Run("adlist with changed groups is update", func(t *testing.T) {
+		diff := diffAdlists(
+			[]config.Adlist{{URL: "https://example.com/list.txt", Groups: []string{"ads", "tracking"}}},
+			[]pihole.APIList{{ID: 42, Address: "https://example.com/list.txt", Comment: "[forseti]", Groups: []int{1}}},
+			"[forseti]",
+			nameToID,
+		)
+		if len(diff.Updates) != 1 {
+			t.Fatalf("expected 1 update, got %d", len(diff.Updates))
+		}
+		if diff.Updates[0].ID != 42 {
+			t.Errorf("update ID = %d, want 42", diff.Updates[0].ID)
+		}
+		if diff.Updates[0].Key != "https://example.com/list.txt" {
+			t.Errorf("update Key = %q, want URL", diff.Updates[0].Key)
+		}
+		if diff.Unchanged != 0 {
+			t.Errorf("unchanged = %d, want 0", diff.Unchanged)
+		}
+	})
+
+	t.Run("adlist with identical groups is unchanged", func(t *testing.T) {
+		diff := diffAdlists(
+			[]config.Adlist{{URL: "https://example.com/list.txt", Groups: []string{"ads"}}},
+			[]pihole.APIList{{ID: 42, Address: "https://example.com/list.txt", Comment: "[forseti]", Groups: []int{1}}},
+			"[forseti]",
+			nameToID,
+		)
+		if len(diff.Updates) != 0 {
+			t.Errorf("expected 0 updates, got %d", len(diff.Updates))
+		}
+		if diff.Unchanged != 1 {
+			t.Errorf("unchanged = %d, want 1", diff.Unchanged)
+		}
+	})
+
+	t.Run("group order does not trigger update", func(t *testing.T) {
+		diff := diffAdlists(
+			[]config.Adlist{{URL: "https://example.com/list.txt", Groups: []string{"tracking", "ads"}}},
+			[]pihole.APIList{{ID: 42, Address: "https://example.com/list.txt", Comment: "[forseti]", Groups: []int{2, 1}}},
+			"[forseti]",
+			nameToID,
+		)
+		if len(diff.Updates) != 0 {
+			t.Errorf("expected 0 updates (order-independent), got %d", len(diff.Updates))
+		}
+		if diff.Unchanged != 1 {
+			t.Errorf("unchanged = %d, want 1", diff.Unchanged)
+		}
+	})
+}
+
+func TestGroupsEqual(t *testing.T) {
+	t.Run("equal sorted", func(t *testing.T) {
+		if !groupsEqual([]int{1, 2, 3}, []int{1, 2, 3}) {
+			t.Error("should be equal")
+		}
+	})
+
+	t.Run("equal unsorted", func(t *testing.T) {
+		if !groupsEqual([]int{3, 1, 2}, []int{2, 3, 1}) {
+			t.Error("should be equal (order-independent)")
+		}
+	})
+
+	t.Run("different", func(t *testing.T) {
+		if groupsEqual([]int{1, 2}, []int{1, 3}) {
+			t.Error("should not be equal")
+		}
+	})
+
+	t.Run("different lengths", func(t *testing.T) {
+		if groupsEqual([]int{1}, []int{1, 2}) {
+			t.Error("should not be equal")
+		}
+	})
+
+	t.Run("both empty", func(t *testing.T) {
+		if !groupsEqual(nil, nil) {
+			t.Error("both nil should be equal")
+		}
+	})
+
+	t.Run("one nil one empty", func(t *testing.T) {
+		if !groupsEqual(nil, []int{}) {
+			t.Error("nil and empty should be equal")
+		}
+	})
+}
+
+func TestHasChangesWithUpdates(t *testing.T) {
+	d := ResourceDiff{Updates: []DiffEntry{{Key: "x"}}}
+	if !d.HasChanges() {
+		t.Error("should have changes when only updates present")
+	}
+}
+
+func TestApplyProcessesUpdates(t *testing.T) {
+	mock := newMockAPI()
+	mock.groups = []pihole.APIGroup{{ID: 1, Name: "ads", Comment: ""}, {ID: 2, Name: "tracking", Comment: ""}}
+	mock.adlists = []pihole.APIList{{ID: 42, Address: "https://example.com/list.txt", Comment: "[forseti]", Groups: []int{1}}}
+	mock.clients = []pihole.APIClient{{ID: 7, Client: "192.168.1.100", Comment: "[forseti]", Groups: []int{1}}}
+
+	cfg := &config.Config{
+		Groups:  []config.Group{{Name: "ads"}, {Name: "tracking"}},
+		Adlists: []config.Adlist{{URL: "https://example.com/list.txt", Groups: []string{"ads", "tracking"}}},
+		Clients: []config.ClientEntry{{Match: "192.168.1.100", Groups: []string{"ads", "tracking"}}},
+	}
+
+	target := config.Target{Name: "test"}
+	report, err := Apply(cfg, target, mock, "[forseti]")
+	if err != nil {
+		t.Fatalf("Apply() error: %v", err)
+	}
+
+	if len(report.Errors) > 0 {
+		t.Errorf("unexpected errors: %v", report.Errors)
+	}
+	if len(mock.updatedAdlists) != 1 || mock.updatedAdlists[0] != 42 {
+		t.Errorf("expected adlist 42 updated, got %v", mock.updatedAdlists)
+	}
+	if len(mock.updatedClients) != 1 || mock.updatedClients[0] != 7 {
+		t.Errorf("expected client 7 updated, got %v", mock.updatedClients)
+	}
+	if len(mock.createdAdlists) != 0 {
+		t.Errorf("should not create existing adlists, got %v", mock.createdAdlists)
+	}
+	if len(mock.createdClients) != 0 {
+		t.Errorf("should not create existing clients, got %v", mock.createdClients)
+	}
+}
+
+func TestApplyUpdateErrors(t *testing.T) {
+	target := config.Target{Name: "test"}
+	marker := "[forseti]"
+
+	t.Run("UpdateAdlist error", func(t *testing.T) {
+		mock := newMockAPI()
+		mock.groups = []pihole.APIGroup{{ID: 1, Name: "ads"}, {ID: 2, Name: "tracking"}}
+		mock.adlists = []pihole.APIList{{ID: 42, Address: "https://x.com/l.txt", Comment: "[forseti]", Groups: []int{1}}}
+		mock.updateAdlistErr = errors.New("fail")
+		cfg := &config.Config{
+			Groups:  []config.Group{{Name: "ads"}, {Name: "tracking"}},
+			Adlists: []config.Adlist{{URL: "https://x.com/l.txt", Groups: []string{"ads", "tracking"}}},
+		}
+		report, err := Apply(cfg, target, mock, marker)
+		if err != nil {
+			t.Fatalf("Apply should not return hard error: %v", err)
+		}
+		if len(report.Errors) != 1 {
+			t.Errorf("expected 1 error, got %d", len(report.Errors))
+		}
+	})
+
+	t.Run("UpdateClient error", func(t *testing.T) {
+		mock := newMockAPI()
+		mock.groups = []pihole.APIGroup{{ID: 1, Name: "ads"}, {ID: 2, Name: "tracking"}}
+		mock.clients = []pihole.APIClient{{ID: 7, Client: "192.168.1.1", Comment: "[forseti]", Groups: []int{1}}}
+		mock.updateClientErr = errors.New("fail")
+		cfg := &config.Config{
+			Groups:  []config.Group{{Name: "ads"}, {Name: "tracking"}},
+			Clients: []config.ClientEntry{{Match: "192.168.1.1", Groups: []string{"ads", "tracking"}}},
+		}
+		report, err := Apply(cfg, target, mock, marker)
+		if err != nil {
+			t.Fatalf("Apply should not return hard error: %v", err)
+		}
+		if len(report.Errors) != 1 {
+			t.Errorf("expected 1 error, got %d", len(report.Errors))
 		}
 	})
 }

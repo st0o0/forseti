@@ -351,6 +351,24 @@ func (c *Client) DeleteClients(ips []string) error {
 	return c.doJSON(http.MethodPost, "/api/clients:batchDelete", items, nil)
 }
 
+func (c *Client) UpdateAdlist(id int, groups []int) error {
+	body := map[string]any{"groups": withoutDefault(groups)}
+	path := fmt.Sprintf("/api/lists/%d", id)
+	return c.doJSON(http.MethodPut, path, body, nil)
+}
+
+func (c *Client) UpdateClient(id int, groups []int) error {
+	body := map[string]any{"groups": withoutDefault(groups)}
+	path := fmt.Sprintf("/api/clients/%d", id)
+	return c.doJSON(http.MethodPut, path, body, nil)
+}
+
+func (c *Client) UpdateDomain(id int, groups []int) error {
+	body := map[string]any{"groups": withoutDefault(groups)}
+	path := fmt.Sprintf("/api/domains/deny/exact/%d", id)
+	return c.doJSON(http.MethodPut, path, body, nil)
+}
+
 // Local DNS
 
 func (c *Client) ListDNSRecords() ([]APIDNSRecord, error) {

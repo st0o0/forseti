@@ -2,6 +2,7 @@ package reconcile
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/st0o0/forseti/internal/config"
@@ -24,6 +25,9 @@ type PiholeAPI interface {
 	ListClients() ([]pihole.APIClient, error)
 	CreateClient(ip, comment string, groups []int) (*pihole.APIClient, error)
 	DeleteClients(ips []string) error
+	UpdateAdlist(id int, groups []int) error
+	UpdateClient(id int, groups []int) error
+	UpdateDomain(id int, groups []int) error
 }
 
 type DiffAction string
@@ -31,6 +35,7 @@ type DiffAction string
 const (
 	ActionAdd    DiffAction = "add"
 	ActionDelete DiffAction = "delete"
+	ActionUpdate DiffAction = "update"
 )
 
 type DiffEntry struct {
@@ -42,11 +47,12 @@ type DiffEntry struct {
 type ResourceDiff struct {
 	Adds      []DiffEntry
 	Deletes   []DiffEntry
+	Updates   []DiffEntry
 	Unchanged int
 }
 
 func (d ResourceDiff) HasChanges() bool {
-	return len(d.Adds) > 0 || len(d.Deletes) > 0
+	return len(d.Adds) > 0 || len(d.Deletes) > 0 || len(d.Updates) > 0
 }
 
 type DiffReport struct {
@@ -76,11 +82,13 @@ func Plan(cfg *config.Config, target config.Target, api PiholeAPI, marker string
 	}
 	report.Groups = diffGroups(cfg.Groups, groups, marker)
 
+	groupNameToID := buildGroupNameToID(groups)
+
 	adlists, err := api.ListAdlists()
 	if err != nil {
 		return nil, fmt.Errorf("list adlists: %w", err)
 	}
-	report.Adlists = diffAdlists(cfg.Adlists, adlists, marker)
+	report.Adlists = diffAdlists(cfg.Adlists, adlists, marker, groupNameToID)
 	report.NeedsGravity = report.Adlists.HasChanges()
 
 	denyDomains, err := api.ListDomains("deny", "exact")
@@ -105,7 +113,7 @@ func Plan(cfg *config.Config, target config.Target, api PiholeAPI, marker string
 	if err != nil {
 		return nil, fmt.Errorf("list clients: %w", err)
 	}
-	report.Clients = diffClients(cfg.Clients, clients, marker)
+	report.Clients = diffClients(cfg.Clients, clients, marker, groupNameToID)
 
 	return report, nil
 }
@@ -142,12 +150,19 @@ func Apply(cfg *config.Config, target config.Target, api PiholeAPI, marker strin
 	if err != nil {
 		return nil, fmt.Errorf("list adlists: %w", err)
 	}
-	report.Diff.Adlists = diffAdlists(cfg.Adlists, adlists, marker)
+	report.Diff.Adlists = diffAdlists(cfg.Adlists, adlists, marker, groupNameToID)
 	for _, entry := range report.Diff.Adlists.Adds {
 		adlist := findAdlistByURL(cfg.Adlists, entry.Key)
 		groupIDs := resolveGroupIDs(adlist.Groups, groupNameToID)
 		if _, err := api.CreateAdlist(entry.Key, marker, true, groupIDs); err != nil {
 			report.Errors = append(report.Errors, fmt.Errorf("create adlist %q: %w", entry.Key, err))
+		}
+	}
+	for _, entry := range report.Diff.Adlists.Updates {
+		adlist := findAdlistByURL(cfg.Adlists, entry.Key)
+		groupIDs := resolveGroupIDs(adlist.Groups, groupNameToID)
+		if err := api.UpdateAdlist(entry.ID, groupIDs); err != nil {
+			report.Errors = append(report.Errors, fmt.Errorf("update adlist %q: %w", entry.Key, err))
 		}
 	}
 	if keys := collectKeys(report.Diff.Adlists.Deletes); len(keys) > 0 {
@@ -215,12 +230,19 @@ func Apply(cfg *config.Config, target config.Target, api PiholeAPI, marker strin
 	if err != nil {
 		return nil, fmt.Errorf("list clients: %w", err)
 	}
-	report.Diff.Clients = diffClients(cfg.Clients, clients, marker)
+	report.Diff.Clients = diffClients(cfg.Clients, clients, marker, groupNameToID)
 	for _, entry := range report.Diff.Clients.Adds {
 		client := findClientByMatch(cfg.Clients, entry.Key)
 		groupIDs := resolveGroupIDs(client.Groups, groupNameToID)
 		if _, err := api.CreateClient(entry.Key, marker, groupIDs); err != nil {
 			report.Errors = append(report.Errors, fmt.Errorf("create client %q: %w", entry.Key, err))
+		}
+	}
+	for _, entry := range report.Diff.Clients.Updates {
+		client := findClientByMatch(cfg.Clients, entry.Key)
+		groupIDs := resolveGroupIDs(client.Groups, groupNameToID)
+		if err := api.UpdateClient(entry.ID, groupIDs); err != nil {
+			report.Errors = append(report.Errors, fmt.Errorf("update client %q: %w", entry.Key, err))
 		}
 	}
 	if keys := collectKeys(report.Diff.Clients.Deletes); len(keys) > 0 {
@@ -262,7 +284,7 @@ func diffGroups(desired []config.Group, actual []pihole.APIGroup, marker string)
 	return diff
 }
 
-func diffAdlists(desired []config.Adlist, actual []pihole.APIList, marker string) ResourceDiff {
+func diffAdlists(desired []config.Adlist, actual []pihole.APIList, marker string, groupNameToID map[string]int) ResourceDiff {
 	var diff ResourceDiff
 	actualByURL := make(map[string]pihole.APIList)
 	for _, a := range actual {
@@ -272,8 +294,13 @@ func diffAdlists(desired []config.Adlist, actual []pihole.APIList, marker string
 	desiredURLs := make(map[string]bool)
 	for _, a := range desired {
 		desiredURLs[a.URL] = true
-		if _, exists := actualByURL[a.URL]; exists {
-			diff.Unchanged++
+		if existing, exists := actualByURL[a.URL]; exists {
+			desiredGroups := resolveGroupIDs(a.Groups, groupNameToID)
+			if !groupsEqual(desiredGroups, existing.Groups) {
+				diff.Updates = append(diff.Updates, DiffEntry{Action: ActionUpdate, Key: a.URL, ID: existing.ID})
+			} else {
+				diff.Unchanged++
+			}
 		} else {
 			diff.Adds = append(diff.Adds, DiffEntry{Action: ActionAdd, Key: a.URL})
 		}
@@ -366,7 +393,7 @@ func diffDNS(desired []config.LocalDNSEntry, actual []pihole.APIDNSRecord, purge
 	return diff
 }
 
-func diffClients(desired []config.ClientEntry, actual []pihole.APIClient, marker string) ResourceDiff {
+func diffClients(desired []config.ClientEntry, actual []pihole.APIClient, marker string, groupNameToID map[string]int) ResourceDiff {
 	var diff ResourceDiff
 	actualByIP := make(map[string]pihole.APIClient)
 	for _, c := range actual {
@@ -376,8 +403,13 @@ func diffClients(desired []config.ClientEntry, actual []pihole.APIClient, marker
 	desiredMatches := make(map[string]bool)
 	for _, c := range desired {
 		desiredMatches[c.Match] = true
-		if _, exists := actualByIP[c.Match]; exists {
-			diff.Unchanged++
+		if existing, exists := actualByIP[c.Match]; exists {
+			desiredGroups := resolveGroupIDs(c.Groups, groupNameToID)
+			if !groupsEqual(desiredGroups, existing.Groups) {
+				diff.Updates = append(diff.Updates, DiffEntry{Action: ActionUpdate, Key: c.Match, ID: existing.ID})
+			} else {
+				diff.Unchanged++
+			}
 		} else {
 			diff.Adds = append(diff.Adds, DiffEntry{Action: ActionAdd, Key: c.Match})
 		}
@@ -392,6 +424,24 @@ func diffClients(desired []config.ClientEntry, actual []pihole.APIClient, marker
 }
 
 // Helpers
+
+func groupsEqual(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	sa := make([]int, len(a))
+	sb := make([]int, len(b))
+	copy(sa, a)
+	copy(sb, b)
+	sort.Ints(sa)
+	sort.Ints(sb)
+	for i := range sa {
+		if sa[i] != sb[i] {
+			return false
+		}
+	}
+	return true
+}
 
 func buildGroupNameToID(groups []pihole.APIGroup) map[string]int {
 	m := make(map[string]int)

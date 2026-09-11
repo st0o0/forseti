@@ -291,7 +291,7 @@ func printResourceLine(name string, d reconcile.ResourceDiff) {
 	if !d.HasChanges() && d.Unchanged == 0 {
 		return
 	}
-	fmt.Printf("  %-10s  +%d  -%d  =%d\n", name, len(d.Adds), len(d.Deletes), d.Unchanged)
+	fmt.Printf("  %-10s  +%d  ~%d  -%d  =%d\n", name, len(d.Adds), len(d.Updates), len(d.Deletes), d.Unchanged)
 }
 
 func hasDiff(r *reconcile.DiffReport) bool {
@@ -317,17 +317,18 @@ func addResourceChanges(m map[string]map[string]int, name string, d reconcile.Re
 	}
 	m[name] = map[string]int{
 		"add":    len(d.Adds),
+		"update": len(d.Updates),
 		"delete": len(d.Deletes),
 	}
 }
 
 func buildDriftMap(r *reconcile.DiffReport) map[string]int {
 	m := make(map[string]int)
-	m["group"] = len(r.Groups.Adds) + len(r.Groups.Deletes)
-	m["adlist"] = len(r.Adlists.Adds) + len(r.Adlists.Deletes)
-	m["deny"] = len(r.Deny.Adds) + len(r.Deny.Deletes)
-	m["allow"] = len(r.Allow.Adds) + len(r.Allow.Deletes)
-	m["dns"] = len(r.LocalDNS.Adds) + len(r.LocalDNS.Deletes)
-	m["client"] = len(r.Clients.Adds) + len(r.Clients.Deletes)
+	m["group"] = len(r.Groups.Adds) + len(r.Groups.Deletes) + len(r.Groups.Updates)
+	m["adlist"] = len(r.Adlists.Adds) + len(r.Adlists.Deletes) + len(r.Adlists.Updates)
+	m["deny"] = len(r.Deny.Adds) + len(r.Deny.Deletes) + len(r.Deny.Updates)
+	m["allow"] = len(r.Allow.Adds) + len(r.Allow.Deletes) + len(r.Allow.Updates)
+	m["dns"] = len(r.LocalDNS.Adds) + len(r.LocalDNS.Deletes) + len(r.LocalDNS.Updates)
+	m["client"] = len(r.Clients.Adds) + len(r.Clients.Deletes) + len(r.Clients.Updates)
 	return m
 }
