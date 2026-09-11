@@ -103,6 +103,140 @@ func TestPoolConcurrentAccess(t *testing.T) {
 	}
 }
 
+func TestPoolSetCallbacks(t *testing.T) {
+	var loginCount atomic.Int32
+	srv := newTestServer(&loginCount)
+	defer srv.Close()
+
+	pool := NewPool()
+	defer pool.Close()
+
+	var newSessionCalls atomic.Int32
+	var closeCalls atomic.Int32
+
+	pool.SetCallbacks(PoolCallbacks{
+		OnNewSession: func(target string) {
+			newSessionCalls.Add(1)
+		},
+		OnClose: func() {
+			closeCalls.Add(1)
+		},
+	})
+
+	target := config.Target{Name: "test", URL: srv.URL, Password: "pw"}
+	_, err := pool.Get(target)
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+
+	if got := newSessionCalls.Load(); got != 1 {
+		t.Errorf("OnNewSession called %d times, want 1", got)
+	}
+
+	// Get again should reuse, no new callback
+	_, _ = pool.Get(target)
+	if got := newSessionCalls.Load(); got != 1 {
+		t.Errorf("OnNewSession called %d times after reuse, want 1", got)
+	}
+
+	pool.Close()
+	if got := closeCalls.Load(); got != 1 {
+		t.Errorf("OnClose called %d times, want 1", got)
+	}
+}
+
+func TestPoolSetCallbacksOnReauth(t *testing.T) {
+	var loginCount atomic.Int32
+	var reauthCalls atomic.Int32
+
+	callCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/auth" {
+			if r.Method == http.MethodPost {
+				loginCount.Add(1)
+				json.NewEncoder(w).Encode(map[string]any{
+					"session": map[string]string{"sid": "new-sid"},
+				})
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		callCount++
+		sid := r.Header.Get("X-FTL-SID")
+		if callCount == 1 {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		if sid == "new-sid" {
+			json.NewEncoder(w).Encode(map[string]any{
+				"queries": map[string]any{"total": 100},
+				"clients": map[string]any{"active": 5, "total": 10},
+				"gravity": map[string]any{"domains_being_blocked": 50, "last_update": 0},
+			})
+		}
+	}))
+	defer srv.Close()
+
+	pool := NewPool()
+	defer pool.Close()
+
+	pool.SetCallbacks(PoolCallbacks{
+		OnReauth: func(target string) {
+			reauthCalls.Add(1)
+		},
+	})
+
+	target := config.Target{Name: "test", URL: srv.URL, Password: "pw"}
+	client, err := pool.Get(target)
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+
+	_, _ = client.GetStats()
+
+	if got := reauthCalls.Load(); got != 1 {
+		t.Errorf("OnReauth called %d times, want 1", got)
+	}
+}
+
+func TestPoolGetLoginError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	pool := NewPool()
+	defer pool.Close()
+
+	target := config.Target{Name: "test", URL: srv.URL, Password: "pw"}
+	_, err := pool.Get(target)
+	if err == nil {
+		t.Fatal("Get() should error on login failure")
+	}
+}
+
+func TestPoolCloseWithError(t *testing.T) {
+	var loginCount atomic.Int32
+	srv := newTestServer(&loginCount)
+
+	pool := NewPool()
+	target := config.Target{Name: "errclose", URL: srv.URL, Password: "pw"}
+	_, err := pool.Get(target)
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+
+	srv.Close()
+
+	err = pool.Close()
+	if err == nil {
+		t.Error("Close() should return error when server is down")
+	}
+}
+
 func TestPoolCloseAllSessions(t *testing.T) {
 	var loginCount atomic.Int32
 	srv := newTestServer(&loginCount)

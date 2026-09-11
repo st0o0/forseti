@@ -207,6 +207,196 @@ func TestCollectParallelTargets(t *testing.T) {
 	}
 }
 
+func TestCollectPartialBlockingError(t *testing.T) {
+	var callCount atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/auth" && r.Method == http.MethodPost:
+			json.NewEncoder(w).Encode(map[string]any{
+				"session": map[string]string{"sid": "test-sid"},
+			})
+		case r.URL.Path == "/api/auth" && r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		case r.URL.Path == "/api/stats/summary":
+			callCount.Add(1)
+			json.NewEncoder(w).Encode(map[string]any{
+				"queries": map[string]any{
+					"total": 1000, "blocked": 100, "percent_blocked": 10.0,
+					"forwarded": 800, "cached": 100, "unique_domains": 500,
+					"frequency": 1.5,
+				},
+				"clients": map[string]any{"active": 10, "total": 20},
+				"gravity": map[string]any{"domains_being_blocked": 50000, "last_update": 1234567890},
+			})
+		case r.URL.Path == "/api/dns/blocking":
+			w.WriteHeader(http.StatusInternalServerError)
+		case r.URL.Path == "/api/stats/upstreams":
+			json.NewEncoder(w).Encode(map[string]any{"upstreams": []any{}})
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer srv.Close()
+
+	pool := session.NewPool()
+	defer pool.Close()
+
+	target := config.Target{Name: "partial", URL: srv.URL, Password: "pw"}
+	m := metrics.NewServer(0, "/metrics")
+
+	coll := NewCollector(pool, []config.Target{target}, 30*time.Second, m)
+
+	ctx := context.Background()
+	coll.Collect(ctx)
+
+	fetchVal := getCounterValue(t, m, "forseti_collector_fetches_total", map[string]string{"target": "partial", "status": "success"})
+	if fetchVal != 1 {
+		t.Errorf("fetch success = %f, want 1 (stats OK despite blocking error)", fetchVal)
+	}
+}
+
+func TestCollectPartialUpstreamsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/auth" && r.Method == http.MethodPost:
+			json.NewEncoder(w).Encode(map[string]any{
+				"session": map[string]string{"sid": "test-sid"},
+			})
+		case r.URL.Path == "/api/auth" && r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		case r.URL.Path == "/api/stats/summary":
+			json.NewEncoder(w).Encode(map[string]any{
+				"queries": map[string]any{
+					"total": 1000, "blocked": 100, "percent_blocked": 10.0,
+					"forwarded": 800, "cached": 100, "unique_domains": 500,
+					"frequency": 1.5,
+				},
+				"clients": map[string]any{"active": 10, "total": 20},
+				"gravity": map[string]any{"domains_being_blocked": 50000, "last_update": 1234567890},
+			})
+		case r.URL.Path == "/api/dns/blocking":
+			json.NewEncoder(w).Encode(map[string]any{"blocking": true})
+		case r.URL.Path == "/api/stats/upstreams":
+			w.WriteHeader(http.StatusInternalServerError)
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer srv.Close()
+
+	pool := session.NewPool()
+	defer pool.Close()
+
+	target := config.Target{Name: "partial-ups", URL: srv.URL, Password: "pw"}
+	m := metrics.NewServer(0, "/metrics")
+
+	coll := NewCollector(pool, []config.Target{target}, 30*time.Second, m)
+
+	ctx := context.Background()
+	coll.Collect(ctx)
+
+	fetchVal := getCounterValue(t, m, "forseti_collector_fetches_total", map[string]string{"target": "partial-ups", "status": "success"})
+	if fetchVal != 1 {
+		t.Errorf("fetch success = %f, want 1 (stats OK despite upstreams error)", fetchVal)
+	}
+}
+
+func TestCollectSessionError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	pool := session.NewPool()
+	defer pool.Close()
+
+	target := config.Target{Name: "unreachable", URL: srv.URL, Password: "pw"}
+	m := metrics.NewServer(0, "/metrics")
+
+	coll := NewCollector(pool, []config.Target{target}, 30*time.Second, m)
+
+	ctx := context.Background()
+	coll.Collect(ctx)
+
+	fetchVal := getCounterValue(t, m, "forseti_collector_fetches_total", map[string]string{"target": "unreachable", "status": "error"})
+	if fetchVal != 1 {
+		t.Errorf("fetch error = %f, want 1 (session error)", fetchVal)
+	}
+}
+
+func TestCollectStatsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/auth" && r.Method == http.MethodPost:
+			json.NewEncoder(w).Encode(map[string]any{
+				"session": map[string]string{"sid": "test-sid"},
+			})
+		case r.URL.Path == "/api/auth" && r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		case r.URL.Path == "/api/stats/summary":
+			w.WriteHeader(http.StatusInternalServerError)
+		case r.URL.Path == "/api/dns/blocking":
+			json.NewEncoder(w).Encode(map[string]any{"blocking": true})
+		case r.URL.Path == "/api/stats/upstreams":
+			json.NewEncoder(w).Encode(map[string]any{"upstreams": []any{}})
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer srv.Close()
+
+	pool := session.NewPool()
+	defer pool.Close()
+
+	target := config.Target{Name: "statserr", URL: srv.URL, Password: "pw"}
+	m := metrics.NewServer(0, "/metrics")
+
+	coll := NewCollector(pool, []config.Target{target}, 30*time.Second, m)
+
+	ctx := context.Background()
+	coll.Collect(ctx)
+
+	fetchVal := getCounterValue(t, m, "forseti_collector_fetches_total", map[string]string{"target": "statserr", "status": "error"})
+	if fetchVal != 1 {
+		t.Errorf("fetch error = %f, want 1 (stats error)", fetchVal)
+	}
+}
+
+func TestCollectAllCachedNoFetch(t *testing.T) {
+	var callCount atomic.Int32
+	srv := newPiholeTestServer(&callCount)
+	defer srv.Close()
+
+	pool := session.NewPool()
+	defer pool.Close()
+
+	targets := []config.Target{
+		{Name: "a", URL: srv.URL, Password: "pw"},
+		{Name: "b", URL: srv.URL, Password: "pw"},
+	}
+	m := metrics.NewServer(0, "/metrics")
+
+	coll := NewCollector(pool, targets, 30*time.Second, m)
+
+	ctx := context.Background()
+	coll.Collect(ctx)
+
+	before := callCount.Load()
+	coll.Collect(ctx)
+	after := callCount.Load()
+
+	if after != before {
+		t.Errorf("all cached should not make API calls, got %d additional", after-before)
+	}
+
+	for _, name := range []string{"a", "b"} {
+		cacheVal := getCounterValue(t, m, "forseti_collector_cache_hits_total", map[string]string{"target": name})
+		if cacheVal != 1 {
+			t.Errorf("cache hits for %s = %f, want 1", name, cacheVal)
+		}
+	}
+}
+
 func getCounterValue(t *testing.T, m *metrics.Server, name string, labels map[string]string) float64 {
 	t.Helper()
 	families, err := m.Gather()
