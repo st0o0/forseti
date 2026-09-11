@@ -1,0 +1,22 @@
+# Local design/plan docs -- never committed
+docs/
+
+# Claude Code
+.claude/
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+*.swp
+
+# Test artifacts
+tests/tmp/
+*.log
+
+# Environment (real secrets, not .env.dev or .env.example)
+.env
+
+# Go build output
+/forseti
+/forseti.exe

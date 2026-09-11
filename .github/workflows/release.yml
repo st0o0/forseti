@@ -1,0 +1,22 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    uses: st0o0/github-workflows/.github/workflows/go-release.yml@main
+    with:
+      image-name: ghcr.io/st0o0/forseti
+      image-description: "Declarative GitOps controller for Pi-hole v6 -- reconciles adlists, domains, groups, and clients from YAML config"
+    permissions:
+      contents: write
+      pull-requests: write
+      packages: write
+      id-token: write

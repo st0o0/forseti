@@ -1,0 +1,46 @@
+name: Bug report
+description: Something isn't working as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you observe, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Config snippet / commands. Redact passwords and IPs.
+      render: yaml
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Container logs
+      description: Output of `docker logs <forseti-container>`. Redact secrets.
+      render: shell
+  - type: input
+    id: image
+    attributes:
+      label: Image tag
+      description: e.g. ghcr.io/st0o0/forseti:1.0.0
+    validations:
+      required: true
+  - type: input
+    id: pihole-version
+    attributes:
+      label: Pi-hole version
+      description: e.g. Pi-hole v6.5
+    validations:
+      required: true
+  - type: input
+    id: host
+    attributes:
+      label: Host / Docker
+      description: OS, kernel, Docker version, arch (amd64/arm64)
+    validations:
+      required: true

@@ -1,0 +1,60 @@
+mode: config
+
+metrics:
+  port: 9099
+  path: /metrics
+  scrape_interval: 30s
+
+targets:
+  - name: pihole-alpha
+    url: http://pihole-alpha:80
+    password: ${PIHOLE_ALPHA_PASSWORD}
+    gravity:
+      schedule: "0 3 * * 0"
+  - name: pihole-beta
+    url: http://pihole-beta:80
+    password: ${PIHOLE_BETA_PASSWORD}
+    gravity:
+      schedule: "0 4 * * 0"
+
+reconcile:
+  interval: 30s
+  marker: "[forseti]"
+  gravity_on_change: true
+
+groups:
+  - name: default
+    comment: "Default group"
+  - name: testing
+    comment: "Test group for dev"
+
+adlists:
+  - url: https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts
+    comment: "StevenBlack unified hosts"
+    groups:
+      - default
+  - url: https://v.firebog.net/hosts/Easyprivacy.txt
+    comment: "EasyPrivacy"
+    groups:
+      - default
+      - testing
+
+deny:
+  - domain: ads.example.com
+  - domain: tracking.example.com
+
+allow:
+  - domain: allowed.example.com
+  - domain: safe.example.com
+
+local_dns:
+  - domain: nas.lan
+    ip: 192.168.1.50
+  - domain: printer.lan
+    ip: 192.168.1.60
+
+clients:
+  - match: 192.168.1.0/24
+    comment: "LAN clients"
+    groups:
+      - default

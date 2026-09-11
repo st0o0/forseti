@@ -1,0 +1,32 @@
+mode: sync
+
+metrics:
+  port: 9099
+  path: /metrics
+  scrape_interval: 30s
+
+targets:
+  - name: pihole-alpha
+    url: http://pihole-alpha:80
+    password: ${PIHOLE_ALPHA_PASSWORD}
+    role: primary
+    gravity:
+      schedule: "0 3 * * 0"
+
+  - name: pihole-beta
+    url: http://pihole-beta:80
+    password: ${PIHOLE_BETA_PASSWORD}
+    role: replica
+    gravity:
+      schedule: "0 4 * * 0"
+
+sync:
+  interval: 1m
+  primary: pihole-alpha
+  resources:
+    - adlists
+    - deny
+    - allow
+    - local_dns
+    - groups
+    - clients
