@@ -2,6 +2,7 @@ package sync
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -182,7 +183,7 @@ func TestSyncGroupsAddsFromPrimary(t *testing.T) {
 	defer pool.Close()
 
 	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"groups"})
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	syncer := NewSyncer(pool, cfg, m)
 	syncer.SyncAll()
 
@@ -211,7 +212,7 @@ func TestSyncGroupsDeletesMarked(t *testing.T) {
 	defer pool.Close()
 
 	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"groups"})
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	syncer := NewSyncer(pool, cfg, m)
 	syncer.SyncAll()
 
@@ -240,7 +241,7 @@ func TestSyncSkipsNonMarkedForDelete(t *testing.T) {
 	defer pool.Close()
 
 	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"groups"})
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	syncer := NewSyncer(pool, cfg, m)
 	syncer.SyncAll()
 
@@ -306,7 +307,7 @@ func TestSyncGroupsCreateError(t *testing.T) {
 	defer pool.Close()
 
 	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"groups"})
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	syncer := NewSyncer(pool, cfg, m)
 	syncer.SyncAll()
 }
@@ -325,11 +326,11 @@ func TestSyncGroupsDeleteError(t *testing.T) {
 	defer pool.Close()
 
 	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"groups"})
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 
 	replica, _ := pool.Get(cfg.Targets[1])
 	s := &Syncer{pool: pool, cfg: cfg, metrics: m, marker: "[forseti-sync]"}
-	s.syncGroups(replica, []pihole.APIGroup{}, []pihole.APIGroup{
+	s.syncGroups(slog.Default(), replica, []pihole.APIGroup{}, []pihole.APIGroup{
 		{ID: 1, Name: "stale", Comment: "[forseti-sync]"},
 	})
 }
@@ -358,7 +359,7 @@ func TestSyncAdlistsAddsFromPrimary(t *testing.T) {
 	defer pool.Close()
 
 	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"adlists"})
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	syncer := NewSyncer(pool, cfg, m)
 	syncer.SyncAll()
 
@@ -386,7 +387,7 @@ func TestSyncAdlistsDeletesMarked(t *testing.T) {
 	defer pool.Close()
 
 	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"adlists"})
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	syncer := NewSyncer(pool, cfg, m)
 	syncer.SyncAll()
 
@@ -409,7 +410,7 @@ func TestSyncAdlistsCreateError(t *testing.T) {
 	defer pool.Close()
 
 	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"adlists"})
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	syncer := NewSyncer(pool, cfg, m)
 	syncer.SyncAll()
 }
@@ -428,11 +429,11 @@ func TestSyncAdlistsDeleteError(t *testing.T) {
 	defer replicaSrv.Close()
 
 	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"adlists"})
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 
 	replica, _ := pool.Get(cfg.Targets[1])
 	s := &Syncer{pool: pool, cfg: cfg, metrics: m, marker: "[forseti-sync]"}
-	s.syncAdlists(replica, []pihole.APIList{}, []pihole.APIList{
+	s.syncAdlists(slog.Default(), replica, []pihole.APIList{}, []pihole.APIList{
 		{ID: 1, Address: "https://stale.com/list.txt", Comment: "[forseti-sync]"},
 	}, nil, nil)
 }
@@ -461,7 +462,7 @@ func TestSyncDomainsAdds(t *testing.T) {
 	defer pool.Close()
 
 	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"deny"})
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	syncer := NewSyncer(pool, cfg, m)
 	syncer.SyncAll()
 
@@ -489,7 +490,7 @@ func TestSyncDomainsDeletesMarked(t *testing.T) {
 	defer pool.Close()
 
 	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"deny"})
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	syncer := NewSyncer(pool, cfg, m)
 	syncer.SyncAll()
 
@@ -517,7 +518,7 @@ func TestSyncDomainsSkipsNonMarked(t *testing.T) {
 	defer pool.Close()
 
 	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"deny"})
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	syncer := NewSyncer(pool, cfg, m)
 	syncer.SyncAll()
 
@@ -545,7 +546,7 @@ func TestSyncAllowDomains(t *testing.T) {
 	defer pool.Close()
 
 	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"allow"})
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	syncer := NewSyncer(pool, cfg, m)
 	syncer.SyncAll()
 
@@ -568,7 +569,7 @@ func TestSyncDomainsCreateError(t *testing.T) {
 	defer pool.Close()
 
 	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"deny"})
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	syncer := NewSyncer(pool, cfg, m)
 	syncer.SyncAll()
 }
@@ -585,11 +586,11 @@ func TestSyncDomainsDeleteError(t *testing.T) {
 	defer primarySrv.Close()
 
 	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"deny"})
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 
 	replica, _ := pool.Get(cfg.Targets[1])
 	s := &Syncer{pool: pool, cfg: cfg, metrics: m, marker: "[forseti-sync]"}
-	s.syncDomains(replica, "deny", "exact", []pihole.APIDomain{}, []pihole.APIDomain{
+	s.syncDomains(slog.Default(), replica, "deny", "exact", []pihole.APIDomain{}, []pihole.APIDomain{
 		{ID: 1, Domain: "stale.example.com", Comment: "[forseti-sync]"},
 	}, nil, nil)
 }
@@ -613,7 +614,7 @@ func TestSyncDNSAdds(t *testing.T) {
 	defer pool.Close()
 
 	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"local_dns"})
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	syncer := NewSyncer(pool, cfg, m)
 	syncer.SyncAll()
 
@@ -639,7 +640,7 @@ func TestSyncDNSDeletes(t *testing.T) {
 	defer pool.Close()
 
 	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"local_dns"})
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	syncer := NewSyncer(pool, cfg, m)
 	syncer.SyncAll()
 
@@ -662,7 +663,7 @@ func TestSyncDNSAddError(t *testing.T) {
 	defer pool.Close()
 
 	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"local_dns"})
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	syncer := NewSyncer(pool, cfg, m)
 	syncer.SyncAll()
 }
@@ -679,11 +680,11 @@ func TestSyncDNSDeleteError(t *testing.T) {
 	defer primarySrv.Close()
 
 	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"local_dns"})
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 
 	replica, _ := pool.Get(cfg.Targets[1])
 	s := &Syncer{pool: pool, cfg: cfg, metrics: m, marker: "[forseti-sync]"}
-	s.syncDNS(replica, []pihole.APIDNSRecord{}, []pihole.APIDNSRecord{
+	s.syncDNS(slog.Default(), replica, []pihole.APIDNSRecord{}, []pihole.APIDNSRecord{
 		{IP: "192.168.1.99", Domain: "old.local"},
 	})
 }
@@ -712,7 +713,7 @@ func TestSyncClientsAdds(t *testing.T) {
 	defer pool.Close()
 
 	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"clients"})
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	syncer := NewSyncer(pool, cfg, m)
 	syncer.SyncAll()
 
@@ -740,7 +741,7 @@ func TestSyncClientsDeletesMarked(t *testing.T) {
 	defer pool.Close()
 
 	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"clients"})
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	syncer := NewSyncer(pool, cfg, m)
 	syncer.SyncAll()
 
@@ -768,7 +769,7 @@ func TestSyncClientsSkipsNonMarked(t *testing.T) {
 	defer pool.Close()
 
 	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"clients"})
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	syncer := NewSyncer(pool, cfg, m)
 	syncer.SyncAll()
 
@@ -791,7 +792,7 @@ func TestSyncClientsCreateError(t *testing.T) {
 	defer pool.Close()
 
 	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"clients"})
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	syncer := NewSyncer(pool, cfg, m)
 	syncer.SyncAll()
 }
@@ -808,11 +809,11 @@ func TestSyncClientsDeleteError(t *testing.T) {
 	defer primarySrv.Close()
 
 	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"clients"})
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 
 	replica, _ := pool.Get(cfg.Targets[1])
 	s := &Syncer{pool: pool, cfg: cfg, metrics: m, marker: "[forseti-sync]"}
-	s.syncClients(replica, []pihole.APIClient{}, []pihole.APIClient{
+	s.syncClients(slog.Default(), replica, []pihole.APIClient{}, []pihole.APIClient{
 		{ID: 1, Client: "192.168.1.200", Comment: "[forseti-sync]"},
 	}, nil, nil)
 }
@@ -836,7 +837,7 @@ func TestSyncAllNoChanges(t *testing.T) {
 	defer pool.Close()
 
 	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"groups"})
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	syncer := NewSyncer(pool, cfg, m)
 	syncer.SyncAll()
 
@@ -869,7 +870,7 @@ func TestSyncAllMultipleResources(t *testing.T) {
 
 	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL,
 		[]string{"groups", "adlists", "deny", "allow", "local_dns", "clients"})
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	syncer := NewSyncer(pool, cfg, m)
 	syncer.SyncAll()
 
@@ -893,7 +894,7 @@ func TestGetPrimaryNotFound(t *testing.T) {
 		},
 	}
 
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	syncer := NewSyncer(pool, cfg, m)
 	syncer.SyncAll()
 }
@@ -916,7 +917,7 @@ func TestSyncAllPrimaryUnreachable(t *testing.T) {
 		},
 	}
 
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	syncer := NewSyncer(pool, cfg, m)
 	syncer.SyncAll()
 }
@@ -933,7 +934,7 @@ func TestSyncAllPrimaryLoadError(t *testing.T) {
 	defer pool.Close()
 
 	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"groups"})
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	syncer := NewSyncer(pool, cfg, m)
 	syncer.SyncAll()
 }
@@ -952,7 +953,7 @@ func TestSyncReplicaSessionError(t *testing.T) {
 	defer pool.Close()
 
 	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"groups"})
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	syncer := NewSyncer(pool, cfg, m)
 	syncer.SyncAll()
 }
@@ -971,7 +972,7 @@ func TestSyncReplicaLoadError(t *testing.T) {
 	defer pool.Close()
 
 	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"groups"})
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	syncer := NewSyncer(pool, cfg, m)
 	syncer.SyncAll()
 }
@@ -1169,7 +1170,7 @@ func TestSyncAllSkipsNonReplica(t *testing.T) {
 		},
 	}
 
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	syncer := NewSyncer(pool, cfg, m)
 	syncer.SyncAll()
 }
@@ -1191,7 +1192,7 @@ func TestSyncGroupsCaseInsensitive(t *testing.T) {
 	defer pool.Close()
 
 	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"groups"})
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	syncer := NewSyncer(pool, cfg, m)
 	syncer.SyncAll()
 
@@ -1217,7 +1218,7 @@ func TestSyncRegexDomainPropagation(t *testing.T) {
 	defer pool.Close()
 
 	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"deny"})
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	syncer := NewSyncer(pool, cfg, m)
 	syncer.SyncAll()
 
@@ -1283,7 +1284,7 @@ func TestSyncRegexAndExactIndependent(t *testing.T) {
 	defer pool.Close()
 
 	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"deny"})
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	syncer := NewSyncer(pool, cfg, m)
 	syncer.SyncAll()
 

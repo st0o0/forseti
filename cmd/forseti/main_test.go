@@ -560,7 +560,7 @@ func TestReconcileAll_SessionError(t *testing.T) {
 	defer srv.Close()
 
 	cfgPath := writeTempConfig(t, srv.URL)
-	cfg, err := config.Load(cfgPath)
+	cfg, resolved, err := config.Load(cfgPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -568,10 +568,10 @@ func TestReconcileAll_SessionError(t *testing.T) {
 	pool := session.NewPool()
 	defer pool.Close()
 
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	gravSched, _ := gravity.NewScheduler(pool, nil, m)
 
-	reconcileAll(cfg, m, pool, gravSched)
+	reconcileAll(cfg, resolved, m, pool, gravSched)
 }
 
 func TestReconcileAll_ReconcileError(t *testing.T) {
@@ -592,7 +592,7 @@ func TestReconcileAll_ReconcileError(t *testing.T) {
 	defer srv.Close()
 
 	cfgPath := writeTempConfig(t, srv.URL)
-	cfg, err := config.Load(cfgPath)
+	cfg, resolved, err := config.Load(cfgPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -600,10 +600,10 @@ func TestReconcileAll_ReconcileError(t *testing.T) {
 	pool := session.NewPool()
 	defer pool.Close()
 
-	m := metrics.NewServer(0, "/metrics")
-	gravSched, _ := gravity.NewScheduler(pool, cfg.Targets, m)
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
+	gravSched, _ := gravity.NewScheduler(pool, resolvedToTargets(resolved), m)
 
-	reconcileAll(cfg, m, pool, gravSched)
+	reconcileAll(cfg, resolved, m, pool, gravSched)
 }
 
 func TestReconcileAll_Success(t *testing.T) {
@@ -611,7 +611,7 @@ func TestReconcileAll_Success(t *testing.T) {
 	defer srv.Close()
 
 	cfgPath := writeTempConfig(t, srv.URL)
-	cfg, err := config.Load(cfgPath)
+	cfg, resolved, err := config.Load(cfgPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -619,10 +619,10 @@ func TestReconcileAll_Success(t *testing.T) {
 	pool := session.NewPool()
 	defer pool.Close()
 
-	m := metrics.NewServer(0, "/metrics")
-	gravSched, _ := gravity.NewScheduler(pool, cfg.Targets, m)
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
+	gravSched, _ := gravity.NewScheduler(pool, resolvedToTargets(resolved), m)
 
-	reconcileAll(cfg, m, pool, gravSched)
+	reconcileAll(cfg, resolved, m, pool, gravSched)
 }
 
 func TestReconcileAll_WithGravityTrigger(t *testing.T) {
@@ -685,7 +685,7 @@ adlists:
 	_, _ = f.WriteString(cfg)
 	f.Close()
 
-	loadedCfg, err := config.Load(f.Name())
+	loadedCfg, resolved, err := config.Load(f.Name())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -694,10 +694,10 @@ adlists:
 	pool := session.NewPool()
 	defer pool.Close()
 
-	m := metrics.NewServer(0, "/metrics")
-	gravSched, _ := gravity.NewScheduler(pool, loadedCfg.Targets, m)
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
+	gravSched, _ := gravity.NewScheduler(pool, resolvedToTargets(resolved), m)
 
-	reconcileAll(loadedCfg, m, pool, gravSched)
+	reconcileAll(loadedCfg, resolved, m, pool, gravSched)
 }
 
 func TestReconcileAll_GravityTriggerError(t *testing.T) {
@@ -760,7 +760,7 @@ adlists:
 	_, _ = f.WriteString(cfgStr)
 	f.Close()
 
-	loadedCfg, err := config.Load(f.Name())
+	loadedCfg, resolved, err := config.Load(f.Name())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -769,10 +769,10 @@ adlists:
 	pool := session.NewPool()
 	defer pool.Close()
 
-	m := metrics.NewServer(0, "/metrics")
-	gravSched, _ := gravity.NewScheduler(pool, loadedCfg.Targets, m)
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
+	gravSched, _ := gravity.NewScheduler(pool, resolvedToTargets(resolved), m)
 
-	reconcileAll(loadedCfg, m, pool, gravSched)
+	reconcileAll(loadedCfg, resolved, m, pool, gravSched)
 }
 
 func TestRunPlan_WithChanges(t *testing.T) {
@@ -971,7 +971,7 @@ func TestTryReloadConfig_Unchanged(t *testing.T) {
 	}
 	lastMtime := info.ModTime()
 
-	newCfg, err := tryReloadConfig(cfgPath, &lastMtime)
+	newCfg, _, err := tryReloadConfig(cfgPath, &lastMtime)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -987,7 +987,7 @@ func TestTryReloadConfig_Changed(t *testing.T) {
 	cfgPath := writeTempConfig(t, srv.URL)
 	lastMtime := time.Time{}
 
-	newCfg, err := tryReloadConfig(cfgPath, &lastMtime)
+	newCfg, _, err := tryReloadConfig(cfgPath, &lastMtime)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1006,7 +1006,7 @@ func TestTryReloadConfig_InvalidFile(t *testing.T) {
 	_ = os.WriteFile(cfgPath, []byte("invalid: [broken"), 0o644)
 	lastMtime := time.Time{}
 
-	_, err := tryReloadConfig(cfgPath, &lastMtime)
+	_, _, err := tryReloadConfig(cfgPath, &lastMtime)
 	if err == nil {
 		t.Error("expected error for invalid config file")
 	}
@@ -1014,7 +1014,7 @@ func TestTryReloadConfig_InvalidFile(t *testing.T) {
 
 func TestTryReloadConfig_MissingFile(t *testing.T) {
 	lastMtime := time.Time{}
-	_, err := tryReloadConfig("/nonexistent/config.yml", &lastMtime)
+	_, _, err := tryReloadConfig("/nonexistent/config.yml", &lastMtime)
 	if err == nil {
 		t.Error("expected error for missing file")
 	}

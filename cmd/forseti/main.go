@@ -5,6 +5,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
+	"log"
 	"log/slog"
 	"net/http"
 	"os"
@@ -70,26 +72,43 @@ func parseConfigFlag(args []string, name string) string {
 
 func runPlan(args []string) int {
 	cfgPath := parseConfigFlag(args, "plan")
-	cfg, err := config.Load(cfgPath)
+	cfg, resolved, err := config.Load(cfgPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		slog.Error("loading config failed", "error", err)
 		return 1
 	}
 
+	setupLogger(cfg.LogLevel, cfg.LogFormat)
+
 	hasChanges := false
-	for _, target := range cfg.Targets {
-		client := pihole.NewClient(target.URL, target.Password)
+	for _, rt := range resolved {
+		client := pihole.NewClient(rt.URL, rt.Password)
 		if err := client.Login(); err != nil {
-			fmt.Fprintf(os.Stderr, "[%s] login error: %v\n", target.Name, err)
+			slog.Error("login failed", "target", rt.Name, "error", err)
 			continue
 		}
-		report, err := reconcile.Plan(cfg, target, client, cfg.Reconcile.Marker)
+		report, err := reconcile.Plan(&rt, client, reconcile.ReconcileOptions{
+			Marker:        cfg.Reconcile.Marker,
+			LocalDNSPurge: cfg.Reconcile.LocalDNSPurge,
+			CNAMEPurge:    cfg.Reconcile.CNAMEPurge,
+		})
+		if err != nil {
+			client.Close()
+			slog.Error("plan failed", "target", rt.Name, "error", err)
+			continue
+		}
+
+		settingsDiff, err := reconcile.DiffSettings(&rt.Settings, client)
 		client.Close()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[%s] error: %v\n", target.Name, err)
-			continue
+			slog.Error("settings diff failed", "target", rt.Name, "error", err)
 		}
+
 		printDiffReport(report)
+		if settingsDiff != nil && settingsDiff.HasChanges() {
+			printSettingsDiff(rt.Name, settingsDiff)
+			hasChanges = true
+		}
 		if hasDiff(report) {
 			hasChanges = true
 		}
@@ -103,31 +122,37 @@ func runPlan(args []string) int {
 
 func runApply(args []string) int {
 	cfgPath := parseConfigFlag(args, "apply")
-	cfg, err := config.Load(cfgPath)
+	cfg, resolved, err := config.Load(cfgPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		slog.Error("loading config failed", "error", err)
 		return 1
 	}
 
+	setupLogger(cfg.LogLevel, cfg.LogFormat)
+
 	exitCode := 0
-	for _, target := range cfg.Targets {
-		client := pihole.NewClient(target.URL, target.Password)
+	for _, rt := range resolved {
+		client := pihole.NewClient(rt.URL, rt.Password)
 		if err := client.Login(); err != nil {
-			fmt.Fprintf(os.Stderr, "[%s] login error: %v\n", target.Name, err)
+			slog.Error("login failed", "target", rt.Name, "error", err)
 			exitCode = 1
 			continue
 		}
-		report, err := reconcile.Apply(cfg, target, client, cfg.Reconcile.Marker)
+		report, err := reconcile.Apply(&rt, client, reconcile.ReconcileOptions{
+			Marker:        cfg.Reconcile.Marker,
+			LocalDNSPurge: cfg.Reconcile.LocalDNSPurge,
+			CNAMEPurge:    cfg.Reconcile.CNAMEPurge,
+		})
 		client.Close()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[%s] error: %v\n", target.Name, err)
+			slog.Error("apply failed", "target", rt.Name, "error", err)
 			exitCode = 1
 			continue
 		}
 		printDiffReport(&report.Diff)
 		if len(report.Errors) > 0 {
 			for _, e := range report.Errors {
-				fmt.Fprintf(os.Stderr, "[%s] warning: %v\n", target.Name, e)
+				slog.Warn("reconcile warning", "target", rt.Name, "error", e)
 			}
 			exitCode = 1
 		}
@@ -137,14 +162,14 @@ func runApply(args []string) int {
 
 func runHealthcheck(args []string) int {
 	cfgPath := parseConfigFlag(args, "healthcheck")
-	cfg, err := config.Load(cfgPath)
+	_, resolved, err := config.Load(cfgPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "error: reading config: %v\n", err)
 		return 1
 	}
 
 	exitCode := 0
-	for _, target := range cfg.Targets {
+	for _, target := range resolved {
 		client := pihole.NewClient(target.URL, target.Password)
 
 		done := make(chan error, 1)
@@ -191,30 +216,32 @@ func setupLogger(level, format string) {
 	} else {
 		handler = slog.NewTextHandler(os.Stdout, opts)
 	}
-	slog.SetDefault(slog.New(handler))
+	logger := slog.New(handler)
+	slog.SetDefault(logger)
+	log.SetOutput(io.Discard)
 }
 
-func tryReloadConfig(cfgPath string, lastMtime *time.Time) (*config.Config, error) {
+func tryReloadConfig(cfgPath string, lastMtime *time.Time) (*config.Config, []config.ResolvedTarget, error) {
 	info, err := os.Stat(cfgPath)
 	if err != nil {
-		return nil, fmt.Errorf("stat config: %w", err)
+		return nil, nil, fmt.Errorf("stat config: %w", err)
 	}
 	if !info.ModTime().After(*lastMtime) {
-		return nil, nil
+		return nil, nil, nil
 	}
-	newCfg, err := config.Load(cfgPath)
+	newCfg, resolved, err := config.Load(cfgPath)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	*lastMtime = info.ModTime()
-	return newCfg, nil
+	return newCfg, resolved, nil
 }
 
 func runWatch(args []string) int {
 	cfgPath := parseConfigFlag(args, "watch")
-	cfg, err := config.Load(cfgPath)
+	cfg, resolved, err := config.Load(cfgPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		slog.Error("loading config failed", "error", err)
 		return 1
 	}
 
@@ -222,14 +249,14 @@ func runWatch(args []string) int {
 
 	info, err := os.Stat(cfgPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		slog.Error("stat config failed", "error", err)
 		return 1
 	}
 	lastMtime := info.ModTime()
 
 	pool := session.NewPool()
 
-	srv := metrics.NewServer(cfg.Metrics.Port, cfg.Metrics.Path)
+	srv := metrics.NewServer(cfg.Metrics.Port, cfg.Metrics.Path, cfg.Metrics.Collectors)
 	srv.SetBuildInfo(version, string(cfg.Mode))
 	pool.SetCallbacks(session.PoolCallbacks{
 		OnNewSession: func(_ string) { srv.IncSessionActive() },
@@ -237,12 +264,13 @@ func runWatch(args []string) int {
 		OnClose:      func() { srv.ResetSessionActive() },
 	})
 
-	coll := collector.NewCollector(pool, cfg.Targets, cfg.Metrics.ScrapeInterval.Duration, srv)
+	targets := resolvedToTargets(resolved)
+	coll := collector.NewCollector(pool, targets, cfg.Metrics.ScrapeInterval.Duration, srv, cfg.Metrics.Collectors)
 	srv.SetCollectFunc(coll.Collect)
 
-	gravSched, err := gravity.NewScheduler(pool, cfg.Targets, srv)
+	gravSched, err := gravity.NewScheduler(pool, targets, srv)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		slog.Error("gravity scheduler init failed", "error", err)
 		return 1
 	}
 
@@ -263,7 +291,7 @@ func runWatch(args []string) int {
 	switch cfg.Mode {
 	case config.ModeConfig:
 		srv.SetConfigMetrics(cfg)
-		reconcileAll(cfg, srv, pool, gravSched)
+		reconcileAll(cfg, resolved, srv, pool, gravSched)
 
 		ticker := time.NewTicker(cfg.Reconcile.Interval.Duration)
 		defer ticker.Stop()
@@ -271,7 +299,7 @@ func runWatch(args []string) int {
 		for {
 			select {
 			case <-ticker.C:
-				if newCfg, err := tryReloadConfig(cfgPath, &lastMtime); err != nil {
+				if newCfg, newResolved, err := tryReloadConfig(cfgPath, &lastMtime); err != nil {
 					slog.Error("config reload failed", "error", err)
 					srv.RecordConfigReload(false)
 				} else if newCfg != nil {
@@ -283,9 +311,10 @@ func runWatch(args []string) int {
 						slog.Info("reconcile interval updated", "interval", newCfg.Reconcile.Interval.Duration)
 					}
 					cfg = newCfg
+					resolved = newResolved
 					srv.SetConfigMetrics(cfg)
 				}
-				reconcileAll(cfg, srv, pool, gravSched)
+				reconcileAll(cfg, resolved, srv, pool, gravSched)
 			case <-ctx.Done():
 				slog.Info("shutting down")
 				pool.Close()
@@ -306,7 +335,7 @@ func runWatch(args []string) int {
 		for {
 			select {
 			case <-ticker.C:
-				if newCfg, err := tryReloadConfig(cfgPath, &lastMtime); err != nil {
+				if newCfg, _, err := tryReloadConfig(cfgPath, &lastMtime); err != nil {
 					slog.Error("config reload failed", "error", err)
 					srv.RecordConfigReload(false)
 				} else if newCfg != nil {
@@ -335,27 +364,59 @@ func runWatch(args []string) int {
 	return 0
 }
 
-func reconcileAll(cfg *config.Config, srv *metrics.Server, pool *session.Pool, gravSched *gravity.Scheduler) {
-	for _, target := range cfg.Targets {
+func resolvedToTargets(resolved []config.ResolvedTarget) []config.Target {
+	targets := make([]config.Target, len(resolved))
+	for i, rt := range resolved {
+		targets[i] = rt.Target
+	}
+	return targets
+}
+
+func reconcileAll(cfg *config.Config, resolved []config.ResolvedTarget, srv *metrics.Server, pool *session.Pool, gravSched *gravity.Scheduler) {
+	for _, rt := range resolved {
 		start := time.Now()
-		client, err := pool.Get(target)
+		client, err := pool.Get(rt.Target)
 		if err != nil {
-			slog.Error("session error", "target", target.Name, "error", err)
-			srv.MarkTargetUnreachable(target.Name)
+			slog.Error("session error", "target", rt.Name, "error", err)
+			srv.MarkTargetUnreachable(rt.Name)
 			continue
 		}
 
-		report, err := reconcile.Apply(cfg, target, client, cfg.Reconcile.Marker)
+		if !rt.Settings.IsEmpty() {
+			settingsDiff, err := reconcile.DiffSettings(&rt.Settings, client)
+			if err != nil {
+				slog.Error("settings diff error", "target", rt.Name, "error", err)
+			} else {
+				drifted := make(map[string]bool)
+				for _, m := range reconcile.BuildDesiredSettingsList(&rt.Settings) {
+					drifted[m.ForsetiPath] = false
+				}
+				for _, c := range settingsDiff.Changes {
+					drifted[c.Name] = true
+				}
+				srv.UpdateSettingsDrift(rt.Name, drifted)
+			}
+
+			if _, err := reconcile.ApplySettings(rt.Name, &rt.Settings, client); err != nil {
+				slog.Error("settings reconcile error", "target", rt.Name, "error", err)
+			}
+		}
+
+		report, err := reconcile.Apply(&rt, client, reconcile.ReconcileOptions{
+			Marker:        cfg.Reconcile.Marker,
+			LocalDNSPurge: cfg.Reconcile.LocalDNSPurge,
+			CNAMEPurge:    cfg.Reconcile.CNAMEPurge,
+		})
 		duration := time.Since(start)
 
 		if err != nil {
-			slog.Error("reconcile error", "target", target.Name, "error", err)
+			slog.Error("reconcile error", "target", rt.Name, "error", err)
 			srv.RecordReconcile(metrics.ReconcileResult{
-				Target:   target.Name,
+				Target:   rt.Name,
 				Duration: duration,
 				Success:  false,
 			})
-			srv.MarkTargetUnreachable(target.Name)
+			srv.MarkTargetUnreachable(rt.Name)
 			continue
 		}
 
@@ -363,7 +424,7 @@ func reconcileAll(cfg *config.Config, srv *metrics.Server, pool *session.Pool, g
 		drift := buildDriftMap(&report.Diff)
 
 		srv.RecordReconcile(metrics.ReconcileResult{
-			Target:   target.Name,
+			Target:   rt.Name,
 			Duration: duration,
 			Success:  len(report.Errors) == 0,
 			Changes:  changes,
@@ -371,17 +432,17 @@ func reconcileAll(cfg *config.Config, srv *metrics.Server, pool *session.Pool, g
 		})
 
 		for _, e := range report.Errors {
-			slog.Warn("reconcile warning", "target", target.Name, "error", e)
+			slog.Warn("reconcile warning", "target", rt.Name, "error", e)
 		}
 
 		if report.Diff.NeedsGravity && cfg.Reconcile.GravityOnChange != nil && *cfg.Reconcile.GravityOnChange {
-			if err := gravSched.TriggerNow(target.Name, gravity.ReasonAdlistChange); err != nil {
-				slog.Error("gravity trigger error", "target", target.Name, "error", err)
+			if err := gravSched.TriggerNow(rt.Name, gravity.ReasonAdlistChange); err != nil {
+				slog.Error("gravity trigger error", "target", rt.Name, "error", err)
 			}
 		}
 
 		if hasDiff(&report.Diff) {
-			slog.Info("reconciled", "target", target.Name, "duration", duration.Round(time.Millisecond))
+			slog.Info("reconciled", "target", rt.Name, "duration", duration.Round(time.Millisecond))
 		}
 	}
 }
@@ -405,6 +466,13 @@ func printResourceLine(name string, d reconcile.ResourceDiff) {
 		return
 	}
 	fmt.Printf("  %-10s  +%d  ~%d  -%d  =%d\n", name, len(d.Adds), len(d.Updates), len(d.Deletes), d.Unchanged)
+}
+
+func printSettingsDiff(target string, diff *reconcile.SettingsDiff) {
+	fmt.Printf("  settings:\n")
+	for _, c := range diff.Changes {
+		fmt.Printf("    %-30s  %v → %v\n", c.Name, c.Current, c.Desired)
+	}
 }
 
 func hasDiff(r *reconcile.DiffReport) bool {

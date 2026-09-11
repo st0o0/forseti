@@ -2,6 +2,7 @@ package session
 
 import (
 	"fmt"
+	"log/slog"
 	"sync"
 
 	"github.com/st0o0/forseti/internal/config"
@@ -37,13 +38,18 @@ func (p *Pool) Get(target config.Target) (*pihole.Client, error) {
 	defer p.mu.Unlock()
 
 	if c, ok := p.clients[target.Name]; ok && c.HasSession() {
+		slog.Debug("reusing session", "target", target.Name)
 		return c, nil
 	}
 
+	slog.Debug("creating session", "target", target.Name)
 	c := pihole.NewClient(target.URL, target.Password)
 	if p.callbacks.OnReauth != nil {
 		name := target.Name
-		c.OnReauth = func() { p.callbacks.OnReauth(name) }
+		c.OnReauth = func() {
+			slog.Debug("session re-authenticated", "target", name)
+			p.callbacks.OnReauth(name)
+		}
 	}
 	if err := c.Login(); err != nil {
 		return nil, fmt.Errorf("session pool login %s: %w", target.Name, err)
@@ -59,6 +65,7 @@ func (p *Pool) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	slog.Debug("closing all sessions", "count", len(p.clients))
 	var firstErr error
 	for name, c := range p.clients {
 		if err := c.Close(); err != nil && firstErr == nil {
