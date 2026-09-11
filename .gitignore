@@ -6,6 +6,9 @@ coverage/
 /forseti
 *.exe
 
+# Claude Code
+.claude/
+
 # Editor
 .idea/
 .vscode/
