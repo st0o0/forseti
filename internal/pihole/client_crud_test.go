@@ -13,7 +13,7 @@ func authedServer(t *testing.T, handler http.HandlerFunc) *Client {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Path == "/api/auth" {
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]any{"sid": "s"},
 			})
 			return
@@ -26,7 +26,7 @@ func authedServer(t *testing.T, handler http.HandlerFunc) *Client {
 	}))
 	t.Cleanup(srv.Close)
 	c := NewClient(srv.URL, "pw")
-	c.Login()
+	_ = c.Login()
 	return c
 }
 
@@ -51,14 +51,14 @@ func TestHasSessionFalse(t *testing.T) {
 func TestCloseServerError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Path == "/api/auth" {
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]any{"sid": "s"},
 			})
 			return
 		}
 	}))
 	c := NewClient(srv.URL, "pw")
-	c.Login()
+	_ = c.Login()
 	srv.Close()
 
 	err := c.Close()
@@ -75,7 +75,7 @@ func TestCloseServerError(t *testing.T) {
 func TestListDomains(t *testing.T) {
 	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/domains/deny/exact" {
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"domains": []map[string]any{
 					{"id": 1, "domain": "ads.example.com", "type": "deny", "kind": "exact", "comment": "[forseti]"},
 					{"id": 2, "domain": "tracker.com", "type": "deny", "kind": "exact", "comment": "[forseti]"},
@@ -100,7 +100,7 @@ func TestListDomains(t *testing.T) {
 func TestListDomainsError(t *testing.T) {
 	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("server error"))
+		_, _ = w.Write([]byte("server error"))
 	})
 
 	_, err := c.ListDomains("deny", "exact")
@@ -114,8 +114,8 @@ func TestCreateDomain(t *testing.T) {
 
 	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Path == "/api/domains/deny/exact" {
-			json.NewDecoder(r.Body).Decode(&gotBody)
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewDecoder(r.Body).Decode(&gotBody)
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"domain": map[string]any{"id": 5, "domain": gotBody["domain"]},
 			})
 			return
@@ -138,7 +138,7 @@ func TestCreateDomain(t *testing.T) {
 func TestCreateDomainError(t *testing.T) {
 	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("bad request"))
+		_, _ = w.Write([]byte("bad request"))
 	})
 
 	_, err := c.CreateDomain("deny", "exact", "ads.example.com", "", true, nil)
@@ -152,7 +152,7 @@ func TestDeleteDomains(t *testing.T) {
 
 	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Path == "/api/domains:batchDelete" {
-			json.NewDecoder(r.Body).Decode(&gotBody)
+			_ = json.NewDecoder(r.Body).Decode(&gotBody)
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -171,7 +171,7 @@ func TestDeleteDomains(t *testing.T) {
 
 func TestListGroupsEmpty(t *testing.T) {
 	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"groups": []any{}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"groups": []any{}})
 	})
 
 	groups, err := c.ListGroups()
@@ -186,7 +186,7 @@ func TestListGroupsEmpty(t *testing.T) {
 func TestListGroupsError(t *testing.T) {
 	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("error"))
+		_, _ = w.Write([]byte("error"))
 	})
 
 	_, err := c.ListGroups()
@@ -199,8 +199,8 @@ func TestCreateGroup(t *testing.T) {
 	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Path == "/api/groups" {
 			var body map[string]any
-			json.NewDecoder(r.Body).Decode(&body)
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"group": map[string]any{
 					"id":      3,
 					"name":    body["name"],
@@ -227,7 +227,7 @@ func TestCreateGroup(t *testing.T) {
 func TestCreateGroupError(t *testing.T) {
 	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusConflict)
-		w.Write([]byte("duplicate"))
+		_, _ = w.Write([]byte("duplicate"))
 	})
 
 	_, err := c.CreateGroup("dup", "", true)
@@ -241,7 +241,7 @@ func TestDeleteGroups(t *testing.T) {
 
 	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Path == "/api/groups:batchDelete" {
-			json.NewDecoder(r.Body).Decode(&gotBody)
+			_ = json.NewDecoder(r.Body).Decode(&gotBody)
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -261,7 +261,7 @@ func TestDeleteGroups(t *testing.T) {
 func TestListClients(t *testing.T) {
 	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/clients" {
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"clients": []map[string]any{
 					{"id": 1, "client": "192.168.1.100", "comment": "[forseti]", "groups": []int{0}},
 				},
@@ -285,7 +285,7 @@ func TestListClients(t *testing.T) {
 func TestListClientsError(t *testing.T) {
 	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("error"))
+		_, _ = w.Write([]byte("error"))
 	})
 
 	_, err := c.ListClients()
@@ -298,8 +298,8 @@ func TestCreateClient(t *testing.T) {
 	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Path == "/api/clients" {
 			var body map[string]any
-			json.NewDecoder(r.Body).Decode(&body)
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"client": map[string]any{
 					"id":      7,
 					"client":  body["client"],
@@ -322,7 +322,7 @@ func TestCreateClient(t *testing.T) {
 func TestCreateClientError(t *testing.T) {
 	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("bad"))
+		_, _ = w.Write([]byte("bad"))
 	})
 
 	_, err := c.CreateClient("bad", "", nil)
@@ -336,7 +336,7 @@ func TestDeleteClients(t *testing.T) {
 
 	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Path == "/api/clients:batchDelete" {
-			json.NewDecoder(r.Body).Decode(&gotBody)
+			_ = json.NewDecoder(r.Body).Decode(&gotBody)
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -356,7 +356,7 @@ func TestDeleteClients(t *testing.T) {
 func TestListDNSRecords(t *testing.T) {
 	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/config/dns/hosts" {
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"config": map[string]any{
 					"dns": map[string]any{
 						"hosts": []string{
@@ -385,7 +385,7 @@ func TestListDNSRecords(t *testing.T) {
 func TestListDNSRecordsMalformed(t *testing.T) {
 	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/config/dns/hosts" {
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"config": map[string]any{
 					"dns": map[string]any{
 						"hosts": []string{
@@ -411,7 +411,7 @@ func TestListDNSRecordsMalformed(t *testing.T) {
 func TestListDNSRecordsError(t *testing.T) {
 	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("error"))
+		_, _ = w.Write([]byte("error"))
 	})
 
 	_, err := c.ListDNSRecords()
@@ -464,7 +464,7 @@ func TestDeleteDNSRecord(t *testing.T) {
 func TestListCNAMERecords(t *testing.T) {
 	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/config/dns/cnameRecords" {
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"config": map[string]any{
 					"dns": map[string]any{
 						"cnameRecords": []string{
@@ -493,7 +493,7 @@ func TestListCNAMERecords(t *testing.T) {
 func TestListCNAMERecordsMalformed(t *testing.T) {
 	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/config/dns/cnameRecords" {
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"config": map[string]any{
 					"dns": map[string]any{
 						"cnameRecords": []string{
@@ -519,7 +519,7 @@ func TestListCNAMERecordsMalformed(t *testing.T) {
 func TestListCNAMERecordsError(t *testing.T) {
 	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("error"))
+		_, _ = w.Write([]byte("error"))
 	})
 
 	_, err := c.ListCNAMERecords()
@@ -567,7 +567,7 @@ func TestDeleteCNAMERecord(t *testing.T) {
 func TestCreateAdlistEmptyResponse(t *testing.T) {
 	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/api/lists") {
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"lists": []any{},
 			})
 			return
@@ -588,7 +588,7 @@ func TestCreateAdlistEmptyResponse(t *testing.T) {
 func TestListAdlistsError(t *testing.T) {
 	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("error"))
+		_, _ = w.Write([]byte("error"))
 	})
 
 	_, err := c.ListAdlists()
@@ -600,7 +600,7 @@ func TestListAdlistsError(t *testing.T) {
 func TestCreateAdlistError(t *testing.T) {
 	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("bad"))
+		_, _ = w.Write([]byte("bad"))
 	})
 
 	_, err := c.CreateAdlist("bad", "", true, nil)
@@ -612,7 +612,7 @@ func TestCreateAdlistError(t *testing.T) {
 func TestDeleteAdlistsError(t *testing.T) {
 	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("error"))
+		_, _ = w.Write([]byte("error"))
 	})
 
 	err := c.DeleteAdlists([]string{"x"})
@@ -626,7 +626,7 @@ func TestDeleteAdlistsError(t *testing.T) {
 func TestGetStatsError(t *testing.T) {
 	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("error"))
+		_, _ = w.Write([]byte("error"))
 	})
 
 	_, err := c.GetStats()
@@ -640,7 +640,7 @@ func TestGetStatsError(t *testing.T) {
 func TestGetUpstreamsError(t *testing.T) {
 	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("error"))
+		_, _ = w.Write([]byte("error"))
 	})
 
 	_, err := c.GetUpstreams()
@@ -654,7 +654,7 @@ func TestGetUpstreamsError(t *testing.T) {
 func TestGetBlockingStatusError(t *testing.T) {
 	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("error"))
+		_, _ = w.Write([]byte("error"))
 	})
 
 	_, err := c.GetBlockingStatus()
@@ -696,7 +696,7 @@ func TestWithoutDefaultEmpty(t *testing.T) {
 func TestDoJSONOnceInvalidJSON(t *testing.T) {
 	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("not json"))
+		_, _ = w.Write([]byte("not json"))
 	})
 
 	var result map[string]any
@@ -712,7 +712,7 @@ func TestDoJSONOnceInvalidJSON(t *testing.T) {
 func TestDoJSONOnceNon2xxNon401(t *testing.T) {
 	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
-		w.Write([]byte("forbidden"))
+		_, _ = w.Write([]byte("forbidden"))
 	})
 
 	err := c.doJSON(http.MethodGet, "/api/test", nil, nil)
@@ -734,7 +734,7 @@ func TestDoJSONOnceNon2xxNon401(t *testing.T) {
 func TestDoJSONNilResponseTarget(t *testing.T) {
 	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"key":"value"}`))
+		_, _ = w.Write([]byte(`{"key":"value"}`))
 	})
 
 	err := c.doJSON(http.MethodGet, "/api/test", nil, nil)
@@ -765,7 +765,7 @@ func TestDoRequestContentType(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	c.doRequest(http.MethodPost, "/api/test", strings.NewReader(`{"a":1}`))
+	_, _ = c.doRequest(http.MethodPost, "/api/test", strings.NewReader(`{"a":1}`))
 	if gotContentType != "application/json" {
 		t.Errorf("Content-Type = %q, want application/json", gotContentType)
 	}
@@ -779,7 +779,7 @@ func TestDoRequestNoContentTypeWithoutBody(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	c.doRequest(http.MethodGet, "/api/test", nil)
+	_, _ = c.doRequest(http.MethodGet, "/api/test", nil)
 	if gotContentType != "" {
 		t.Errorf("Content-Type = %q, want empty", gotContentType)
 	}
@@ -795,7 +795,7 @@ func TestDoRequestNoSIDWithoutSession(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "pw")
-	c.doRequest(http.MethodGet, "/api/test", nil)
+	_, _ = c.doRequest(http.MethodGet, "/api/test", nil)
 	if gotSID != "" {
 		t.Errorf("SID = %q, want empty when no session", gotSID)
 	}
@@ -826,7 +826,7 @@ func TestDoJSONNetworkError(t *testing.T) {
 func TestTriggerGravityError(t *testing.T) {
 	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("error"))
+		_, _ = w.Write([]byte("error"))
 	})
 
 	err := c.TriggerGravity()
@@ -883,7 +883,7 @@ func TestAPIErrorString(t *testing.T) {
 func TestGetStatsMalformedJSON(t *testing.T) {
 	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{invalid json`))
+		_, _ = w.Write([]byte(`{invalid json`))
 	})
 
 	_, err := c.GetStats()
@@ -902,15 +902,10 @@ func TestStatsUnmarshalJSONError(t *testing.T) {
 
 // doJSONOnce: ReadAll error via a response body that errors on read
 
-type errReader struct{}
-
-func (errReader) Read(p []byte) (int, error)  { return 0, io.ErrUnexpectedEOF }
-func (errReader) Close() error                 { return nil }
-
 func TestDoJSONOnceReadBodyError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Path == "/api/auth" {
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]any{"sid": "s"},
 			})
 			return
@@ -918,7 +913,7 @@ func TestDoJSONOnceReadBodyError(t *testing.T) {
 		// Write headers then hijack to produce a truncated body
 		w.Header().Set("Content-Length", "1000")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("partial"))
+		_, _ = w.Write([]byte("partial"))
 		hj, ok := w.(http.Hijacker)
 		if ok {
 			conn, _, _ := hj.Hijack()
@@ -928,7 +923,7 @@ func TestDoJSONOnceReadBodyError(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "pw")
-	c.Login()
+	_ = c.Login()
 
 	var result map[string]any
 	err := c.doJSON(http.MethodGet, "/api/test", nil, &result)
@@ -944,7 +939,7 @@ func TestDoJSONErrorAfterReauth(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Path == "/api/auth" {
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]any{"sid": "new-sid"},
 			})
 			return
@@ -983,7 +978,7 @@ func TestDoJSONErrorAfterReauth(t *testing.T) {
 func TestDoJSON401AfterReauth(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Path == "/api/auth" {
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]any{"sid": "new-sid"},
 			})
 			return

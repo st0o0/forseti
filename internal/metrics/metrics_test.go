@@ -73,7 +73,7 @@ func TestRecordReconcile(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := &dto.Metric{}
-	g.Write(m)
+	_ = g.Write(m)
 	if m.GetGauge().GetValue() != 2 {
 		t.Errorf("drift deny = %f, want 2", m.GetGauge().GetValue())
 	}
@@ -101,13 +101,13 @@ func TestUpdateStats(t *testing.T) {
 	m := &dto.Metric{}
 
 	g, _ := s.piholeQueries.GetMetricWithLabelValues("pihole-test")
-	g.Write(m)
+	_ = g.Write(m)
 	if m.GetGauge().GetValue() != 12345 {
 		t.Errorf("queries = %f, want 12345", m.GetGauge().GetValue())
 	}
 
 	g, _ = s.piholeDomainsBlocked.GetMetricWithLabelValues("pihole-test")
-	g.Write(m)
+	_ = g.Write(m)
 	if m.GetGauge().GetValue() != 80000 {
 		t.Errorf("domains_blocked = %f, want 80000", m.GetGauge().GetValue())
 	}
@@ -225,11 +225,11 @@ func TestSetConfigMetrics(t *testing.T) {
 	})
 
 	m := &dto.Metric{}
-	s.configAdlists.Write(m)
+	_ = s.configAdlists.Write(m)
 	if m.GetGauge().GetValue() != 10 {
 		t.Errorf("adlists = %f, want 10", m.GetGauge().GetValue())
 	}
-	s.configDenyDomains.Write(m)
+	_ = s.configDenyDomains.Write(m)
 	if m.GetGauge().GetValue() != 5 {
 		t.Errorf("deny = %f, want 5", m.GetGauge().GetValue())
 	}
@@ -337,7 +337,7 @@ func TestScrapeCallsCollectFunc(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	s.Shutdown(ctx)
+	_ = s.Shutdown(ctx)
 	<-errCh
 }
 
@@ -366,7 +366,7 @@ func TestScrapeWithoutCollectFunc(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	s.Shutdown(ctx)
+	_ = s.Shutdown(ctx)
 	<-errCh
 }
 
@@ -503,13 +503,13 @@ func TestSessionActiveGauge(t *testing.T) {
 	s.IncSessionActive()
 
 	m := &dto.Metric{}
-	s.sessionActive.Write(m)
+	_ = s.sessionActive.Write(m)
 	if m.GetGauge().GetValue() != 2 {
 		t.Errorf("session active = %f, want 2", m.GetGauge().GetValue())
 	}
 
 	s.ResetSessionActive()
-	s.sessionActive.Write(m)
+	_ = s.sessionActive.Write(m)
 	if m.GetGauge().GetValue() != 0 {
 		t.Errorf("session active after reset = %f, want 0", m.GetGauge().GetValue())
 	}
@@ -585,6 +585,6 @@ func getCounterValue(t *testing.T, cv *prometheus.CounterVec, labels ...string) 
 		t.Fatal(err)
 	}
 	m := &dto.Metric{}
-	c.Write(m)
+	_ = c.Write(m)
 	return m.GetCounter().GetValue()
 }

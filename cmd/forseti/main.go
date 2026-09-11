@@ -60,7 +60,7 @@ func usage() {
 func parseConfigFlag(args []string, name string) string {
 	fs := flag.NewFlagSet(name, flag.ExitOnError)
 	configPath := fs.String("config", "", "path to forseti config file")
-	fs.Parse(args)
+	_ = fs.Parse(args)
 	if *configPath == "" {
 		fmt.Fprintf(os.Stderr, "error: --config is required\n")
 		os.Exit(1)
@@ -291,7 +291,7 @@ func runWatch(args []string) int {
 				pool.Close()
 				shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
-				srv.Shutdown(shutdownCtx)
+				_ = srv.Shutdown(shutdownCtx)
 				return 0
 			}
 		}
@@ -326,7 +326,7 @@ func runWatch(args []string) int {
 				pool.Close()
 				shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
-				srv.Shutdown(shutdownCtx)
+				_ = srv.Shutdown(shutdownCtx)
 				return 0
 			}
 		}

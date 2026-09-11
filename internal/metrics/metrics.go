@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/st0o0/forseti/internal/config"
@@ -67,6 +69,7 @@ type Server struct {
 	buildInfo    *prometheus.GaugeVec
 	configReload *prometheus.CounterVec
 
+	mu               sync.Mutex
 	knownQueryTypes  map[string]map[string]bool // target -> set of keys
 	knownQueryStatus map[string]map[string]bool
 	knownReplyTypes  map[string]map[string]bool
@@ -75,7 +78,7 @@ type Server struct {
 
 func NewServer(port int, path string) *Server {
 	reg := prometheus.NewRegistry()
-	reg.MustRegister(prometheus.NewGoCollector())
+	reg.MustRegister(collectors.NewGoCollector())
 
 	s := &Server{
 		registry:         reg,
@@ -359,9 +362,11 @@ func (s *Server) UpdateStats(target string, stats *pihole.Stats) {
 	s.piholeClientsActive.WithLabelValues(target).Set(float64(stats.ClientsActive))
 	s.piholeClientsTotal.WithLabelValues(target).Set(float64(stats.ClientsTotal))
 
+	s.mu.Lock()
 	s.knownQueryTypes[target] = updateGaugeMap(s.piholeQueryTypes, s.knownQueryTypes[target], target, stats.QueryTypes)
 	s.knownQueryStatus[target] = updateGaugeMap(s.piholeQueryStatus, s.knownQueryStatus[target], target, stats.QueryStatus)
 	s.knownReplyTypes[target] = updateGaugeMap(s.piholeReplyTypes, s.knownReplyTypes[target], target, stats.ReplyTypes)
+	s.mu.Unlock()
 }
 
 func (s *Server) UpdateBlockingStatus(target string, enabled bool) {
@@ -379,6 +384,7 @@ func (s *Server) UpdateUpstreams(target string, upstreams []pihole.UpstreamStats
 		s.piholeUpstreamVariance.WithLabelValues(target, u.IP, u.Name, port).Set(u.ResponseVariance)
 	}
 
+	s.mu.Lock()
 	if prev, ok := s.knownUpstreams[target]; ok {
 		for key := range prev {
 			if !newKeys[key] {
@@ -390,6 +396,7 @@ func (s *Server) UpdateUpstreams(target string, upstreams []pihole.UpstreamStats
 		}
 	}
 	s.knownUpstreams[target] = newKeys
+	s.mu.Unlock()
 }
 
 func (s *Server) RecordGravityRun(target string, trigger string, duration time.Duration, err error) {

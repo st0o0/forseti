@@ -22,7 +22,7 @@ func TestLoginAndClose(t *testing.T) {
 	_, client := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/auth":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]any{"sid": "test-session-123"},
 			})
 		case r.Method == http.MethodDelete && r.URL.Path == "/api/auth":
@@ -71,19 +71,19 @@ func TestSessionHeaderSent(t *testing.T) {
 	_, client := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/auth":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]any{"sid": "my-sid"},
 			})
 		case r.URL.Path == "/api/groups":
 			receivedSID = r.Header.Get("X-FTL-SID")
-			json.NewEncoder(w).Encode(map[string]any{"groups": []any{}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"groups": []any{}})
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
 	})
 
-	client.Login()
-	client.ListGroups()
+	_ = client.Login()
+	_, _ = client.ListGroups()
 
 	if receivedSID != "my-sid" {
 		t.Errorf("request SID = %q, want my-sid", receivedSID)
@@ -94,11 +94,11 @@ func TestListAdlists(t *testing.T) {
 	_, client := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/auth":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]any{"sid": "s"},
 			})
 		case r.URL.Path == "/api/lists":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"lists": []map[string]any{
 					{"id": 1, "address": "https://example.com/list.txt", "comment": "[forseti]", "enabled": true},
 				},
@@ -106,7 +106,7 @@ func TestListAdlists(t *testing.T) {
 		}
 	})
 
-	client.Login()
+	_ = client.Login()
 	lists, err := client.ListAdlists()
 	if err != nil {
 		t.Fatalf("ListAdlists() error: %v", err)
@@ -125,18 +125,18 @@ func TestCreateAdlist(t *testing.T) {
 	_, client := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/auth":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]any{"sid": "s"},
 			})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/lists":
-			json.NewDecoder(r.Body).Decode(&gotBody)
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewDecoder(r.Body).Decode(&gotBody)
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"lists": []map[string]any{{"id": 1, "address": gotBody["address"]}},
 			})
 		}
 	})
 
-	client.Login()
+	_ = client.Login()
 	list, err := client.CreateAdlist("https://example.com/list.txt", "[forseti]", true, []int{0})
 	if err != nil {
 		t.Fatalf("CreateAdlist() error: %v", err)
@@ -152,16 +152,16 @@ func TestDeleteAdlists(t *testing.T) {
 	_, client := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/auth":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]any{"sid": "s"},
 			})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/lists:batchDelete":
-			json.NewDecoder(r.Body).Decode(&gotBody)
+			_ = json.NewDecoder(r.Body).Decode(&gotBody)
 			w.WriteHeader(http.StatusNoContent)
 		}
 	})
 
-	client.Login()
+	_ = client.Login()
 	err := client.DeleteAdlists([]string{"https://example.com/list1.txt", "https://example.com/list2.txt"})
 	if err != nil {
 		t.Fatalf("DeleteAdlists() error: %v", err)
@@ -172,11 +172,11 @@ func TestGetStats(t *testing.T) {
 	_, client := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/auth":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]any{"sid": "s"},
 			})
 		case r.URL.Path == "/api/stats/summary":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"queries": map[string]any{
 					"total":           12345,
 					"blocked":         678,
@@ -201,7 +201,7 @@ func TestGetStats(t *testing.T) {
 		}
 	})
 
-	client.Login()
+	_ = client.Login()
 	stats, err := client.GetStats()
 	if err != nil {
 		t.Fatalf("GetStats() error: %v", err)
@@ -257,11 +257,11 @@ func TestGetStatsMissingOptionalFields(t *testing.T) {
 	_, client := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/auth":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]any{"sid": "s"},
 			})
 		case r.URL.Path == "/api/stats/summary":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"queries": map[string]any{
 					"total":           100,
 					"blocked":         10,
@@ -275,7 +275,7 @@ func TestGetStatsMissingOptionalFields(t *testing.T) {
 		}
 	})
 
-	client.Login()
+	_ = client.Login()
 	stats, err := client.GetStats()
 	if err != nil {
 		t.Fatalf("GetStats() error: %v", err)
@@ -292,11 +292,11 @@ func TestGetUpstreams(t *testing.T) {
 	_, client := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/auth":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]any{"sid": "s"},
 			})
 		case r.URL.Path == "/api/stats/upstreams":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"upstreams": []map[string]any{
 					{
 						"ip": "1.1.1.1", "name": "one.one.one.one", "port": 53, "count": 5000,
@@ -317,7 +317,7 @@ func TestGetUpstreams(t *testing.T) {
 		}
 	})
 
-	client.Login()
+	_ = client.Login()
 	upstreams, err := client.GetUpstreams()
 	if err != nil {
 		t.Fatalf("GetUpstreams() error: %v", err)
@@ -343,15 +343,15 @@ func TestGetBlockingStatus(t *testing.T) {
 	_, client := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/auth":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]any{"sid": "s"},
 			})
 		case r.URL.Path == "/api/dns/blocking":
-			json.NewEncoder(w).Encode(map[string]any{"blocking": "enabled"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"blocking": "enabled"})
 		}
 	})
 
-	client.Login()
+	_ = client.Login()
 	blocking, err := client.GetBlockingStatus()
 	if err != nil {
 		t.Fatalf("GetBlockingStatus() error: %v", err)
@@ -365,15 +365,15 @@ func TestGetBlockingStatusDisabled(t *testing.T) {
 	_, client := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/auth":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]any{"sid": "s"},
 			})
 		case r.URL.Path == "/api/dns/blocking":
-			json.NewEncoder(w).Encode(map[string]any{"blocking": "disabled"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"blocking": "disabled"})
 		}
 	})
 
-	client.Login()
+	_ = client.Login()
 	blocking, err := client.GetBlockingStatus()
 	if err != nil {
 		t.Fatalf("GetBlockingStatus() error: %v", err)
@@ -386,7 +386,7 @@ func TestGetBlockingStatusDisabled(t *testing.T) {
 func TestAPIError(t *testing.T) {
 	_, client := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte(`{"error":"invalid password"}`))
+		_, _ = w.Write([]byte(`{"error":"invalid password"}`))
 	})
 
 	err := client.Login()
@@ -410,7 +410,7 @@ func TestTriggerGravity(t *testing.T) {
 	_, client := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/auth":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]any{"sid": "s"},
 			})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/action/gravity":
@@ -419,7 +419,7 @@ func TestTriggerGravity(t *testing.T) {
 		}
 	})
 
-	client.Login()
+	_ = client.Login()
 	if err := client.TriggerGravity(); err != nil {
 		t.Fatalf("TriggerGravity() error: %v", err)
 	}

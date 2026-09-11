@@ -216,7 +216,7 @@ func TestPrintDiffReport(t *testing.T) {
 
 	w.Close()
 	var buf bytes.Buffer
-	io.Copy(&buf, r)
+	_, _ = io.Copy(&buf, r)
 	os.Stdout = old
 	out := buf.String()
 
@@ -244,7 +244,7 @@ func TestPrintDiffReport_NoGravity(t *testing.T) {
 
 	w.Close()
 	var buf bytes.Buffer
-	io.Copy(&buf, r)
+	_, _ = io.Copy(&buf, r)
 	os.Stdout = old
 	out := buf.String()
 
@@ -262,7 +262,7 @@ func TestPrintResourceLine_NoChangesNoUnchanged(t *testing.T) {
 
 	w.Close()
 	var buf bytes.Buffer
-	io.Copy(&buf, r)
+	_, _ = io.Copy(&buf, r)
 	os.Stdout = old
 
 	if buf.Len() != 0 {
@@ -279,7 +279,7 @@ func TestPrintResourceLine_WithUnchangedOnly(t *testing.T) {
 
 	w.Close()
 	var buf bytes.Buffer
-	io.Copy(&buf, r)
+	_, _ = io.Copy(&buf, r)
 	os.Stdout = old
 
 	if !strings.Contains(buf.String(), "+0") {
@@ -296,7 +296,7 @@ func TestUsage(t *testing.T) {
 
 	w.Close()
 	var buf bytes.Buffer
-	io.Copy(&buf, r)
+	_, _ = io.Copy(&buf, r)
 	os.Stderr = old
 	out := buf.String()
 
@@ -362,7 +362,7 @@ reconcile:
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.WriteString(cfg)
+	_, _ = f.WriteString(cfg)
 	f.Close()
 	return f.Name()
 }
@@ -544,7 +544,7 @@ adlists:
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.WriteString(cfg)
+	_, _ = f.WriteString(cfg)
 	f.Close()
 
 	code := runApply([]string{"--config", f.Name()})
@@ -682,7 +682,7 @@ adlists:
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.WriteString(cfg)
+	_, _ = f.WriteString(cfg)
 	f.Close()
 
 	loadedCfg, err := config.Load(f.Name())
@@ -826,7 +826,7 @@ adlists:
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.WriteString(cfg)
+	_, _ = f.WriteString(cfg)
 	f.Close()
 
 	code := runPlan([]string{"--config", f.Name()})
@@ -869,7 +869,7 @@ reconcile:
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.WriteString(cfg)
+	_, _ = f.WriteString(cfg)
 	f.Close()
 
 	old := os.Stderr
@@ -899,7 +899,7 @@ func TestRunWatch_ConfigModeStartsAndStops(t *testing.T) {
 	}
 
 	time.Sleep(500 * time.Millisecond)
-	cmd.Process.Kill()
+	_ = cmd.Process.Kill()
 }
 
 func TestRunWatch_SubprocessConfig(t *testing.T) {
@@ -938,7 +938,7 @@ sync:
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.WriteString(cfg)
+	_, _ = f.WriteString(cfg)
 	f.Close()
 
 	cmd := exec.Command(os.Args[0], "-test.run=TestRunWatch_SubprocessSync", "-test.timeout=10s")
@@ -949,7 +949,7 @@ sync:
 	}
 
 	time.Sleep(500 * time.Millisecond)
-	cmd.Process.Kill()
+	_ = cmd.Process.Kill()
 }
 
 func TestRunWatch_SubprocessSync(t *testing.T) {
@@ -1002,7 +1002,7 @@ func TestTryReloadConfig_Changed(t *testing.T) {
 func TestTryReloadConfig_InvalidFile(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := dir + "/bad.yml"
-	os.WriteFile(cfgPath, []byte("invalid: [broken"), 0o644)
+	_ = os.WriteFile(cfgPath, []byte("invalid: [broken"), 0o644)
 	lastMtime := time.Time{}
 
 	_, err := tryReloadConfig(cfgPath, &lastMtime)
