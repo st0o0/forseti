@@ -1,22 +1,14 @@
-# Local design/plan docs -- never committed
-docs/
+# Coverage
+*_cov.out
+coverage/
 
-# Claude Code
-.claude/
+# Go build
+forseti
+*.exe
 
-# Editor / OS
+# Editor
 .idea/
 .vscode/
-.DS_Store
 *.swp
-
-# Test artifacts
-tests/tmp/
-*.log
-
-# Environment (real secrets, not .env.dev or .env.example)
-.env
-
-# Go build output
-/forseti
-/forseti.exe
+*.swo
+*~

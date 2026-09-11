@@ -1022,3 +1022,100 @@ reconcile:
 		t.Error("LocalDNSPurge should be true when explicitly set")
 	}
 }
+
+func TestNegativeReconcileInterval(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+reconcile:
+  interval: -1m
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for negative interval")
+	}
+	if !strings.Contains(err.Error(), "reconcile.interval must be at least 10s") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestSubMinimumReconcileInterval(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+reconcile:
+  interval: 1s
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for sub-minimum interval")
+	}
+	if !strings.Contains(err.Error(), "reconcile.interval must be at least 10s") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestSubMinimumScrapeInterval(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+metrics:
+  scrape_interval: 2s
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for sub-minimum scrape interval")
+	}
+	if !strings.Contains(err.Error(), "scrape_interval must be at least 5s") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestValidIntervalsPass(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+reconcile:
+  interval: 30s
+metrics:
+  scrape_interval: 10s
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err != nil {
+		t.Fatalf("valid intervals should pass: %v", err)
+	}
+}
+
+func TestDefaultIntervalPassValidation(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+`
+	path := writeTestConfig(t, cfg)
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("default intervals should pass: %v", err)
+	}
+	if c.Reconcile.Interval.Duration != 0 {
+		if c.Reconcile.Interval.Duration < MinReconcileInterval {
+			t.Errorf("default reconcile interval %v below minimum", c.Reconcile.Interval.Duration)
+		}
+	}
+	if c.Metrics.ScrapeInterval.Duration < MinScrapeInterval {
+		t.Errorf("default scrape interval %v below minimum", c.Metrics.ScrapeInterval.Duration)
+	}
+}

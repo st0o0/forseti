@@ -18,6 +18,10 @@ type Mode string
 const (
 	ModeConfig Mode = "config"
 	ModeSync   Mode = "sync"
+
+	MinReconcileInterval = 10 * time.Second
+	MinSyncInterval      = 10 * time.Second
+	MinScrapeInterval    = 5 * time.Second
 )
 
 type Config struct {
@@ -257,6 +261,22 @@ func validate(cfg *Config) error {
 				errs = append(errs, fmt.Errorf("sync.resources[%d]: unknown resource %q", i, r))
 			}
 		}
+	}
+
+	if cfg.Reconcile.Interval.Duration > 0 && cfg.Reconcile.Interval.Duration < MinReconcileInterval {
+		errs = append(errs, fmt.Errorf("reconcile.interval must be at least %s", MinReconcileInterval))
+	} else if cfg.Reconcile.Interval.Duration < 0 {
+		errs = append(errs, fmt.Errorf("reconcile.interval must be at least %s", MinReconcileInterval))
+	}
+	if cfg.Sync.Interval.Duration > 0 && cfg.Sync.Interval.Duration < MinSyncInterval {
+		errs = append(errs, fmt.Errorf("sync.interval must be at least %s", MinSyncInterval))
+	} else if cfg.Sync.Interval.Duration < 0 {
+		errs = append(errs, fmt.Errorf("sync.interval must be at least %s", MinSyncInterval))
+	}
+	if cfg.Metrics.ScrapeInterval.Duration > 0 && cfg.Metrics.ScrapeInterval.Duration < MinScrapeInterval {
+		errs = append(errs, fmt.Errorf("scrape_interval must be at least %s", MinScrapeInterval))
+	} else if cfg.Metrics.ScrapeInterval.Duration < 0 {
+		errs = append(errs, fmt.Errorf("scrape_interval must be at least %s", MinScrapeInterval))
 	}
 
 	groupNames := make(map[string]bool)
