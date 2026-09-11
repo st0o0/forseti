@@ -1,0 +1,33 @@
+schema: spec-driven
+
+context: |
+  Forseti: declarative GitOps controller for Pi-hole v6.
+  Reconciles adlists, allow/deny domains, local DNS, groups, and clients
+  from a single YAML config against one or more Pi-hole instances via REST API.
+  Built-in Prometheus metrics endpoint for Pi-hole stats and reconciliation telemetry.
+
+  Tech stack: Go 1.26, Pi-hole v6 REST API (session auth),
+  prometheus/client_golang, gopkg.in/yaml.v3, scratch Docker image
+
+  Conventions: Conventional Commits (commitlint enforced), golangci-lint v2,
+  hadolint, release-please for versioning
+
+  Package structure:
+    cmd/forseti        - CLI entry point (plan, apply, watch, version, healthcheck)
+    internal/config    - YAML parsing with env-var expansion, validation
+    internal/pihole    - Pi-hole v6 REST API client (session auth, CRUD, batch)
+    internal/reconcile - Diff engine: desired (YAML) vs actual (API), plan/apply
+    internal/metrics   - Prometheus /metrics endpoint (forseti_* + pihole_*)
+
+rules:
+  proposal:
+    - All content in English
+    - Keep proposals under 500 words
+  specs:
+    - All content in English
+    - Use structural depth (shape and constraints, not exhaustive behavioral specs)
+  design:
+    - All content in English
+  tasks:
+    - All content in English
+    - Break tasks into chunks completable in one session
