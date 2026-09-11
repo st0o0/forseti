@@ -64,7 +64,7 @@ clients:
     groups: [default, kids]
 `
 	path := writeTestConfig(t, cfg)
-	c, err := Load(path)
+	c, _, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
@@ -118,7 +118,7 @@ targets:
     password: test
 `
 	path := writeTestConfig(t, cfg)
-	c, err := Load(path)
+	c, _, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
@@ -140,7 +140,7 @@ targets:
     password: ${MY_PASS}
 `
 	path := writeTestConfig(t, cfg)
-	c, err := Load(path)
+	c, _, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
@@ -159,7 +159,7 @@ targets:
     password: ${DEFINITELY_NOT_SET_12345}
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for undefined env var")
 	}
@@ -178,7 +178,7 @@ reconcile:
   interval: 5m
 `
 	path := writeTestConfig(t, cfg)
-	c, err := Load(path)
+	c, _, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
@@ -200,7 +200,7 @@ reconcile:
     - string
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for non-string duration")
 	}
@@ -216,7 +216,7 @@ reconcile:
   interval: banana
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for invalid duration")
 	}
@@ -230,7 +230,7 @@ targets:
     password: test
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for invalid URL")
 	}
@@ -247,7 +247,7 @@ targets:
     password: test
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for ftp URL")
 	}
@@ -264,7 +264,7 @@ targets:
     password: test
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for URL with no host")
 	}
@@ -280,7 +280,7 @@ deny:
   - domain: "not a domain!"
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for invalid domain")
 	}
@@ -300,7 +300,7 @@ clients:
     groups: []
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for invalid CIDR")
 	}
@@ -322,7 +322,7 @@ adlists:
     groups: [nonexistent]
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for missing group reference")
 	}
@@ -342,7 +342,7 @@ adlists:
   - url: https://example.com/list.txt
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for duplicate adlist URL")
 	}
@@ -362,7 +362,7 @@ deny:
   - domain: ads.example.com
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for duplicate deny domain")
 	}
@@ -382,7 +382,7 @@ groups:
   - name: same
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for duplicate group name")
 	}
@@ -399,7 +399,7 @@ targets:
     password: test
 `
 	path := writeTestConfig(t, cfg)
-	c, err := Load(path)
+	c, _, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
@@ -426,7 +426,7 @@ groups:
   - name: test
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for no targets")
 	}
@@ -444,7 +444,7 @@ targets:
     password: test
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for invalid mode")
 	}
@@ -460,7 +460,7 @@ targets:
     password: test
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for missing target name")
 	}
@@ -476,7 +476,7 @@ targets:
     password: test
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for missing target URL")
 	}
@@ -492,7 +492,7 @@ targets:
     url: http://localhost:80
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for missing password")
 	}
@@ -511,7 +511,7 @@ targets:
       schedule: "1 2 3"
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for invalid gravity schedule fields")
 	}
@@ -536,7 +536,7 @@ sync:
   resources: [adlists]
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for missing role on replica")
 	}
@@ -562,7 +562,7 @@ sync:
   resources: [adlists]
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for invalid role")
 	}
@@ -588,7 +588,7 @@ sync:
   resources: [adlists]
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for no primary")
 	}
@@ -611,7 +611,7 @@ sync:
   resources: [adlists]
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for multiple primaries")
 	}
@@ -633,7 +633,7 @@ sync:
   resources: [adlists]
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for missing sync.primary")
 	}
@@ -659,7 +659,7 @@ sync:
   resources: [adlists]
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error when sync.primary points to a replica")
 	}
@@ -685,7 +685,7 @@ sync:
   resources: [adlists]
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for primary mismatch")
 	}
@@ -711,7 +711,7 @@ sync:
   resources: []
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for empty resources")
 	}
@@ -737,7 +737,7 @@ sync:
   resources: [invalid_thing]
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for invalid resource")
 	}
@@ -763,7 +763,7 @@ sync:
   resources: [adlists, deny, allow]
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err != nil {
 		t.Fatalf("valid sync config should not error: %v", err)
 	}
@@ -779,7 +779,7 @@ groups:
   - name: ""
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for empty group name")
 	}
@@ -795,7 +795,7 @@ adlists:
   - url: ""
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for empty adlist URL")
 	}
@@ -811,7 +811,7 @@ deny:
   - domain: ""
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for empty deny domain")
 	}
@@ -827,7 +827,7 @@ allow:
   - domain: "not a domain!"
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for invalid allow domain")
 	}
@@ -844,7 +844,7 @@ allow:
   - domain: safe.example.com
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for duplicate allow domain")
 	}
@@ -864,7 +864,7 @@ local_dns:
     ip: not-an-ip
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for invalid IP")
 	}
@@ -884,7 +884,7 @@ local_dns:
     ip: 192.168.1.1
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for invalid local DNS domain")
 	}
@@ -900,7 +900,7 @@ clients:
   - match: ""
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for empty client match")
 	}
@@ -920,7 +920,7 @@ clients:
     groups: [nonexistent]
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for undefined group in client")
 	}
@@ -931,14 +931,14 @@ clients:
 
 func TestLoadInvalidYAML(t *testing.T) {
 	path := writeTestConfig(t, "{{{{invalid yaml")
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for invalid YAML")
 	}
 }
 
 func TestLoadMissingFile(t *testing.T) {
-	_, err := Load("/nonexistent/path/config.yml")
+	_, _, err := Load("/nonexistent/path/config.yml")
 	if err == nil {
 		t.Fatal("expected error for missing file")
 	}
@@ -961,7 +961,7 @@ sync:
   resources: [adlists]
 `
 	path := writeTestConfig(t, cfg)
-	c, err := Load(path)
+	c, _, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
@@ -981,7 +981,7 @@ clients:
     groups: []
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err != nil {
 		t.Fatalf("plain IP should be valid, got: %v", err)
 	}
@@ -995,7 +995,7 @@ targets:
     password: test
 `
 	path := writeTestConfig(t, cfg)
-	c, err := Load(path)
+	c, _, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
@@ -1014,7 +1014,7 @@ reconcile:
   local_dns_purge: true
 `
 	path := writeTestConfig(t, cfg)
-	c, err := Load(path)
+	c, _, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
@@ -1033,7 +1033,7 @@ reconcile:
   interval: -1m
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for negative interval")
 	}
@@ -1052,7 +1052,7 @@ reconcile:
   interval: 1s
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for sub-minimum interval")
 	}
@@ -1071,7 +1071,7 @@ metrics:
   scrape_interval: 2s
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for sub-minimum scrape interval")
 	}
@@ -1092,7 +1092,7 @@ metrics:
   scrape_interval: 10s
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err != nil {
 		t.Fatalf("valid intervals should pass: %v", err)
 	}
@@ -1106,7 +1106,7 @@ targets:
     password: test
 `
 	path := writeTestConfig(t, cfg)
-	c, err := Load(path)
+	c, _, err := Load(path)
 	if err != nil {
 		t.Fatalf("default intervals should pass: %v", err)
 	}
@@ -1130,7 +1130,7 @@ deny:
   - domain: ads.example.com
 `
 	path := writeTestConfig(t, cfg)
-	c, err := Load(path)
+	c, _, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
@@ -1150,7 +1150,7 @@ deny:
     kind: regex
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err != nil {
 		t.Fatalf("regex kind should be valid: %v", err)
 	}
@@ -1167,7 +1167,7 @@ deny:
     kind: wildcard
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for invalid kind")
 	}
@@ -1187,7 +1187,7 @@ deny:
     kind: regex
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for invalid regex")
 	}
@@ -1207,7 +1207,7 @@ cname:
     target: server.example.com
 `
 	path := writeTestConfig(t, cfg)
-	c, err := Load(path)
+	c, _, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
@@ -1230,7 +1230,7 @@ cname:
     target: server.example.com
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for empty CNAME domain")
 	}
@@ -1250,7 +1250,7 @@ cname:
     target: ""
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for empty CNAME target")
 	}
@@ -1267,7 +1267,7 @@ targets:
     password: test
 `
 	path := writeTestConfig(t, cfg)
-	c, err := Load(path)
+	c, _, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
@@ -1284,7 +1284,7 @@ targets:
     password: test
 `
 	path := writeTestConfig(t, cfg)
-	c, err := Load(path)
+	c, _, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
@@ -1306,7 +1306,7 @@ targets:
 log_level: ` + level + `
 `
 		path := writeTestConfig(t, cfg)
-		_, err := Load(path)
+		_, _, err := Load(path)
 		if err != nil {
 			t.Errorf("log_level %q should be valid, got: %v", level, err)
 		}
@@ -1322,7 +1322,7 @@ targets:
 log_level: trace
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for invalid log_level")
 	}
@@ -1340,7 +1340,7 @@ targets:
 log_format: xml
 `
 	path := writeTestConfig(t, cfg)
-	_, err := Load(path)
+	_, _, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for invalid log_format")
 	}

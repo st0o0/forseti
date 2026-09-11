@@ -3,15 +3,15 @@
 YAML configuration parsing, environment variable expansion, validation, and multi-target support.
 
 ### Requirement: YAML configuration format
-The system SHALL accept a single YAML file as its configuration source. The file defines metrics settings, Pi-hole targets, reconcile behavior, and all managed resources (adlists, deny domains, allow domains, local DNS records, groups, clients).
+The system SHALL accept a single YAML file as its primary configuration source. The file defines metrics settings (including collector toggles), Pi-hole targets, reconcile behavior, Pi-hole settings (DNS, blocking, DHCP, webserver, privacy, misc), and all managed resources (adlists, deny domains, allow domains, local DNS records, groups, clients). Targets MAY reference external override files via the `file:` field.
 
 #### Scenario: Valid config with all sections
-- **WHEN** a YAML file contains metrics, targets, reconcile, adlists, deny, allow, local_dns, groups, and clients sections
+- **WHEN** a YAML file contains metrics (with collectors), targets, reconcile, settings (with dns, blocking, dhcp, webserver, privacy, misc), adlists, deny, allow, local_dns, groups, and clients sections
 - **THEN** the system SHALL parse all sections and make them available to the reconciler
 
 #### Scenario: Minimal config
-- **WHEN** a YAML file contains only targets (with at least one entry) and no resource sections
-- **THEN** the system SHALL accept the config with empty resource lists
+- **WHEN** a YAML file contains only targets (with at least one entry) and no resource, settings, or collectors sections
+- **THEN** the system SHALL accept the config with empty resource lists, no settings reconciliation, and all collectors enabled
 
 ### Requirement: Environment variable expansion
 The system SHALL expand `${VAR}` references in string values using environment variables before YAML parsing. This enables secret injection (passwords) without storing them in the config file.
@@ -25,11 +25,15 @@ The system SHALL expand `${VAR}` references in string values using environment v
 - **THEN** the system SHALL return a validation error naming the undefined variable
 
 ### Requirement: Multi-target support
-The system SHALL support an array of Pi-hole targets under the `targets` key. Each target has a name, URL, and password. All resource definitions (adlists, domains, etc.) are reconciled against every target.
+The system SHALL support an array of Pi-hole targets under the `targets` key. Each target has a name, URL, password, and an optional `file` path to an override config. The effective config for each target is computed by merging the global config with the target's override file (if present). Downstream reconciliation receives the effective config per target.
 
-#### Scenario: Two targets
-- **WHEN** config defines two targets (pihole-router and pihole-pi)
-- **THEN** the reconciler SHALL apply the same desired state to both instances
+#### Scenario: Two targets with different effective configs
+- **WHEN** config defines two targets, one with `file: targets/kids.yaml` containing extra deny entries and one without a `file:` field
+- **THEN** the first target's effective deny list SHALL include the extra entries, and the second target's effective deny list SHALL equal the global deny list
+
+#### Scenario: Two targets without overrides
+- **WHEN** config defines two targets, neither with a `file:` field
+- **THEN** the reconciler SHALL apply the same desired state to both instances (existing behavior)
 
 ### Requirement: Config validation
 The system SHALL validate the parsed config before any reconciliation. Validation covers: target URLs are valid HTTP(S), domain entries are valid domain names, CIDR client matches are valid notation, group references in clients/adlists resolve to defined groups, and no duplicate entries within a resource type.
@@ -48,3 +52,48 @@ The system SHALL accept reconcile settings: `interval` (duration for watch mode)
 #### Scenario: Custom marker
 - **WHEN** marker is set to `[managed]`
 - **THEN** the system SHALL use `[managed]` instead of `[forseti]` for tagging and identifying managed entries
+
+### Requirement: Collector toggles configuration section
+The system SHALL accept a `metrics.collectors` section with boolean fields for each collector area. Each field SHALL default to `true` when omitted.
+
+#### Scenario: Parse collector toggles
+- **WHEN** the config contains `metrics.collectors.stats: false` and `metrics.collectors.dhcp: false`
+- **THEN** the parsed config SHALL have `Stats` and `DHCP` toggles set to `false` and all others defaulting to `true`
+
+#### Scenario: No collectors section
+- **WHEN** the config omits `metrics.collectors` entirely
+- **THEN** all collector toggles SHALL default to `true`
+
+### Requirement: Extended settings sections
+The config SHALL accept new settings subsections for DHCP, webserver, and misc, in addition to the existing DNS, blocking, and privacy sections. All new fields use pointer types to distinguish "not set" from zero values.
+
+#### Scenario: DHCP settings parsed
+- **WHEN** the config contains `settings.dhcp.active: true` and `settings.dhcp.start: "192.168.1.100"`
+- **THEN** the parsed config SHALL have DHCPSettings with Active=true and Start="192.168.1.100"
+
+#### Scenario: Webserver settings parsed
+- **WHEN** the config contains `settings.webserver.port: 8080`
+- **THEN** the parsed config SHALL have WebserverSettings with Port=8080
+
+#### Scenario: Misc settings parsed
+- **WHEN** the config contains `settings.misc.nice: -10` and `settings.misc.check.disk: 90`
+- **THEN** the parsed config SHALL have MiscSettings with Nice=-10 and Check.Disk=90
+
+### Requirement: Extended settings validation
+The system SHALL validate all new settings fields at config load time.
+
+#### Scenario: DHCP start without end
+- **WHEN** settings contain `dhcp.start: "192.168.1.100"` but no `dhcp.end`
+- **THEN** the system SHALL return a validation error
+
+#### Scenario: Valid DHCP range
+- **WHEN** settings contain `dhcp.start: "192.168.1.100"` and `dhcp.end: "192.168.1.200"` and `dhcp.router: "192.168.1.1"`
+- **THEN** the system SHALL accept the config
+
+#### Scenario: DNS port range
+- **WHEN** settings contain `dns.port: 0`
+- **THEN** the system SHALL return a validation error (must be 1-65535)
+
+#### Scenario: Listening mode validation
+- **WHEN** settings contain `dns.listening_mode: "all"`
+- **THEN** the system SHALL accept the config (valid modes: local, all, bind)

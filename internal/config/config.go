@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -32,6 +33,7 @@ type Config struct {
 	Targets   []Target        `yaml:"targets"`
 	Reconcile Reconcile       `yaml:"reconcile"`
 	Sync      SyncConfig      `yaml:"sync"`
+	Settings  Settings        `yaml:"settings"`
 	Groups    []Group         `yaml:"groups"`
 	Adlists   []Adlist        `yaml:"adlists"`
 	Deny      []DenyEntry     `yaml:"deny"`
@@ -41,6 +43,121 @@ type Config struct {
 	Clients   []ClientEntry   `yaml:"clients"`
 }
 
+type Settings struct {
+	DNS       DNSSettings       `yaml:"dns"`
+	Blocking  BlockingSettings  `yaml:"blocking"`
+	Privacy   PrivacySettings   `yaml:"privacy"`
+	DHCP      DHCPSettings      `yaml:"dhcp"`
+	Webserver WebserverSettings `yaml:"webserver"`
+	Misc      MiscSettings      `yaml:"misc"`
+}
+
+func (s Settings) IsEmpty() bool {
+	return len(s.DNS.Upstream) == 0 &&
+		s.DNS.Cache.Size == nil &&
+		s.DNS.Cache.ForceOnDisk == nil &&
+		s.DNS.RateLimit.Count == nil &&
+		s.DNS.RateLimit.Interval == nil &&
+		s.DNS.Port == nil &&
+		s.DNS.DomainNeeded == nil &&
+		s.DNS.BogusPriv == nil &&
+		s.DNS.DNSSEC == nil &&
+		s.DNS.ListeningMode == "" &&
+		s.DNS.QueryLogging == nil &&
+		s.DNS.CNAMEDeepInspect == nil &&
+		s.DNS.ResolveIPv4 == nil &&
+		s.DNS.ResolveIPv6 == nil &&
+		s.DNS.RevServer.Enabled == nil &&
+		s.Blocking.Mode == "" &&
+		s.Blocking.Active == nil &&
+		s.Blocking.Timer == nil &&
+		s.Privacy.Level == nil &&
+		s.DHCP.Active == nil &&
+		s.DHCP.Start == "" &&
+		s.DHCP.End == "" &&
+		s.DHCP.Router == "" &&
+		s.DHCP.LeaseTime == nil &&
+		s.DHCP.Domain == "" &&
+		s.DHCP.IPv6 == nil &&
+		s.DHCP.RapidCommit == nil &&
+		s.Webserver.Port == nil &&
+		s.Misc.Nice == nil &&
+		s.Misc.DelayStartup == nil &&
+		s.Misc.Check.Load == nil &&
+		s.Misc.Check.Disk == nil &&
+		s.Misc.Check.Shmem == nil
+}
+
+type DNSSettings struct {
+	Upstream         []string          `yaml:"upstream"`
+	Cache            CacheSettings     `yaml:"cache"`
+	RateLimit        RateLimitSettings `yaml:"rate_limit"`
+	Port             *int              `yaml:"port"`
+	DomainNeeded     *bool             `yaml:"domain_needed"`
+	BogusPriv        *bool             `yaml:"bogus_priv"`
+	DNSSEC           *bool             `yaml:"dnssec"`
+	ListeningMode    string            `yaml:"listening_mode"`
+	QueryLogging     *bool             `yaml:"query_logging"`
+	CNAMEDeepInspect *bool             `yaml:"cname_deep_inspect"`
+	ResolveIPv4      *bool             `yaml:"resolve_ipv4"`
+	ResolveIPv6      *bool             `yaml:"resolve_ipv6"`
+	RevServer        RevServerSettings `yaml:"rev_server"`
+}
+
+type RevServerSettings struct {
+	Enabled *bool  `yaml:"enabled"`
+	CIDR    string `yaml:"cidr"`
+	Target  string `yaml:"target"`
+	Domain  string `yaml:"domain"`
+}
+
+type CacheSettings struct {
+	Size        *int  `yaml:"size"`
+	ForceOnDisk *bool `yaml:"force_on_disk"`
+}
+
+type RateLimitSettings struct {
+	Count    *int `yaml:"count"`
+	Interval *int `yaml:"interval"`
+}
+
+type BlockingSettings struct {
+	Mode   string `yaml:"mode"`
+	Active *bool  `yaml:"active"`
+	Timer  *int   `yaml:"timer"`
+}
+
+type PrivacySettings struct {
+	Level *int `yaml:"level"`
+}
+
+type DHCPSettings struct {
+	Active      *bool  `yaml:"active"`
+	Start       string `yaml:"start"`
+	End         string `yaml:"end"`
+	Router      string `yaml:"router"`
+	LeaseTime   *int   `yaml:"lease_time"`
+	Domain      string `yaml:"domain"`
+	IPv6        *bool  `yaml:"ipv6"`
+	RapidCommit *bool  `yaml:"rapid_commit"`
+}
+
+type WebserverSettings struct {
+	Port *int `yaml:"port"`
+}
+
+type MiscSettings struct {
+	Nice         *int          `yaml:"nice"`
+	DelayStartup *int          `yaml:"delay_startup"`
+	Check        CheckSettings `yaml:"check"`
+}
+
+type CheckSettings struct {
+	Load *bool `yaml:"load"`
+	Disk *int  `yaml:"disk"`
+	Shmem *int `yaml:"shmem"`
+}
+
 type SyncConfig struct {
 	Interval  Duration `yaml:"interval"`
 	Primary   string   `yaml:"primary"`
@@ -48,9 +165,49 @@ type SyncConfig struct {
 }
 
 type Metrics struct {
-	Port           int      `yaml:"port"`
-	Path           string   `yaml:"path"`
-	ScrapeInterval Duration `yaml:"scrape_interval"`
+	Port           int              `yaml:"port"`
+	Path           string           `yaml:"path"`
+	ScrapeInterval Duration         `yaml:"scrape_interval"`
+	Collectors     CollectorToggles `yaml:"collectors"`
+}
+
+type CollectorToggles struct {
+	Stats         *bool `yaml:"stats"`
+	Upstreams     *bool `yaml:"upstreams"`
+	QueryTypes    *bool `yaml:"query_types"`
+	Blocking      *bool `yaml:"blocking"`
+	Reconcile     *bool `yaml:"reconcile"`
+	Gravity       *bool `yaml:"gravity"`
+	Sessions      *bool `yaml:"sessions"`
+	SettingsDrift *bool `yaml:"settings_drift"`
+	DHCP          *bool `yaml:"dhcp"`
+}
+
+func (ct CollectorToggles) IsEnabled(name string) bool {
+	var p *bool
+	switch name {
+	case "stats":
+		p = ct.Stats
+	case "upstreams":
+		p = ct.Upstreams
+	case "query_types":
+		p = ct.QueryTypes
+	case "blocking":
+		p = ct.Blocking
+	case "reconcile":
+		p = ct.Reconcile
+	case "gravity":
+		p = ct.Gravity
+	case "sessions":
+		p = ct.Sessions
+	case "settings_drift":
+		p = ct.SettingsDrift
+	case "dhcp":
+		p = ct.DHCP
+	default:
+		return true
+	}
+	return p == nil || *p
 }
 
 type Target struct {
@@ -59,6 +216,57 @@ type Target struct {
 	Password string        `yaml:"password"`
 	Role     string        `yaml:"role"`
 	Gravity  GravityConfig `yaml:"gravity"`
+	File     string        `yaml:"file"`
+}
+
+type TargetOverride struct {
+	Settings Settings        `yaml:"settings"`
+	Groups   []Group         `yaml:"groups"`
+	Adlists  []Adlist        `yaml:"adlists"`
+	Deny     []DenyEntry     `yaml:"deny"`
+	Allow    []AllowEntry    `yaml:"allow"`
+	LocalDNS []LocalDNSEntry `yaml:"local_dns"`
+	CNAME    []CNAMEEntry    `yaml:"cname"`
+	Clients  []ClientEntry   `yaml:"clients"`
+	Exclude  ExcludeBlock    `yaml:"exclude"`
+}
+
+type ExcludeBlock struct {
+	Groups   []GroupExclude   `yaml:"groups"`
+	Adlists  []AdlistExclude  `yaml:"adlists"`
+	Deny     []DenyExclude    `yaml:"deny"`
+	Allow    []AllowExclude   `yaml:"allow"`
+	LocalDNS []LocalDNSExclude `yaml:"local_dns"`
+	CNAME    []CNAMEExclude   `yaml:"cname"`
+	Clients  []ClientExclude  `yaml:"clients"`
+}
+
+type GroupExclude struct {
+	Name string `yaml:"name"`
+}
+
+type AdlistExclude struct {
+	URL string `yaml:"url"`
+}
+
+type DenyExclude struct {
+	Domain string `yaml:"domain"`
+}
+
+type AllowExclude struct {
+	Domain string `yaml:"domain"`
+}
+
+type LocalDNSExclude struct {
+	Domain string `yaml:"domain"`
+}
+
+type CNAMEExclude struct {
+	Domain string `yaml:"domain"`
+}
+
+type ClientExclude struct {
+	Match string `yaml:"match"`
 }
 
 type GravityConfig struct {
@@ -127,29 +335,47 @@ func (d *Duration) UnmarshalYAML(value *yaml.Node) error {
 	return nil
 }
 
-func Load(path string) (*Config, error) {
+type ResolvedTarget struct {
+	Target
+	Settings Settings
+	Groups   []Group
+	Adlists  []Adlist
+	Deny     []DenyEntry
+	Allow    []AllowEntry
+	LocalDNS []LocalDNSEntry
+	CNAME    []CNAMEEntry
+	Clients  []ClientEntry
+}
+
+func Load(path string) (*Config, []ResolvedTarget, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("reading config: %w", err)
+		return nil, nil, fmt.Errorf("reading config: %w", err)
 	}
 
 	expanded, err := expandEnv(string(data))
 	if err != nil {
-		return nil, fmt.Errorf("expanding env vars: %w", err)
+		return nil, nil, fmt.Errorf("expanding env vars: %w", err)
 	}
 
 	var cfg Config
 	if err := yaml.Unmarshal([]byte(expanded), &cfg); err != nil {
-		return nil, fmt.Errorf("parsing config: %w", err)
+		return nil, nil, fmt.Errorf("parsing config: %w", err)
 	}
 
 	applyDefaults(&cfg)
 
 	if err := validate(&cfg); err != nil {
-		return nil, fmt.Errorf("validating config: %w", err)
+		return nil, nil, fmt.Errorf("validating config: %w", err)
 	}
 
-	return &cfg, nil
+	configDir := filepath.Dir(path)
+	resolved, err := resolveTargets(&cfg, configDir)
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolving targets: %w", err)
+	}
+
+	return &cfg, resolved, nil
 }
 
 var envVarPattern = regexp.MustCompile(`\$\{([^}]+)}`)
@@ -299,6 +525,10 @@ func validate(cfg *Config) error {
 		errs = append(errs, fmt.Errorf("log_format must be text/json, got %q", cfg.LogFormat))
 	}
 
+	if settingsErrs := validateSettings(&cfg.Settings); settingsErrs != nil {
+		errs = append(errs, settingsErrs)
+	}
+
 	if cfg.Reconcile.Interval.Duration > 0 && cfg.Reconcile.Interval.Duration < MinReconcileInterval {
 		errs = append(errs, fmt.Errorf("reconcile.interval must be at least %s", MinReconcileInterval))
 	} else if cfg.Reconcile.Interval.Duration < 0 {
@@ -416,6 +646,146 @@ func validate(cfg *Config) error {
 				errs = append(errs, fmt.Errorf("client[%d]: invalid IP or CIDR %q", i, c.Match))
 			}
 		}
+		for _, g := range c.Groups {
+			if !groupNames[g] {
+				errs = append(errs, fmt.Errorf("client[%d]: references undefined group %q", i, g))
+			}
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
+var (
+	validBlockingModes   = map[string]bool{"NULL": true, "IP": true, "NXDOMAIN": true}
+	validListeningModes  = map[string]bool{"local": true, "all": true, "bind": true}
+)
+
+func validateSettings(s *Settings) error {
+	var errs []error
+
+	// DNS
+	if s.DNS.Cache.Size != nil && *s.DNS.Cache.Size < 0 {
+		errs = append(errs, fmt.Errorf("settings.dns.cache.size must be non-negative, got %d", *s.DNS.Cache.Size))
+	}
+	if s.DNS.RateLimit.Count != nil && *s.DNS.RateLimit.Count < 0 {
+		errs = append(errs, fmt.Errorf("settings.dns.rate_limit.count must be non-negative, got %d", *s.DNS.RateLimit.Count))
+	}
+	if s.DNS.RateLimit.Interval != nil && *s.DNS.RateLimit.Interval < 0 {
+		errs = append(errs, fmt.Errorf("settings.dns.rate_limit.interval must be non-negative, got %d", *s.DNS.RateLimit.Interval))
+	}
+	if s.DNS.Port != nil && (*s.DNS.Port < 1 || *s.DNS.Port > 65535) {
+		errs = append(errs, fmt.Errorf("settings.dns.port must be 1-65535, got %d", *s.DNS.Port))
+	}
+	if s.DNS.ListeningMode != "" && !validListeningModes[s.DNS.ListeningMode] {
+		errs = append(errs, fmt.Errorf("settings.dns.listening_mode must be local/all/bind, got %q", s.DNS.ListeningMode))
+	}
+
+	// Blocking
+	if s.Blocking.Mode != "" && !validBlockingModes[s.Blocking.Mode] {
+		errs = append(errs, fmt.Errorf("settings.blocking.mode must be NULL/IP/NXDOMAIN, got %q", s.Blocking.Mode))
+	}
+	if s.Blocking.Timer != nil && *s.Blocking.Timer < 0 {
+		errs = append(errs, fmt.Errorf("settings.blocking.timer must be non-negative, got %d", *s.Blocking.Timer))
+	}
+
+	// Privacy
+	if s.Privacy.Level != nil && (*s.Privacy.Level < 0 || *s.Privacy.Level > 4) {
+		errs = append(errs, fmt.Errorf("settings.privacy.level must be 0-4, got %d", *s.Privacy.Level))
+	}
+
+	// DHCP
+	dhcpPartial := s.DHCP.Start != "" || s.DHCP.End != "" || s.DHCP.Router != ""
+	if dhcpPartial && (s.DHCP.Start == "" || s.DHCP.End == "" || s.DHCP.Router == "") {
+		errs = append(errs, fmt.Errorf("settings.dhcp: start, end, and router must all be set together"))
+	}
+	if s.DHCP.Start != "" && net.ParseIP(s.DHCP.Start) == nil {
+		errs = append(errs, fmt.Errorf("settings.dhcp.start: invalid IP %q", s.DHCP.Start))
+	}
+	if s.DHCP.End != "" && net.ParseIP(s.DHCP.End) == nil {
+		errs = append(errs, fmt.Errorf("settings.dhcp.end: invalid IP %q", s.DHCP.End))
+	}
+	if s.DHCP.Router != "" && net.ParseIP(s.DHCP.Router) == nil {
+		errs = append(errs, fmt.Errorf("settings.dhcp.router: invalid IP %q", s.DHCP.Router))
+	}
+	if s.DHCP.LeaseTime != nil && *s.DHCP.LeaseTime < 0 {
+		errs = append(errs, fmt.Errorf("settings.dhcp.lease_time must be non-negative, got %d", *s.DHCP.LeaseTime))
+	}
+
+	// Webserver
+	if s.Webserver.Port != nil && (*s.Webserver.Port < 1 || *s.Webserver.Port > 65535) {
+		errs = append(errs, fmt.Errorf("settings.webserver.port must be 1-65535, got %d", *s.Webserver.Port))
+	}
+
+	// Misc
+	if s.Misc.DelayStartup != nil && *s.Misc.DelayStartup < 0 {
+		errs = append(errs, fmt.Errorf("settings.misc.delay_startup must be non-negative, got %d", *s.Misc.DelayStartup))
+	}
+	if s.Misc.Check.Disk != nil && (*s.Misc.Check.Disk < 0 || *s.Misc.Check.Disk > 100) {
+		errs = append(errs, fmt.Errorf("settings.misc.check.disk must be 0-100, got %d", *s.Misc.Check.Disk))
+	}
+	if s.Misc.Check.Shmem != nil && (*s.Misc.Check.Shmem < 0 || *s.Misc.Check.Shmem > 100) {
+		errs = append(errs, fmt.Errorf("settings.misc.check.shmem must be 0-100, got %d", *s.Misc.Check.Shmem))
+	}
+
+	return errors.Join(errs...)
+}
+
+func validateEffective(rt *ResolvedTarget) error {
+	var errs []error
+
+	if settingsErrs := validateSettings(&rt.Settings); settingsErrs != nil {
+		errs = append(errs, settingsErrs)
+	}
+
+	groupNames := make(map[string]bool)
+	for i, g := range rt.Groups {
+		if g.Name == "" {
+			errs = append(errs, fmt.Errorf("group[%d]: name is required", i))
+		} else if groupNames[g.Name] {
+			errs = append(errs, fmt.Errorf("group[%d]: duplicate group name %q", i, g.Name))
+		} else {
+			groupNames[g.Name] = true
+		}
+	}
+
+	adlistURLs := make(map[string]bool)
+	for i, a := range rt.Adlists {
+		if a.URL == "" {
+			errs = append(errs, fmt.Errorf("adlist[%d]: url is required", i))
+		} else if adlistURLs[a.URL] {
+			errs = append(errs, fmt.Errorf("adlist[%d]: duplicate adlist URL %q", i, a.URL))
+		} else {
+			adlistURLs[a.URL] = true
+		}
+		for _, g := range a.Groups {
+			if !groupNames[g] {
+				errs = append(errs, fmt.Errorf("adlist[%d]: references undefined group %q", i, g))
+			}
+		}
+	}
+
+	denyDomains := make(map[string]bool)
+	for i, d := range rt.Deny {
+		dedupKey := d.Kind + ":" + d.Domain
+		if denyDomains[dedupKey] {
+			errs = append(errs, fmt.Errorf("deny[%d]: duplicate domain %q", i, d.Domain))
+		} else {
+			denyDomains[dedupKey] = true
+		}
+	}
+
+	allowDomains := make(map[string]bool)
+	for i, a := range rt.Allow {
+		dedupKey := a.Kind + ":" + a.Domain
+		if allowDomains[dedupKey] {
+			errs = append(errs, fmt.Errorf("allow[%d]: duplicate domain %q", i, a.Domain))
+		} else {
+			allowDomains[dedupKey] = true
+		}
+	}
+
+	for i, c := range rt.Clients {
 		for _, g := range c.Groups {
 			if !groupNames[g] {
 				errs = append(errs, fmt.Errorf("client[%d]: references undefined group %q", i, g))
