@@ -16,7 +16,7 @@ func newTestServer(loginCount *atomic.Int32) *httptest.Server {
 		if r.URL.Path == "/api/auth" {
 			if r.Method == http.MethodPost {
 				loginCount.Add(1)
-				json.NewEncoder(w).Encode(map[string]any{
+				_ = json.NewEncoder(w).Encode(map[string]any{
 					"session": map[string]string{"sid": "test-sid"},
 				})
 				return
@@ -154,7 +154,7 @@ func TestPoolSetCallbacksOnReauth(t *testing.T) {
 		if r.URL.Path == "/api/auth" {
 			if r.Method == http.MethodPost {
 				loginCount.Add(1)
-				json.NewEncoder(w).Encode(map[string]any{
+				_ = json.NewEncoder(w).Encode(map[string]any{
 					"session": map[string]string{"sid": "new-sid"},
 				})
 				return
@@ -171,7 +171,7 @@ func TestPoolSetCallbacksOnReauth(t *testing.T) {
 		}
 
 		if sid == "new-sid" {
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"queries": map[string]any{"total": 100},
 				"clients": map[string]any{"active": 5, "total": 10},
 				"gravity": map[string]any{"domains_being_blocked": 50, "last_update": 0},

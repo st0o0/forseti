@@ -35,7 +35,7 @@ func newGravityTestServer() *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/auth" && r.Method == http.MethodPost:
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]string{"sid": "test-sid"},
 			})
 		case r.URL.Path == "/api/auth" && r.Method == http.MethodDelete:
@@ -167,7 +167,7 @@ func TestTriggerNowGravityAPIError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/auth" && r.Method == http.MethodPost:
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]string{"sid": "test-sid"},
 			})
 		case r.URL.Path == "/api/auth" && r.Method == http.MethodDelete:
@@ -427,7 +427,7 @@ func TestTriggerGravityError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/auth" && r.Method == http.MethodPost:
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]string{"sid": "test-sid"},
 			})
 		case r.URL.Path == "/api/auth" && r.Method == http.MethodDelete:

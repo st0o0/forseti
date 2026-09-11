@@ -18,14 +18,14 @@ func newPiholeTestServer(callCount *atomic.Int32) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/auth" && r.Method == http.MethodPost:
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]string{"sid": "test-sid"},
 			})
 		case r.URL.Path == "/api/auth" && r.Method == http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		case r.URL.Path == "/api/stats/summary":
 			callCount.Add(1)
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"queries": map[string]any{
 					"total": 1000, "blocked": 100, "percent_blocked": 10.0,
 					"forwarded": 800, "cached": 100, "unique_domains": 500,
@@ -36,10 +36,10 @@ func newPiholeTestServer(callCount *atomic.Int32) *httptest.Server {
 			})
 		case r.URL.Path == "/api/dns/blocking":
 			callCount.Add(1)
-			json.NewEncoder(w).Encode(map[string]any{"blocking": true})
+			_ = json.NewEncoder(w).Encode(map[string]any{"blocking": true})
 		case r.URL.Path == "/api/stats/upstreams":
 			callCount.Add(1)
-			json.NewEncoder(w).Encode(map[string]any{"upstreams": []any{}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"upstreams": []any{}})
 		default:
 			w.WriteHeader(http.StatusOK)
 		}
@@ -121,7 +121,7 @@ func TestCollectCacheExpiry(t *testing.T) {
 func TestCollectTimeout(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/auth" && r.Method == http.MethodPost {
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]string{"sid": "test-sid"},
 			})
 			return
@@ -212,14 +212,14 @@ func TestCollectPartialBlockingError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/auth" && r.Method == http.MethodPost:
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]string{"sid": "test-sid"},
 			})
 		case r.URL.Path == "/api/auth" && r.Method == http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		case r.URL.Path == "/api/stats/summary":
 			callCount.Add(1)
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"queries": map[string]any{
 					"total": 1000, "blocked": 100, "percent_blocked": 10.0,
 					"forwarded": 800, "cached": 100, "unique_domains": 500,
@@ -231,7 +231,7 @@ func TestCollectPartialBlockingError(t *testing.T) {
 		case r.URL.Path == "/api/dns/blocking":
 			w.WriteHeader(http.StatusInternalServerError)
 		case r.URL.Path == "/api/stats/upstreams":
-			json.NewEncoder(w).Encode(map[string]any{"upstreams": []any{}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"upstreams": []any{}})
 		default:
 			w.WriteHeader(http.StatusOK)
 		}
@@ -259,13 +259,13 @@ func TestCollectPartialUpstreamsError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/auth" && r.Method == http.MethodPost:
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]string{"sid": "test-sid"},
 			})
 		case r.URL.Path == "/api/auth" && r.Method == http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		case r.URL.Path == "/api/stats/summary":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"queries": map[string]any{
 					"total": 1000, "blocked": 100, "percent_blocked": 10.0,
 					"forwarded": 800, "cached": 100, "unique_domains": 500,
@@ -275,7 +275,7 @@ func TestCollectPartialUpstreamsError(t *testing.T) {
 				"gravity": map[string]any{"domains_being_blocked": 50000, "last_update": 1234567890},
 			})
 		case r.URL.Path == "/api/dns/blocking":
-			json.NewEncoder(w).Encode(map[string]any{"blocking": true})
+			_ = json.NewEncoder(w).Encode(map[string]any{"blocking": true})
 		case r.URL.Path == "/api/stats/upstreams":
 			w.WriteHeader(http.StatusInternalServerError)
 		default:
@@ -328,7 +328,7 @@ func TestCollectStatsError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/auth" && r.Method == http.MethodPost:
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]string{"sid": "test-sid"},
 			})
 		case r.URL.Path == "/api/auth" && r.Method == http.MethodDelete:
@@ -336,9 +336,9 @@ func TestCollectStatsError(t *testing.T) {
 		case r.URL.Path == "/api/stats/summary":
 			w.WriteHeader(http.StatusInternalServerError)
 		case r.URL.Path == "/api/dns/blocking":
-			json.NewEncoder(w).Encode(map[string]any{"blocking": true})
+			_ = json.NewEncoder(w).Encode(map[string]any{"blocking": true})
 		case r.URL.Path == "/api/stats/upstreams":
-			json.NewEncoder(w).Encode(map[string]any{"upstreams": []any{}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"upstreams": []any{}})
 		default:
 			w.WriteHeader(http.StatusOK)
 		}

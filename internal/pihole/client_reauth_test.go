@@ -16,7 +16,7 @@ func TestAutoReauthOn401(t *testing.T) {
 		if r.URL.Path == "/api/auth" {
 			if r.Method == http.MethodPost {
 				loginCount.Add(1)
-				json.NewEncoder(w).Encode(map[string]any{
+				_ = json.NewEncoder(w).Encode(map[string]any{
 					"session": map[string]string{"sid": "new-sid"},
 				})
 				return
@@ -33,7 +33,7 @@ func TestAutoReauthOn401(t *testing.T) {
 			return
 		}
 
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"queries": map[string]any{"total": 100},
 			"clients": map[string]any{"active": 5, "total": 10},
 			"gravity": map[string]any{"domains_being_blocked": 50, "last_update": 0},
@@ -66,7 +66,7 @@ func TestOnReauthCallbackCalled(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/auth" {
 			if r.Method == http.MethodPost {
-				json.NewEncoder(w).Encode(map[string]any{
+				_ = json.NewEncoder(w).Encode(map[string]any{
 					"session": map[string]string{"sid": "new-sid"},
 				})
 				return
@@ -81,7 +81,7 @@ func TestOnReauthCallbackCalled(t *testing.T) {
 			return
 		}
 
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"queries": map[string]any{"total": 100},
 			"clients": map[string]any{"active": 5, "total": 10},
 			"gravity": map[string]any{"domains_being_blocked": 50, "last_update": 0},

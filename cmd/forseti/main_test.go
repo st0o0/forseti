@@ -312,31 +312,31 @@ func newFullPiholeTestServer() *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/auth" && r.Method == http.MethodPost:
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]string{"sid": "test-sid"},
 			})
 		case r.URL.Path == "/api/auth" && r.Method == http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		case r.URL.Path == "/api/groups":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"groups": []any{
 					map[string]any{"id": 0, "name": "Default", "comment": "", "enabled": true},
 				},
 			})
 		case r.URL.Path == "/api/lists" && r.Method == http.MethodGet:
-			json.NewEncoder(w).Encode(map[string]any{"lists": []any{}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"lists": []any{}})
 		case r.URL.Path == "/api/domains/deny/exact":
-			json.NewEncoder(w).Encode(map[string]any{"domains": []any{}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"domains": []any{}})
 		case r.URL.Path == "/api/domains/allow/exact":
-			json.NewEncoder(w).Encode(map[string]any{"domains": []any{}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"domains": []any{}})
 		case strings.HasPrefix(r.URL.Path, "/api/domains"):
-			json.NewEncoder(w).Encode(map[string]any{"domains": []any{}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"domains": []any{}})
 		case r.URL.Path == "/api/config/dns/hosts":
-			json.NewEncoder(w).Encode(map[string]any{"config": map[string]any{"dns": map[string]any{"hosts": []any{}}}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"config": map[string]any{"dns": map[string]any{"hosts": []any{}}}})
 		case r.URL.Path == "/api/config/dns/cnameRecords":
-			json.NewEncoder(w).Encode(map[string]any{"config": map[string]any{"dns": map[string]any{"cnameRecords": []any{}}}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"config": map[string]any{"dns": map[string]any{"cnameRecords": []any{}}}})
 		case r.URL.Path == "/api/clients":
-			json.NewEncoder(w).Encode(map[string]any{"clients": []any{}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"clients": []any{}})
 		default:
 			w.WriteHeader(http.StatusOK)
 		}
@@ -409,7 +409,7 @@ func TestRunPlan_ReconcileError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/auth" && r.Method == http.MethodPost:
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]string{"sid": "s"},
 			})
 		case r.URL.Path == "/api/auth" && r.Method == http.MethodDelete:
@@ -471,7 +471,7 @@ func TestRunApply_ReconcileError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/auth" && r.Method == http.MethodPost:
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]string{"sid": "s"},
 			})
 		case r.URL.Path == "/api/auth" && r.Method == http.MethodDelete:
@@ -495,29 +495,29 @@ func TestRunApply_WithWarnings(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/auth" && r.Method == http.MethodPost:
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]string{"sid": "s"},
 			})
 		case r.URL.Path == "/api/auth" && r.Method == http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		case r.URL.Path == "/api/groups":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"groups": []any{
 					map[string]any{"id": 0, "name": "Default", "comment": "", "enabled": true},
 				},
 			})
 		case r.URL.Path == "/api/lists" && r.Method == http.MethodGet:
-			json.NewEncoder(w).Encode(map[string]any{"lists": []any{}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"lists": []any{}})
 		case r.URL.Path == "/api/lists" && r.Method == http.MethodPost:
 			w.WriteHeader(http.StatusInternalServerError)
 		case strings.HasPrefix(r.URL.Path, "/api/domains"):
-			json.NewEncoder(w).Encode(map[string]any{"domains": []any{}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"domains": []any{}})
 		case r.URL.Path == "/api/config/dns/hosts":
-			json.NewEncoder(w).Encode(map[string]any{"config": map[string]any{"dns": map[string]any{"hosts": []any{}}}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"config": map[string]any{"dns": map[string]any{"hosts": []any{}}}})
 		case r.URL.Path == "/api/config/dns/cnameRecords":
-			json.NewEncoder(w).Encode(map[string]any{"config": map[string]any{"dns": map[string]any{"cnameRecords": []any{}}}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"config": map[string]any{"dns": map[string]any{"cnameRecords": []any{}}}})
 		case r.URL.Path == "/api/clients":
-			json.NewEncoder(w).Encode(map[string]any{"clients": []any{}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"clients": []any{}})
 		default:
 			w.WriteHeader(http.StatusOK)
 		}
@@ -578,7 +578,7 @@ func TestReconcileAll_ReconcileError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/auth" && r.Method == http.MethodPost:
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]string{"sid": "s"},
 			})
 		case r.URL.Path == "/api/auth" && r.Method == http.MethodDelete:
@@ -629,29 +629,29 @@ func TestReconcileAll_WithGravityTrigger(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/auth" && r.Method == http.MethodPost:
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]string{"sid": "s"},
 			})
 		case r.URL.Path == "/api/auth" && r.Method == http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		case r.URL.Path == "/api/groups":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"groups": []any{
 					map[string]any{"id": 0, "name": "Default", "comment": "", "enabled": true},
 				},
 			})
 		case r.URL.Path == "/api/lists" && r.Method == http.MethodGet:
-			json.NewEncoder(w).Encode(map[string]any{"lists": []any{}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"lists": []any{}})
 		case r.URL.Path == "/api/lists" && r.Method == http.MethodPost:
-			json.NewEncoder(w).Encode(map[string]any{"list": map[string]any{"id": 1, "address": "https://example.com/list.txt"}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"list": map[string]any{"id": 1, "address": "https://example.com/list.txt"}})
 		case strings.HasPrefix(r.URL.Path, "/api/domains"):
-			json.NewEncoder(w).Encode(map[string]any{"domains": []any{}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"domains": []any{}})
 		case r.URL.Path == "/api/config/dns/hosts":
-			json.NewEncoder(w).Encode(map[string]any{"config": map[string]any{"dns": map[string]any{"hosts": []any{}}}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"config": map[string]any{"dns": map[string]any{"hosts": []any{}}}})
 		case r.URL.Path == "/api/config/dns/cnameRecords":
-			json.NewEncoder(w).Encode(map[string]any{"config": map[string]any{"dns": map[string]any{"cnameRecords": []any{}}}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"config": map[string]any{"dns": map[string]any{"cnameRecords": []any{}}}})
 		case r.URL.Path == "/api/clients":
-			json.NewEncoder(w).Encode(map[string]any{"clients": []any{}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"clients": []any{}})
 		case r.URL.Path == "/api/action/gravity":
 			w.WriteHeader(http.StatusOK)
 		default:
@@ -704,29 +704,29 @@ func TestReconcileAll_GravityTriggerError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/auth" && r.Method == http.MethodPost:
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]string{"sid": "s"},
 			})
 		case r.URL.Path == "/api/auth" && r.Method == http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		case r.URL.Path == "/api/groups":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"groups": []any{
 					map[string]any{"id": 0, "name": "Default", "comment": "", "enabled": true},
 				},
 			})
 		case r.URL.Path == "/api/lists" && r.Method == http.MethodGet:
-			json.NewEncoder(w).Encode(map[string]any{"lists": []any{}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"lists": []any{}})
 		case r.URL.Path == "/api/lists" && r.Method == http.MethodPost:
-			json.NewEncoder(w).Encode(map[string]any{"list": map[string]any{"id": 1, "address": "https://example.com/list.txt"}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"list": map[string]any{"id": 1, "address": "https://example.com/list.txt"}})
 		case strings.HasPrefix(r.URL.Path, "/api/domains"):
-			json.NewEncoder(w).Encode(map[string]any{"domains": []any{}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"domains": []any{}})
 		case r.URL.Path == "/api/config/dns/hosts":
-			json.NewEncoder(w).Encode(map[string]any{"config": map[string]any{"dns": map[string]any{"hosts": []any{}}}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"config": map[string]any{"dns": map[string]any{"hosts": []any{}}}})
 		case r.URL.Path == "/api/config/dns/cnameRecords":
-			json.NewEncoder(w).Encode(map[string]any{"config": map[string]any{"dns": map[string]any{"cnameRecords": []any{}}}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"config": map[string]any{"dns": map[string]any{"cnameRecords": []any{}}}})
 		case r.URL.Path == "/api/clients":
-			json.NewEncoder(w).Encode(map[string]any{"clients": []any{}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"clients": []any{}})
 		case r.URL.Path == "/api/action/gravity":
 			w.WriteHeader(http.StatusInternalServerError)
 		default:
@@ -757,7 +757,7 @@ adlists:
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.WriteString(cfgStr)
+	_, _ = f.WriteString(cfgStr)
 	f.Close()
 
 	loadedCfg, err := config.Load(f.Name())
@@ -779,27 +779,27 @@ func TestRunPlan_WithChanges(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/auth" && r.Method == http.MethodPost:
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]string{"sid": "s"},
 			})
 		case r.URL.Path == "/api/auth" && r.Method == http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		case r.URL.Path == "/api/groups":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"groups": []any{
 					map[string]any{"id": 0, "name": "Default", "comment": "", "enabled": true},
 				},
 			})
 		case r.URL.Path == "/api/lists" && r.Method == http.MethodGet:
-			json.NewEncoder(w).Encode(map[string]any{"lists": []any{}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"lists": []any{}})
 		case strings.HasPrefix(r.URL.Path, "/api/domains"):
-			json.NewEncoder(w).Encode(map[string]any{"domains": []any{}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"domains": []any{}})
 		case r.URL.Path == "/api/config/dns/hosts":
-			json.NewEncoder(w).Encode(map[string]any{"config": map[string]any{"dns": map[string]any{"hosts": []any{}}}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"config": map[string]any{"dns": map[string]any{"hosts": []any{}}}})
 		case r.URL.Path == "/api/config/dns/cnameRecords":
-			json.NewEncoder(w).Encode(map[string]any{"config": map[string]any{"dns": map[string]any{"cnameRecords": []any{}}}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"config": map[string]any{"dns": map[string]any{"cnameRecords": []any{}}}})
 		case r.URL.Path == "/api/clients":
-			json.NewEncoder(w).Encode(map[string]any{"clients": []any{}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"clients": []any{}})
 		default:
 			w.WriteHeader(http.StatusOK)
 		}
@@ -993,6 +993,7 @@ func TestTryReloadConfig_Changed(t *testing.T) {
 	}
 	if newCfg == nil {
 		t.Fatal("expected non-nil config for changed file")
+		return
 	}
 	if len(newCfg.Targets) != 1 {
 		t.Errorf("expected 1 target, got %d", len(newCfg.Targets))

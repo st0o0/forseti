@@ -34,7 +34,7 @@ func newFullTestServer(data testData, counters *testCounters) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/auth" && r.Method == http.MethodPost:
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]string{"sid": "test-sid"},
 			})
 		case r.URL.Path == "/api/auth" && r.Method == http.MethodDelete:
@@ -42,10 +42,10 @@ func newFullTestServer(data testData, counters *testCounters) *httptest.Server {
 
 		// Groups
 		case r.URL.Path == "/api/groups" && r.Method == http.MethodGet:
-			json.NewEncoder(w).Encode(map[string]any{"groups": data.groups})
+			_ = json.NewEncoder(w).Encode(map[string]any{"groups": data.groups})
 		case r.URL.Path == "/api/groups" && r.Method == http.MethodPost:
 			counters.creates.Add(1)
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"group": map[string]any{"id": 99, "name": "synced"},
 			})
 		case r.URL.Path == "/api/groups:batchDelete" && r.Method == http.MethodPost:
@@ -53,10 +53,10 @@ func newFullTestServer(data testData, counters *testCounters) *httptest.Server {
 
 		// Adlists
 		case r.URL.Path == "/api/lists" && r.Method == http.MethodGet:
-			json.NewEncoder(w).Encode(map[string]any{"lists": data.adlists})
+			_ = json.NewEncoder(w).Encode(map[string]any{"lists": data.adlists})
 		case r.URL.Path == "/api/lists" && r.Method == http.MethodPost:
 			counters.creates.Add(1)
-			json.NewEncoder(w).Encode(map[string]any{"lists": []any{}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"lists": []any{}})
 		case r.URL.Path == "/api/lists:batchDelete" && r.Method == http.MethodPost:
 			counters.deletes.Add(1)
 
@@ -73,10 +73,10 @@ func newFullTestServer(data testData, counters *testCounters) *httptest.Server {
 			case strings.HasSuffix(r.URL.Path, "/allow/regex"):
 				domains = data.allowRegex
 			}
-			json.NewEncoder(w).Encode(map[string]any{"domains": domains})
+			_ = json.NewEncoder(w).Encode(map[string]any{"domains": domains})
 		case strings.HasPrefix(r.URL.Path, "/api/domains/") && r.Method == http.MethodPost:
 			counters.creates.Add(1)
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"domain": map[string]any{"id": 99},
 			})
 		case r.URL.Path == "/api/domains:batchDelete" && r.Method == http.MethodPost:
@@ -84,7 +84,7 @@ func newFullTestServer(data testData, counters *testCounters) *httptest.Server {
 
 		// DNS records
 		case r.URL.Path == "/api/config/dns/hosts" && r.Method == http.MethodGet:
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"config": map[string]any{
 					"dns": map[string]any{"hosts": data.dns},
 				},
@@ -96,10 +96,10 @@ func newFullTestServer(data testData, counters *testCounters) *httptest.Server {
 
 		// Clients
 		case r.URL.Path == "/api/clients" && r.Method == http.MethodGet:
-			json.NewEncoder(w).Encode(map[string]any{"clients": data.clients})
+			_ = json.NewEncoder(w).Encode(map[string]any{"clients": data.clients})
 		case r.URL.Path == "/api/clients" && r.Method == http.MethodPost:
 			counters.creates.Add(1)
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"client": map[string]any{"id": 99},
 			})
 		case r.URL.Path == "/api/clients:batchDelete" && r.Method == http.MethodPost:
@@ -114,7 +114,7 @@ func newFullTestServer(data testData, counters *testCounters) *httptest.Server {
 func newErrorServer(failPath string) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/auth" && r.Method == http.MethodPost {
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"session": map[string]string{"sid": "test-sid"},
 			})
 			return
@@ -125,11 +125,11 @@ func newErrorServer(failPath string) *httptest.Server {
 		}
 		if strings.Contains(r.URL.Path, failPath) || (failPath == "all" && r.URL.Path != "/api/auth") {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(`{"error":{"key":"internal","message":"server error"}}`))
+			_, _ = w.Write([]byte(`{"error":{"key":"internal","message":"server error"}}`))
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"groups": []any{}, "lists": []any{}, "domains": []any{},
 			"clients": []any{},
 			"config":  map[string]any{"dns": map[string]any{"hosts": []any{}}},
@@ -256,15 +256,15 @@ func newCreateFailServer(data testData) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/auth" && r.Method == http.MethodPost:
-			json.NewEncoder(w).Encode(map[string]any{"session": map[string]string{"sid": "test-sid"}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"session": map[string]string{"sid": "test-sid"}})
 		case r.URL.Path == "/api/auth" && r.Method == http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		case r.Method == http.MethodGet:
 			switch {
 			case r.URL.Path == "/api/groups":
-				json.NewEncoder(w).Encode(map[string]any{"groups": data.groups})
+				_ = json.NewEncoder(w).Encode(map[string]any{"groups": data.groups})
 			case r.URL.Path == "/api/lists":
-				json.NewEncoder(w).Encode(map[string]any{"lists": data.adlists})
+				_ = json.NewEncoder(w).Encode(map[string]any{"lists": data.adlists})
 			case strings.HasPrefix(r.URL.Path, "/api/domains/"):
 				var domains []pihole.APIDomain
 				switch {
@@ -277,17 +277,17 @@ func newCreateFailServer(data testData) *httptest.Server {
 				case strings.HasSuffix(r.URL.Path, "/allow/regex"):
 					domains = data.allowRegex
 				}
-				json.NewEncoder(w).Encode(map[string]any{"domains": domains})
+				_ = json.NewEncoder(w).Encode(map[string]any{"domains": domains})
 			case r.URL.Path == "/api/config/dns/hosts":
-				json.NewEncoder(w).Encode(map[string]any{"config": map[string]any{"dns": map[string]any{"hosts": data.dns}}})
+				_ = json.NewEncoder(w).Encode(map[string]any{"config": map[string]any{"dns": map[string]any{"hosts": data.dns}}})
 			case r.URL.Path == "/api/clients":
-				json.NewEncoder(w).Encode(map[string]any{"clients": data.clients})
+				_ = json.NewEncoder(w).Encode(map[string]any{"clients": data.clients})
 			default:
-				json.NewEncoder(w).Encode(map[string]any{})
+				_ = json.NewEncoder(w).Encode(map[string]any{})
 			}
 		default:
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(`{"error":{"key":"internal","message":"create failed"}}`))
+			_, _ = w.Write([]byte(`{"error":{"key":"internal","message":"create failed"}}`))
 		}
 	}))
 }
