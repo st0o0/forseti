@@ -20,6 +20,6 @@ EXPOSE 9099
 
 HEALTHCHECK --interval=30s --timeout=10s \
            --start-period=15s --retries=3 \
-  CMD ["/forseti", "healthcheck"]
+  CMD ["/forseti", "healthcheck", "--config", "/config/forseti.yml"]
 
 ENTRYPOINT ["/forseti"]

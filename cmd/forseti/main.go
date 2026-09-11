@@ -38,7 +38,7 @@ func main() {
 	case "watch":
 		os.Exit(runWatch(os.Args[2:]))
 	case "healthcheck":
-		fmt.Println("ok")
+		os.Exit(runHealthcheck(os.Args[2:]))
 	case "version":
 		fmt.Printf("forseti %s\n", version)
 	default:
@@ -54,7 +54,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  forseti apply   --config <path>   Reconcile desired state")
 	fmt.Fprintln(os.Stderr, "  forseti watch   --config <path>   Daemon mode with metrics server")
 	fmt.Fprintln(os.Stderr, "  forseti version                   Print version")
-	fmt.Fprintln(os.Stderr, "  forseti healthcheck               Liveness probe")
+	fmt.Fprintln(os.Stderr, "  forseti healthcheck --config <path>   Liveness probe (checks all targets)")
 }
 
 func parseConfigFlag(args []string, name string) string {
@@ -129,6 +129,42 @@ func runApply(args []string) int {
 			for _, e := range report.Errors {
 				fmt.Fprintf(os.Stderr, "[%s] warning: %v\n", target.Name, e)
 			}
+			exitCode = 1
+		}
+	}
+	return exitCode
+}
+
+func runHealthcheck(args []string) int {
+	cfgPath := parseConfigFlag(args, "healthcheck")
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+
+	exitCode := 0
+	for _, target := range cfg.Targets {
+		client := pihole.NewClient(target.URL, target.Password)
+
+		done := make(chan error, 1)
+		go func() {
+			done <- client.Login()
+		}()
+
+		timer := time.NewTimer(5 * time.Second)
+		select {
+		case err := <-done:
+			timer.Stop()
+			if err != nil {
+				fmt.Printf("[%s] error: %v\n", target.Name, err)
+				exitCode = 1
+			} else {
+				fmt.Printf("[%s] ok\n", target.Name)
+				client.Close()
+			}
+		case <-timer.C:
+			fmt.Printf("[%s] error: timeout after 5s\n", target.Name)
 			exitCode = 1
 		}
 	}
