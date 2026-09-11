@@ -28,6 +28,9 @@ type mockAPI struct {
 	updatedAdlists  []int
 	updatedClients  []int
 	updatedDomains  []int
+	cnameRecords    []pihole.APICNAMERecord
+	addedCNAME      []string
+	deletedCNAME    []string
 
 	listGroupsErr      error
 	listAdlistsErr     error
@@ -47,6 +50,9 @@ type mockAPI struct {
 	updateAdlistErr    error
 	updateClientErr    error
 	updateDomainErr    error
+	listCNAMEErr       error
+	addCNAMEErr        error
+	deleteCNAMEErr     error
 
 	nextGroupID int
 }
@@ -160,6 +166,20 @@ func (m *mockAPI) UpdateClient(id int, groups []int) error {
 func (m *mockAPI) UpdateDomain(id int, groups []int) error {
 	m.updatedDomains = append(m.updatedDomains, id)
 	return m.updateDomainErr
+}
+func (m *mockAPI) ListCNAMERecords() ([]pihole.APICNAMERecord, error) {
+	if m.listCNAMEErr != nil {
+		return nil, m.listCNAMEErr
+	}
+	return m.cnameRecords, nil
+}
+func (m *mockAPI) AddCNAMERecord(domain, target string) error {
+	m.addedCNAME = append(m.addedCNAME, domain+","+target)
+	return m.addCNAMEErr
+}
+func (m *mockAPI) DeleteCNAMERecord(domain, target string) error {
+	m.deletedCNAME = append(m.deletedCNAME, domain+","+target)
+	return m.deleteCNAMEErr
 }
 
 // --- Diff function tests ---
@@ -1410,5 +1430,131 @@ func TestApplyDeletesManagedRegex(t *testing.T) {
 	}
 	if len(mock.deletedDomains2) != 1 {
 		t.Errorf("deleted = %d, want 1", len(mock.deletedDomains2))
+	}
+}
+
+func TestDiffCNAME(t *testing.T) {
+	t.Run("add new CNAME", func(t *testing.T) {
+		diff := diffCNAME(
+			[]config.CNAMEEntry{{Domain: "app.example.com", Target: "server.example.com"}},
+			nil,
+			false,
+		)
+		if len(diff.Adds) != 1 || diff.Adds[0].Key != "app.example.com,server.example.com" {
+			t.Errorf("expected add, got %v", diff.Adds)
+		}
+	})
+
+	t.Run("existing CNAME unchanged", func(t *testing.T) {
+		diff := diffCNAME(
+			[]config.CNAMEEntry{{Domain: "app.example.com", Target: "server.example.com"}},
+			[]pihole.APICNAMERecord{{Domain: "app.example.com", Target: "server.example.com"}},
+			false,
+		)
+		if diff.Unchanged != 1 {
+			t.Errorf("unchanged = %d, want 1", diff.Unchanged)
+		}
+		if diff.HasChanges() {
+			t.Error("should have no changes")
+		}
+	})
+
+	t.Run("additive-only preserves unmanaged CNAME", func(t *testing.T) {
+		diff := diffCNAME(
+			[]config.CNAMEEntry{{Domain: "app.example.com", Target: "server.example.com"}},
+			[]pihole.APICNAMERecord{
+				{Domain: "app.example.com", Target: "server.example.com"},
+				{Domain: "manual.example.com", Target: "other.example.com"},
+			},
+			false,
+		)
+		if len(diff.Deletes) != 0 {
+			t.Errorf("additive-only should not delete, got %v", diff.Deletes)
+		}
+	})
+
+	t.Run("purge mode deletes unmanaged CNAME", func(t *testing.T) {
+		diff := diffCNAME(
+			[]config.CNAMEEntry{{Domain: "app.example.com", Target: "server.example.com"}},
+			[]pihole.APICNAMERecord{
+				{Domain: "app.example.com", Target: "server.example.com"},
+				{Domain: "stale.example.com", Target: "old.example.com"},
+			},
+			true,
+		)
+		if len(diff.Deletes) != 1 || diff.Deletes[0].Key != "stale.example.com,old.example.com" {
+			t.Errorf("purge should delete stale, got %v", diff.Deletes)
+		}
+	})
+
+	t.Run("mixed add and unchanged", func(t *testing.T) {
+		diff := diffCNAME(
+			[]config.CNAMEEntry{
+				{Domain: "app.example.com", Target: "server.example.com"},
+				{Domain: "new.example.com", Target: "target.example.com"},
+			},
+			[]pihole.APICNAMERecord{
+				{Domain: "app.example.com", Target: "server.example.com"},
+			},
+			false,
+		)
+		if len(diff.Adds) != 1 {
+			t.Errorf("adds = %d, want 1", len(diff.Adds))
+		}
+		if diff.Unchanged != 1 {
+			t.Errorf("unchanged = %d, want 1", diff.Unchanged)
+		}
+	})
+
+	t.Run("empty desired and actual", func(t *testing.T) {
+		diff := diffCNAME(nil, nil, false)
+		if diff.HasChanges() {
+			t.Error("empty diff should have no changes")
+		}
+	})
+}
+
+func TestApplyCNAME(t *testing.T) {
+	mock := newMockAPI()
+	mock.cnameRecords = []pihole.APICNAMERecord{
+		{Domain: "existing.example.com", Target: "target.example.com"},
+	}
+	cfg := &config.Config{
+		CNAME: []config.CNAMEEntry{
+			{Domain: "existing.example.com", Target: "target.example.com"},
+			{Domain: "new.example.com", Target: "server.example.com"},
+		},
+	}
+	target := config.Target{Name: "test"}
+	report, err := Apply(cfg, target, mock, "[forseti]")
+	if err != nil {
+		t.Fatalf("Apply() error: %v", err)
+	}
+	if len(mock.addedCNAME) != 1 || mock.addedCNAME[0] != "new.example.com,server.example.com" {
+		t.Errorf("added CNAME = %v, want [new.example.com,server.example.com]", mock.addedCNAME)
+	}
+	if report.Diff.CNAME.Unchanged != 1 {
+		t.Errorf("unchanged = %d, want 1", report.Diff.CNAME.Unchanged)
+	}
+}
+
+func TestApplyCNAMEPurge(t *testing.T) {
+	mock := newMockAPI()
+	mock.cnameRecords = []pihole.APICNAMERecord{
+		{Domain: "stale.example.com", Target: "old.example.com"},
+	}
+	cfg := &config.Config{
+		Reconcile: config.Reconcile{CNAMEPurge: true},
+	}
+	target := config.Target{Name: "test"}
+	report, err := Apply(cfg, target, mock, "[forseti]")
+	if err != nil {
+		t.Fatalf("Apply() error: %v", err)
+	}
+	if len(mock.deletedCNAME) != 1 || mock.deletedCNAME[0] != "stale.example.com,old.example.com" {
+		t.Errorf("deleted CNAME = %v, want [stale.example.com,old.example.com]", mock.deletedCNAME)
+	}
+	if !report.Diff.CNAME.HasChanges() {
+		t.Error("expected CNAME changes")
 	}
 }

@@ -2,6 +2,7 @@ package reconcile
 
 import (
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 
@@ -28,6 +29,9 @@ type PiholeAPI interface {
 	UpdateAdlist(id int, groups []int) error
 	UpdateClient(id int, groups []int) error
 	UpdateDomain(id int, groups []int) error
+	ListCNAMERecords() ([]pihole.APICNAMERecord, error)
+	AddCNAMERecord(domain, target string) error
+	DeleteCNAMERecord(domain, target string) error
 }
 
 type DiffAction string
@@ -62,6 +66,7 @@ type DiffReport struct {
 	Deny         ResourceDiff
 	Allow        ResourceDiff
 	LocalDNS     ResourceDiff
+	CNAME        ResourceDiff
 	Clients      ResourceDiff
 	NeedsGravity bool
 }
@@ -114,6 +119,12 @@ func Plan(cfg *config.Config, target config.Target, api PiholeAPI, marker string
 		return nil, fmt.Errorf("list DNS records: %w", err)
 	}
 	report.LocalDNS = diffDNS(cfg.LocalDNS, dnsRecords, cfg.Reconcile.LocalDNSPurge)
+
+	cnameRecords, err := api.ListCNAMERecords()
+	if err != nil {
+		return nil, fmt.Errorf("list CNAME records: %w", err)
+	}
+	report.CNAME = diffCNAME(cfg.CNAME, cnameRecords, cfg.Reconcile.CNAMEPurge)
 
 	clients, err := api.ListClients()
 	if err != nil {
@@ -237,6 +248,28 @@ func Apply(cfg *config.Config, target config.Target, api PiholeAPI, marker strin
 		if err := api.DeleteDNSRecord(parts[0], parts[1]); err != nil {
 			report.Errors = append(report.Errors, fmt.Errorf("delete DNS %q: %w", entry.Key, err))
 		}
+	}
+
+	// CNAME
+	cnameRecords, err := api.ListCNAMERecords()
+	if err != nil {
+		return nil, fmt.Errorf("list CNAME: %w", err)
+	}
+	report.Diff.CNAME = diffCNAME(cfg.CNAME, cnameRecords, cfg.Reconcile.CNAMEPurge)
+	for _, entry := range report.Diff.CNAME.Adds {
+		parts := strings.SplitN(entry.Key, ",", 2)
+		if err := api.AddCNAMERecord(parts[0], parts[1]); err != nil {
+			report.Errors = append(report.Errors, fmt.Errorf("add CNAME %q: %w", entry.Key, err))
+		}
+	}
+	for _, entry := range report.Diff.CNAME.Deletes {
+		parts := strings.SplitN(entry.Key, ",", 2)
+		if err := api.DeleteCNAMERecord(parts[0], parts[1]); err != nil {
+			report.Errors = append(report.Errors, fmt.Errorf("delete CNAME %q: %w", entry.Key, err))
+		}
+	}
+	if report.Diff.CNAME.HasChanges() {
+		log.Printf("WARNING: CNAME changes will trigger FTL restart (brief DNS outage)")
 	}
 
 	// Clients
@@ -399,6 +432,35 @@ func diffDNS(desired []config.LocalDNSEntry, actual []pihole.APIDNSRecord, purge
 	if purge {
 		for _, r := range actual {
 			key := r.IP + " " + r.Domain
+			if !desiredKeys[key] {
+				diff.Deletes = append(diff.Deletes, DiffEntry{Action: ActionDelete, Key: key})
+			}
+		}
+	}
+	return diff
+}
+
+func diffCNAME(desired []config.CNAMEEntry, actual []pihole.APICNAMERecord, purge bool) ResourceDiff {
+	var diff ResourceDiff
+	actualKeys := make(map[string]bool)
+	for _, r := range actual {
+		actualKeys[r.Domain+","+r.Target] = true
+	}
+
+	desiredKeys := make(map[string]bool)
+	for _, d := range desired {
+		key := d.Domain + "," + d.Target
+		desiredKeys[key] = true
+		if actualKeys[key] {
+			diff.Unchanged++
+		} else {
+			diff.Adds = append(diff.Adds, DiffEntry{Action: ActionAdd, Key: key})
+		}
+	}
+
+	if purge {
+		for _, r := range actual {
+			key := r.Domain + "," + r.Target
 			if !desiredKeys[key] {
 				diff.Deletes = append(diff.Deletes, DiffEntry{Action: ActionDelete, Key: key})
 			}

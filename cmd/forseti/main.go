@@ -281,6 +281,7 @@ func printDiffReport(r *reconcile.DiffReport) {
 	printResourceLine("deny", r.Deny)
 	printResourceLine("allow", r.Allow)
 	printResourceLine("local_dns", r.LocalDNS)
+	printResourceLine("cname", r.CNAME)
 	printResourceLine("clients", r.Clients)
 	if r.NeedsGravity {
 		fmt.Println("  gravity update required")
@@ -297,7 +298,7 @@ func printResourceLine(name string, d reconcile.ResourceDiff) {
 func hasDiff(r *reconcile.DiffReport) bool {
 	return r.Groups.HasChanges() || r.Adlists.HasChanges() ||
 		r.Deny.HasChanges() || r.Allow.HasChanges() ||
-		r.LocalDNS.HasChanges() || r.Clients.HasChanges()
+		r.LocalDNS.HasChanges() || r.CNAME.HasChanges() || r.Clients.HasChanges()
 }
 
 func buildChangesMap(r *reconcile.DiffReport) map[string]map[string]int {
@@ -307,6 +308,7 @@ func buildChangesMap(r *reconcile.DiffReport) map[string]map[string]int {
 	addResourceChanges(m, "deny", r.Deny)
 	addResourceChanges(m, "allow", r.Allow)
 	addResourceChanges(m, "dns", r.LocalDNS)
+	addResourceChanges(m, "cname", r.CNAME)
 	addResourceChanges(m, "client", r.Clients)
 	return m
 }
@@ -329,6 +331,7 @@ func buildDriftMap(r *reconcile.DiffReport) map[string]int {
 	m["deny"] = len(r.Deny.Adds) + len(r.Deny.Deletes) + len(r.Deny.Updates)
 	m["allow"] = len(r.Allow.Adds) + len(r.Allow.Deletes) + len(r.Allow.Updates)
 	m["dns"] = len(r.LocalDNS.Adds) + len(r.LocalDNS.Deletes) + len(r.LocalDNS.Updates)
+	m["cname"] = len(r.CNAME.Adds) + len(r.CNAME.Deletes) + len(r.CNAME.Updates)
 	m["client"] = len(r.Clients.Adds) + len(r.Clients.Deletes) + len(r.Clients.Updates)
 	return m
 }

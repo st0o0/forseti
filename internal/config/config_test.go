@@ -1195,3 +1195,83 @@ deny:
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+func TestCNAMEValid(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+cname:
+  - domain: app.example.com
+    target: server.example.com
+`
+	path := writeTestConfig(t, cfg)
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if len(c.CNAME) != 1 {
+		t.Fatalf("expected 1 CNAME, got %d", len(c.CNAME))
+	}
+	if c.CNAME[0].Domain != "app.example.com" || c.CNAME[0].Target != "server.example.com" {
+		t.Errorf("unexpected CNAME: %+v", c.CNAME[0])
+	}
+}
+
+func TestCNAMEEmptyDomain(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+cname:
+  - domain: ""
+    target: server.example.com
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for empty CNAME domain")
+	}
+	if !strings.Contains(err.Error(), "domain is required") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestCNAMEEmptyTarget(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+cname:
+  - domain: app.example.com
+    target: ""
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for empty CNAME target")
+	}
+	if !strings.Contains(err.Error(), "target is required") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestCNAMEPurgeDefault(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+`
+	path := writeTestConfig(t, cfg)
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if c.Reconcile.CNAMEPurge {
+		t.Error("CNAMEPurge should default to false")
+	}
+}

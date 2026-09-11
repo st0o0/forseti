@@ -35,6 +35,7 @@ type Config struct {
 	Deny      []DenyEntry     `yaml:"deny"`
 	Allow     []AllowEntry    `yaml:"allow"`
 	LocalDNS  []LocalDNSEntry `yaml:"local_dns"`
+	CNAME     []CNAMEEntry    `yaml:"cname"`
 	Clients   []ClientEntry   `yaml:"clients"`
 }
 
@@ -67,6 +68,7 @@ type Reconcile struct {
 	Marker          string   `yaml:"marker"`
 	GravityOnChange *bool    `yaml:"gravity_on_change"`
 	LocalDNSPurge   bool     `yaml:"local_dns_purge"`
+	CNAMEPurge      bool     `yaml:"cname_purge"`
 }
 
 type Group struct {
@@ -88,6 +90,11 @@ type DenyEntry struct {
 type AllowEntry struct {
 	Domain string `yaml:"domain"`
 	Kind   string `yaml:"kind"`
+}
+
+type CNAMEEntry struct {
+	Domain string `yaml:"domain"`
+	Target string `yaml:"target"`
 }
 
 type LocalDNSEntry struct {
@@ -370,6 +377,17 @@ func validate(cfg *Config) error {
 		}
 		if net.ParseIP(dns.IP) == nil {
 			errs = append(errs, fmt.Errorf("local_dns[%d]: invalid IP %q", i, dns.IP))
+		}
+	}
+
+	for i, cn := range cfg.CNAME {
+		if err := validateDomain(cn.Domain); err != nil {
+			errs = append(errs, fmt.Errorf("cname[%d]: %w", i, err))
+		}
+		if cn.Target == "" {
+			errs = append(errs, fmt.Errorf("cname[%d]: target is required", i))
+		} else if err := validateDomain(cn.Target); err != nil {
+			errs = append(errs, fmt.Errorf("cname[%d]: target: %w", i, err))
 		}
 	}
 
