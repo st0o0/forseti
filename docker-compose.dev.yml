@@ -34,7 +34,7 @@ services:
       - pihole-alpha
       - pihole-beta
     volumes:
-      - ./forseti.dev.yml:/etc/forseti/forseti.yml:ro
+      - ./forseti.dev.yml:/config/forseti.yml:ro
     environment:
       PIHOLE_ALPHA_PASSWORD: ${PIHOLE_ALPHA_PASSWORD}
       PIHOLE_BETA_PASSWORD: ${PIHOLE_BETA_PASSWORD}
@@ -42,7 +42,7 @@ services:
       - "9099:9099"
     networks:
       - forseti-dev
-    command: ["watch", "--config", "/etc/forseti/forseti.yml"]
+    command: ["watch", "--config", "/config/forseti.yml"]
 
 networks:
   forseti-dev:
