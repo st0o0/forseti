@@ -131,7 +131,7 @@ func TestCreateDomain(t *testing.T) {
 	}
 	groups := gotBody["groups"].([]any)
 	if len(groups) != 1 || int(groups[0].(float64)) != 1 {
-		t.Errorf("groups should exclude 0, got %v", groups)
+		t.Errorf("groups should exclude 0 on create, got %v", groups)
 	}
 }
 
@@ -663,8 +663,6 @@ func TestGetBlockingStatusError(t *testing.T) {
 	}
 }
 
-// withoutDefault
-
 func TestWithoutDefault(t *testing.T) {
 	result := withoutDefault([]int{0, 1, 2, 0, 3})
 	if len(result) != 3 {
@@ -1027,5 +1025,47 @@ func TestCloseInvalidURL(t *testing.T) {
 	err := c.Close()
 	if err == nil {
 		t.Fatal("should error on invalid URL in Close")
+	}
+}
+
+// DHCP Leases
+
+func TestGetDHCPLeases(t *testing.T) {
+	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/dhcp/leases" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"leases": []map[string]any{
+					{"ip": "192.168.1.100", "name": "laptop", "hwaddr": "aa:bb:cc:dd:ee:ff", "expires": 1234567890},
+					{"ip": "192.168.1.101", "name": "phone", "hwaddr": "11:22:33:44:55:66", "expires": 1234567900},
+				},
+			})
+			return
+		}
+	})
+
+	leases, err := c.GetDHCPLeases()
+	if err != nil {
+		t.Fatalf("GetDHCPLeases() error: %v", err)
+	}
+	if len(leases) != 2 {
+		t.Fatalf("len = %d, want 2", len(leases))
+	}
+	if leases[0].IP != "192.168.1.100" {
+		t.Errorf("IP = %q", leases[0].IP)
+	}
+	if leases[0].Hostname != "laptop" {
+		t.Errorf("Hostname = %q", leases[0].Hostname)
+	}
+}
+
+func TestGetDHCPLeasesError(t *testing.T) {
+	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("error"))
+	})
+
+	_, err := c.GetDHCPLeases()
+	if err == nil {
+		t.Fatal("GetDHCPLeases() should error on 500")
 	}
 }

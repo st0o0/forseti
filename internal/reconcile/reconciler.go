@@ -26,9 +26,9 @@ type PiholeAPI interface {
 	ListClients() ([]pihole.APIClient, error)
 	CreateClient(ip, comment string, groups []int) (*pihole.APIClient, error)
 	DeleteClients(ips []string) error
-	UpdateAdlist(id int, groups []int) error
-	UpdateClient(id int, groups []int) error
-	UpdateDomain(id int, groups []int) error
+	UpdateAdlist(address string, comment string, groups []int) error
+	UpdateClient(ip string, comment string, groups []int) error
+	UpdateDomain(domain string, comment string, groups []int) error
 	ListCNAMERecords() ([]pihole.APICNAMERecord, error)
 	AddCNAMERecord(domain, target string) error
 	DeleteCNAMERecord(domain, target string) error
@@ -77,15 +77,22 @@ type ApplyReport struct {
 	Errors []error
 }
 
-func Plan(cfg *config.Config, target config.Target, api PiholeAPI, marker string) (*DiffReport, error) {
+type ReconcileOptions struct {
+	Marker       string
+	LocalDNSPurge bool
+	CNAMEPurge    bool
+}
 
-	report := &DiffReport{Target: target.Name}
+func Plan(rt *config.ResolvedTarget, api PiholeAPI, opts ReconcileOptions) (*DiffReport, error) {
+	marker := opts.Marker
+
+	report := &DiffReport{Target: rt.Name}
 
 	groups, err := api.ListGroups()
 	if err != nil {
 		return nil, fmt.Errorf("list groups: %w", err)
 	}
-	report.Groups = diffGroups(cfg.Groups, groups, marker)
+	report.Groups = diffGroups(rt.Groups, groups, marker)
 
 	groupNameToID := buildGroupNameToID(groups)
 
@@ -93,24 +100,24 @@ func Plan(cfg *config.Config, target config.Target, api PiholeAPI, marker string
 	if err != nil {
 		return nil, fmt.Errorf("list adlists: %w", err)
 	}
-	report.Adlists = diffAdlists(cfg.Adlists, adlists, marker, groupNameToID)
+	report.Adlists = diffAdlists(rt.Adlists, adlists, marker, groupNameToID)
 	report.NeedsGravity = report.Adlists.HasChanges()
 
-	for _, kind := range collectDenyKinds(cfg.Deny) {
+	for _, kind := range collectDenyKinds(rt.Deny) {
 		denyDomains, err := api.ListDomains("deny", kind)
 		if err != nil {
 			return nil, fmt.Errorf("list deny/%s: %w", kind, err)
 		}
-		kindDiff := diffDomains(filterDenyByKind(cfg.Deny, kind), denyDomains, marker)
+		kindDiff := diffDomains(filterDenyByKind(rt.Deny, kind), denyDomains, marker)
 		mergeDiff(&report.Deny, kindDiff)
 	}
 
-	for _, kind := range collectAllowKinds(cfg.Allow) {
+	for _, kind := range collectAllowKinds(rt.Allow) {
 		allowDomains, err := api.ListDomains("allow", kind)
 		if err != nil {
 			return nil, fmt.Errorf("list allow/%s: %w", kind, err)
 		}
-		kindDiff := diffAllowDomains(filterAllowByKind(cfg.Allow, kind), allowDomains, marker)
+		kindDiff := diffAllowDomains(filterAllowByKind(rt.Allow, kind), allowDomains, marker)
 		mergeDiff(&report.Allow, kindDiff)
 	}
 
@@ -118,33 +125,35 @@ func Plan(cfg *config.Config, target config.Target, api PiholeAPI, marker string
 	if err != nil {
 		return nil, fmt.Errorf("list DNS records: %w", err)
 	}
-	report.LocalDNS = diffDNS(cfg.LocalDNS, dnsRecords, cfg.Reconcile.LocalDNSPurge)
+	report.LocalDNS = diffDNS(rt.LocalDNS, dnsRecords, opts.LocalDNSPurge)
 
 	cnameRecords, err := api.ListCNAMERecords()
 	if err != nil {
 		return nil, fmt.Errorf("list CNAME records: %w", err)
 	}
-	report.CNAME = diffCNAME(cfg.CNAME, cnameRecords, cfg.Reconcile.CNAMEPurge)
+	report.CNAME = diffCNAME(rt.CNAME, cnameRecords, opts.CNAMEPurge)
 
 	clients, err := api.ListClients()
 	if err != nil {
 		return nil, fmt.Errorf("list clients: %w", err)
 	}
-	report.Clients = diffClients(cfg.Clients, clients, marker, groupNameToID)
+	report.Clients = diffClients(rt.Clients, clients, marker, groupNameToID)
 
 	return report, nil
 }
 
-func Apply(cfg *config.Config, target config.Target, api PiholeAPI, marker string) (*ApplyReport, error) {
+func Apply(rt *config.ResolvedTarget, api PiholeAPI, opts ReconcileOptions) (*ApplyReport, error) {
+	marker := opts.Marker
 
-	report := &ApplyReport{Target: target.Name}
+	report := &ApplyReport{Target: rt.Name}
 
 	// Fetch actual state and compute diffs
 	groups, err := api.ListGroups()
 	if err != nil {
 		return nil, fmt.Errorf("list groups: %w", err)
 	}
-	report.Diff.Groups = diffGroups(cfg.Groups, groups, marker)
+	report.Diff.Groups = diffGroups(rt.Groups, groups, marker)
+	logDiff(rt.Name, "groups", report.Diff.Groups)
 
 	// Apply groups first (forward order for adds)
 	groupNameToID := buildGroupNameToID(groups)
@@ -167,18 +176,19 @@ func Apply(cfg *config.Config, target config.Target, api PiholeAPI, marker strin
 	if err != nil {
 		return nil, fmt.Errorf("list adlists: %w", err)
 	}
-	report.Diff.Adlists = diffAdlists(cfg.Adlists, adlists, marker, groupNameToID)
+	report.Diff.Adlists = diffAdlists(rt.Adlists, adlists, marker, groupNameToID)
+	logDiff(rt.Name, "adlists", report.Diff.Adlists)
 	for _, entry := range report.Diff.Adlists.Adds {
-		adlist := findAdlistByURL(cfg.Adlists, entry.Key)
+		adlist := findAdlistByURL(rt.Adlists, entry.Key)
 		groupIDs := resolveGroupIDs(adlist.Groups, groupNameToID)
 		if _, err := api.CreateAdlist(entry.Key, marker, true, groupIDs); err != nil {
 			report.Errors = append(report.Errors, fmt.Errorf("create adlist %q: %w", entry.Key, err))
 		}
 	}
 	for _, entry := range report.Diff.Adlists.Updates {
-		adlist := findAdlistByURL(cfg.Adlists, entry.Key)
+		adlist := findAdlistByURL(rt.Adlists, entry.Key)
 		groupIDs := resolveGroupIDs(adlist.Groups, groupNameToID)
-		if err := api.UpdateAdlist(entry.ID, groupIDs); err != nil {
+		if err := api.UpdateAdlist(entry.Key, marker, groupIDs); err != nil {
 			report.Errors = append(report.Errors, fmt.Errorf("update adlist %q: %w", entry.Key, err))
 		}
 	}
@@ -190,12 +200,12 @@ func Apply(cfg *config.Config, target config.Target, api PiholeAPI, marker strin
 	report.Diff.NeedsGravity = report.Diff.Adlists.HasChanges()
 
 	// Deny domains (per-kind)
-	for _, kind := range collectDenyKinds(cfg.Deny) {
+	for _, kind := range collectDenyKinds(rt.Deny) {
 		denyDomains, err := api.ListDomains("deny", kind)
 		if err != nil {
 			return nil, fmt.Errorf("list deny/%s: %w", kind, err)
 		}
-		kindDeny := filterDenyByKind(cfg.Deny, kind)
+		kindDeny := filterDenyByKind(rt.Deny, kind)
 		kindDiff := diffDomains(kindDeny, denyDomains, marker)
 		for _, entry := range kindDiff.Adds {
 			if _, err := api.CreateDomain("deny", kind, entry.Key, marker, true, nil); err != nil {
@@ -211,12 +221,12 @@ func Apply(cfg *config.Config, target config.Target, api PiholeAPI, marker strin
 	}
 
 	// Allow domains (per-kind)
-	for _, kind := range collectAllowKinds(cfg.Allow) {
+	for _, kind := range collectAllowKinds(rt.Allow) {
 		allowDomains, err := api.ListDomains("allow", kind)
 		if err != nil {
 			return nil, fmt.Errorf("list allow/%s: %w", kind, err)
 		}
-		kindAllow := filterAllowByKind(cfg.Allow, kind)
+		kindAllow := filterAllowByKind(rt.Allow, kind)
 		kindDiff := diffAllowDomains(kindAllow, allowDomains, marker)
 		for _, entry := range kindDiff.Adds {
 			if _, err := api.CreateDomain("allow", kind, entry.Key, marker, true, nil); err != nil {
@@ -236,7 +246,7 @@ func Apply(cfg *config.Config, target config.Target, api PiholeAPI, marker strin
 	if err != nil {
 		return nil, fmt.Errorf("list DNS: %w", err)
 	}
-	report.Diff.LocalDNS = diffDNS(cfg.LocalDNS, dnsRecords, cfg.Reconcile.LocalDNSPurge)
+	report.Diff.LocalDNS = diffDNS(rt.LocalDNS, dnsRecords, opts.LocalDNSPurge)
 	for _, entry := range report.Diff.LocalDNS.Adds {
 		parts := strings.SplitN(entry.Key, " ", 2)
 		if err := api.AddDNSRecord(parts[0], parts[1]); err != nil {
@@ -255,7 +265,7 @@ func Apply(cfg *config.Config, target config.Target, api PiholeAPI, marker strin
 	if err != nil {
 		return nil, fmt.Errorf("list CNAME: %w", err)
 	}
-	report.Diff.CNAME = diffCNAME(cfg.CNAME, cnameRecords, cfg.Reconcile.CNAMEPurge)
+	report.Diff.CNAME = diffCNAME(rt.CNAME, cnameRecords, opts.CNAMEPurge)
 	for _, entry := range report.Diff.CNAME.Adds {
 		parts := strings.SplitN(entry.Key, ",", 2)
 		if err := api.AddCNAMERecord(parts[0], parts[1]); err != nil {
@@ -269,7 +279,7 @@ func Apply(cfg *config.Config, target config.Target, api PiholeAPI, marker strin
 		}
 	}
 	if report.Diff.CNAME.HasChanges() {
-		slog.Warn("CNAME changes will trigger FTL restart (brief DNS outage)")
+		slog.Warn("CNAME changes will trigger FTL restart (brief DNS outage)", "target", rt.Name)
 	}
 
 	// Clients
@@ -277,18 +287,19 @@ func Apply(cfg *config.Config, target config.Target, api PiholeAPI, marker strin
 	if err != nil {
 		return nil, fmt.Errorf("list clients: %w", err)
 	}
-	report.Diff.Clients = diffClients(cfg.Clients, clients, marker, groupNameToID)
+	report.Diff.Clients = diffClients(rt.Clients, clients, marker, groupNameToID)
+	logDiff(rt.Name, "clients", report.Diff.Clients)
 	for _, entry := range report.Diff.Clients.Adds {
-		client := findClientByMatch(cfg.Clients, entry.Key)
+		client := findClientByMatch(rt.Clients, entry.Key)
 		groupIDs := resolveGroupIDs(client.Groups, groupNameToID)
 		if _, err := api.CreateClient(entry.Key, marker, groupIDs); err != nil {
 			report.Errors = append(report.Errors, fmt.Errorf("create client %q: %w", entry.Key, err))
 		}
 	}
 	for _, entry := range report.Diff.Clients.Updates {
-		client := findClientByMatch(cfg.Clients, entry.Key)
+		client := findClientByMatch(rt.Clients, entry.Key)
 		groupIDs := resolveGroupIDs(client.Groups, groupNameToID)
-		if err := api.UpdateClient(entry.ID, groupIDs); err != nil {
+		if err := api.UpdateClient(entry.Key, marker, groupIDs); err != nil {
 			report.Errors = append(report.Errors, fmt.Errorf("update client %q: %w", entry.Key, err))
 		}
 	}
@@ -298,7 +309,7 @@ func Apply(cfg *config.Config, target config.Target, api PiholeAPI, marker strin
 		}
 	}
 
-	report.Diff.Target = target.Name
+	report.Diff.Target = rt.Name
 	return report, nil
 }
 
@@ -636,4 +647,17 @@ func mergeDiff(target *ResourceDiff, source ResourceDiff) {
 	target.Deletes = append(target.Deletes, source.Deletes...)
 	target.Updates = append(target.Updates, source.Updates...)
 	target.Unchanged += source.Unchanged
+}
+
+func logDiff(target, resource string, d ResourceDiff) {
+	if !d.HasChanges() {
+		return
+	}
+	slog.Debug("drift detected",
+		"target", target,
+		"resource", resource,
+		"adds", len(d.Adds),
+		"updates", len(d.Updates),
+		"deletes", len(d.Deletes),
+	)
 }

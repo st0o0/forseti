@@ -14,7 +14,15 @@ The reconciler SHALL only manage entries tagged with the configured marker (defa
 - **THEN** the reconciler SHALL never touch that entry, even if it is not in the YAML config
 
 ### Requirement: Reconcile ordering
-The reconciler SHALL process resource types in this fixed order: groups -> adlists -> deny domains -> allow domains -> local DNS -> clients. Groups MUST be reconciled first because adlists, domains, and clients reference groups by ID.
+The reconciler SHALL process resource types in this fixed order: settings → groups → adlists → deny domains → allow domains → local DNS → CNAME → clients. Settings MUST be reconciled first because some settings (e.g., force_on_disk) affect how the Pi-hole processes subsequent content changes. Groups MUST be reconciled before content types that reference groups.
+
+#### Scenario: Settings applied before content
+- **WHEN** the effective config for a target has both settings changes and adlist changes
+- **THEN** the reconciler SHALL apply settings changes first, then proceed with content reconciliation in the established order
+
+#### Scenario: No settings declared
+- **WHEN** the effective config for a target has no settings section
+- **THEN** the reconciler SHALL skip the settings step and proceed directly with groups
 
 #### Scenario: Group created before client assignment
 - **WHEN** config defines a new group `kids` and a client assigned to `kids`
@@ -57,8 +65,12 @@ The `watch` command SHALL run as a long-lived daemon that periodically executes 
 - **THEN** the system SHALL reconcile every 5 minutes and keep the metrics server running between cycles
 
 ### Requirement: Multi-target reconciliation
-The reconciler SHALL apply the same desired state to all configured targets independently. A failure against one target SHALL NOT prevent reconciliation of other targets.
+The reconciler SHALL apply each target's effective config independently. A failure against one target SHALL NOT prevent reconciliation of other targets. Each target's effective config MAY differ due to per-target overrides.
 
 #### Scenario: One target unreachable
 - **WHEN** target pihole-router is unreachable but pihole-pi is healthy
-- **THEN** the reconciler SHALL reconcile pihole-pi successfully and report the failure for pihole-router
+- **THEN** the reconciler SHALL reconcile pihole-pi with its effective config successfully and report the failure for pihole-router
+
+#### Scenario: Targets with different effective configs
+- **WHEN** pihole-kids has extra deny entries from its override file and pihole-office uses pure global defaults
+- **THEN** the reconciler SHALL apply the extended deny list to pihole-kids and the base deny list to pihole-office

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -47,12 +48,14 @@ type authResponse struct {
 }
 
 func (c *Client) Login() error {
+	slog.Debug("authenticating", "url", c.baseURL)
 	body := map[string]string{"password": c.password}
 	var resp authResponse
 	if err := c.doJSON(http.MethodPost, "/api/auth", body, &resp); err != nil {
 		return fmt.Errorf("login: %w", err)
 	}
 	c.sid = resp.Session.SID
+	slog.Debug("authenticated", "url", c.baseURL)
 	return nil
 }
 
@@ -240,7 +243,7 @@ func (c *Client) DeleteAdlists(addresses []string) error {
 	for i, addr := range addresses {
 		items[i] = map[string]string{"item": addr}
 	}
-	return c.doJSON(http.MethodPost, "/api/lists:batchDelete", items, nil)
+	return c.doJSON(http.MethodPost, "/api/lists:batchDelete?type=block", items, nil)
 }
 
 // Domains
@@ -351,21 +354,21 @@ func (c *Client) DeleteClients(ips []string) error {
 	return c.doJSON(http.MethodPost, "/api/clients:batchDelete", items, nil)
 }
 
-func (c *Client) UpdateAdlist(id int, groups []int) error {
-	body := map[string]any{"groups": withoutDefault(groups)}
-	path := fmt.Sprintf("/api/lists/%d", id)
+func (c *Client) UpdateAdlist(address string, comment string, groups []int) error {
+	body := map[string]any{"comment": comment, "groups": groups}
+	path := "/api/lists/" + url.PathEscape(address) + "?type=block"
 	return c.doJSON(http.MethodPut, path, body, nil)
 }
 
-func (c *Client) UpdateClient(id int, groups []int) error {
-	body := map[string]any{"groups": withoutDefault(groups)}
-	path := fmt.Sprintf("/api/clients/%d", id)
+func (c *Client) UpdateClient(ip string, comment string, groups []int) error {
+	body := map[string]any{"comment": comment, "groups": groups}
+	path := "/api/clients/" + url.PathEscape(ip)
 	return c.doJSON(http.MethodPut, path, body, nil)
 }
 
-func (c *Client) UpdateDomain(id int, groups []int) error {
-	body := map[string]any{"groups": withoutDefault(groups)}
-	path := fmt.Sprintf("/api/domains/deny/exact/%d", id)
+func (c *Client) UpdateDomain(domain string, comment string, groups []int) error {
+	body := map[string]any{"comment": comment, "groups": groups}
+	path := "/api/domains/deny/exact/" + url.PathEscape(domain)
 	return c.doJSON(http.MethodPut, path, body, nil)
 }
 
@@ -433,6 +436,25 @@ func (c *Client) DeleteCNAMERecord(domain, target string) error {
 	return c.doJSON(http.MethodDelete, "/api/config/dns/cnameRecords/"+entry, nil, nil)
 }
 
+// DHCP
+
+type APIDHCPLease struct {
+	IP       string `json:"ip"`
+	Hostname string `json:"name"`
+	MAC      string `json:"hwaddr"`
+	Expires  int64  `json:"expires"`
+}
+
+func (c *Client) GetDHCPLeases() ([]APIDHCPLease, error) {
+	var resp struct {
+		Leases []APIDHCPLease `json:"leases"`
+	}
+	if err := c.doJSON(http.MethodGet, "/api/dhcp/leases", nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Leases, nil
+}
+
 // Stats
 
 func (c *Client) GetStats() (*Stats, error) {
@@ -483,6 +505,27 @@ func (c *Client) GetBlockingStatus() (bool, error) {
 	return resp.Blocking == "enabled", nil
 }
 
+// Config
+
+func (c *Client) GetConfig() (map[string]any, error) {
+	var resp struct {
+		Config map[string]any `json:"config"`
+	}
+	if err := c.doJSON(http.MethodGet, "/api/config", nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Config, nil
+}
+
+func (c *Client) PatchConfig(path string, value any) error {
+	parts := strings.Split(path, "/")
+	body := value
+	for i := len(parts) - 1; i >= 0; i-- {
+		body = map[string]any{parts[i]: body}
+	}
+	return c.doJSON(http.MethodPatch, "/api/config", map[string]any{"config": body}, nil)
+}
+
 // Actions
 
 func (c *Client) TriggerGravity() error {
@@ -506,6 +549,7 @@ func (c *Client) doRequest(method, path string, body io.Reader) (*http.Response,
 }
 
 func (c *Client) doJSON(method, path string, reqBody any, respTarget any) error {
+	slog.Debug("api request", "method", method, "path", path)
 	resp, err := c.doJSONOnce(method, path, reqBody, respTarget)
 	if err != nil {
 		return err
@@ -519,6 +563,7 @@ func (c *Client) doJSON(method, path string, reqBody any, respTarget any) error 
 		return &APIError{StatusCode: http.StatusUnauthorized, Message: "unauthorized"}
 	}
 
+	slog.Debug("session expired, re-authenticating", "url", c.baseURL)
 	if loginErr := c.Login(); loginErr != nil {
 		return fmt.Errorf("re-auth failed: %w", loginErr)
 	}
@@ -577,8 +622,9 @@ func (c *Client) doJSONOnce(method, path string, reqBody any, respTarget any) (s
 	return resp.StatusCode, nil
 }
 
-// Pi-hole auto-assigns new entries to group 0 (Default).
-// Including 0 in the request causes a UNIQUE constraint violation.
+// Pi-hole auto-assigns new entries to group 0 (Default) on creation.
+// Including 0 in a POST causes a UNIQUE constraint violation.
+// PUT (update) replaces the full group list, so 0 must be included there.
 func withoutDefault(groups []int) []int {
 	out := make([]int, 0, len(groups))
 	for _, g := range groups {

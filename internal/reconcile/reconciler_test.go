@@ -8,6 +8,24 @@ import (
 	"github.com/st0o0/forseti/internal/pihole"
 )
 
+func makeRT(cfg *config.Config, target config.Target) *config.ResolvedTarget {
+	return &config.ResolvedTarget{
+		Target:   target,
+		Settings: cfg.Settings,
+		Groups:   cfg.Groups,
+		Adlists:  cfg.Adlists,
+		Deny:     cfg.Deny,
+		Allow:    cfg.Allow,
+		LocalDNS: cfg.LocalDNS,
+		CNAME:    cfg.CNAME,
+		Clients:  cfg.Clients,
+	}
+}
+
+func makeOpts(marker string) ReconcileOptions {
+	return ReconcileOptions{Marker: marker}
+}
+
 type mockAPI struct {
 	groups     []pihole.APIGroup
 	adlists    []pihole.APIList
@@ -25,9 +43,9 @@ type mockAPI struct {
 	deletedClients2 []string
 	addedDNS        []string
 	deletedDNS      []string
-	updatedAdlists  []int
-	updatedClients  []int
-	updatedDomains  []int
+	updatedAdlists  []string
+	updatedClients  []string
+	updatedDomains  []string
 	cnameRecords    []pihole.APICNAMERecord
 	addedCNAME      []string
 	deletedCNAME    []string
@@ -155,16 +173,16 @@ func (m *mockAPI) DeleteClients(ips []string) error {
 	return m.deleteClientsErr
 }
 
-func (m *mockAPI) UpdateAdlist(id int, groups []int) error {
-	m.updatedAdlists = append(m.updatedAdlists, id)
+func (m *mockAPI) UpdateAdlist(address string, comment string, groups []int) error {
+	m.updatedAdlists = append(m.updatedAdlists, address)
 	return m.updateAdlistErr
 }
-func (m *mockAPI) UpdateClient(id int, groups []int) error {
-	m.updatedClients = append(m.updatedClients, id)
+func (m *mockAPI) UpdateClient(ip string, comment string, groups []int) error {
+	m.updatedClients = append(m.updatedClients, ip)
 	return m.updateClientErr
 }
-func (m *mockAPI) UpdateDomain(id int, groups []int) error {
-	m.updatedDomains = append(m.updatedDomains, id)
+func (m *mockAPI) UpdateDomain(domain string, comment string, groups []int) error {
+	m.updatedDomains = append(m.updatedDomains, domain)
 	return m.updateDomainErr
 }
 func (m *mockAPI) ListCNAMERecords() ([]pihole.APICNAMERecord, error) {
@@ -652,7 +670,7 @@ func TestApplyProcessesUpdates(t *testing.T) {
 	}
 
 	target := config.Target{Name: "test"}
-	report, err := Apply(cfg, target, mock, "[forseti]")
+	report, err := Apply(makeRT(cfg, target), mock, makeOpts("[forseti]"))
 	if err != nil {
 		t.Fatalf("Apply() error: %v", err)
 	}
@@ -660,11 +678,11 @@ func TestApplyProcessesUpdates(t *testing.T) {
 	if len(report.Errors) > 0 {
 		t.Errorf("unexpected errors: %v", report.Errors)
 	}
-	if len(mock.updatedAdlists) != 1 || mock.updatedAdlists[0] != 42 {
-		t.Errorf("expected adlist 42 updated, got %v", mock.updatedAdlists)
+	if len(mock.updatedAdlists) != 1 || mock.updatedAdlists[0] != "https://example.com/list.txt" {
+		t.Errorf("expected adlist https://example.com/list.txt updated, got %v", mock.updatedAdlists)
 	}
-	if len(mock.updatedClients) != 1 || mock.updatedClients[0] != 7 {
-		t.Errorf("expected client 7 updated, got %v", mock.updatedClients)
+	if len(mock.updatedClients) != 1 || mock.updatedClients[0] != "192.168.1.100" {
+		t.Errorf("expected client 192.168.1.100 updated, got %v", mock.updatedClients)
 	}
 	if len(mock.createdAdlists) != 0 {
 		t.Errorf("should not create existing adlists, got %v", mock.createdAdlists)
@@ -687,7 +705,7 @@ func TestApplyUpdateErrors(t *testing.T) {
 			Groups:  []config.Group{{Name: "ads"}, {Name: "tracking"}},
 			Adlists: []config.Adlist{{URL: "https://x.com/l.txt", Groups: []string{"ads", "tracking"}}},
 		}
-		report, err := Apply(cfg, target, mock, marker)
+		report, err := Apply(makeRT(cfg, target), mock, makeOpts(marker))
 		if err != nil {
 			t.Fatalf("Apply should not return hard error: %v", err)
 		}
@@ -705,7 +723,7 @@ func TestApplyUpdateErrors(t *testing.T) {
 			Groups:  []config.Group{{Name: "ads"}, {Name: "tracking"}},
 			Clients: []config.ClientEntry{{Match: "192.168.1.1", Groups: []string{"ads", "tracking"}}},
 		}
-		report, err := Apply(cfg, target, mock, marker)
+		report, err := Apply(makeRT(cfg, target), mock, makeOpts(marker))
 		if err != nil {
 			t.Fatalf("Apply should not return hard error: %v", err)
 		}
@@ -861,7 +879,7 @@ func TestPlanListErrors(t *testing.T) {
 	t.Run("ListGroups error", func(t *testing.T) {
 		mock := newMockAPI()
 		mock.listGroupsErr = errors.New("fail")
-		_, err := Plan(cfg, target, mock, marker)
+		_, err := Plan(makeRT(cfg, target), mock, makeOpts(marker))
 		if err == nil {
 			t.Error("expected error")
 		}
@@ -870,7 +888,7 @@ func TestPlanListErrors(t *testing.T) {
 	t.Run("ListAdlists error", func(t *testing.T) {
 		mock := newMockAPI()
 		mock.listAdlistsErr = errors.New("fail")
-		_, err := Plan(cfg, target, mock, marker)
+		_, err := Plan(makeRT(cfg, target), mock, makeOpts(marker))
 		if err == nil {
 			t.Error("expected error")
 		}
@@ -879,7 +897,7 @@ func TestPlanListErrors(t *testing.T) {
 	t.Run("ListDomains deny error", func(t *testing.T) {
 		mock := newMockAPI()
 		mock.listDomainsErr["deny/exact"] = errors.New("fail")
-		_, err := Plan(cfg, target, mock, marker)
+		_, err := Plan(makeRT(cfg, target), mock, makeOpts(marker))
 		if err == nil {
 			t.Error("expected error")
 		}
@@ -888,7 +906,7 @@ func TestPlanListErrors(t *testing.T) {
 	t.Run("ListDomains allow error", func(t *testing.T) {
 		mock := newMockAPI()
 		mock.listDomainsErr["allow/exact"] = errors.New("fail")
-		_, err := Plan(cfg, target, mock, marker)
+		_, err := Plan(makeRT(cfg, target), mock, makeOpts(marker))
 		if err == nil {
 			t.Error("expected error")
 		}
@@ -897,7 +915,7 @@ func TestPlanListErrors(t *testing.T) {
 	t.Run("ListDNSRecords error", func(t *testing.T) {
 		mock := newMockAPI()
 		mock.listDNSErr = errors.New("fail")
-		_, err := Plan(cfg, target, mock, marker)
+		_, err := Plan(makeRT(cfg, target), mock, makeOpts(marker))
 		if err == nil {
 			t.Error("expected error")
 		}
@@ -906,7 +924,7 @@ func TestPlanListErrors(t *testing.T) {
 	t.Run("ListClients error", func(t *testing.T) {
 		mock := newMockAPI()
 		mock.listClientsErr = errors.New("fail")
-		_, err := Plan(cfg, target, mock, marker)
+		_, err := Plan(makeRT(cfg, target), mock, makeOpts(marker))
 		if err == nil {
 			t.Error("expected error")
 		}
@@ -933,7 +951,7 @@ func TestThreeWayDiff(t *testing.T) {
 	}
 
 	target := config.Target{Name: "test"}
-	report, err := Plan(cfg, target, mock, "[forseti]")
+	report, err := Plan(makeRT(cfg, target), mock, makeOpts("[forseti]"))
 	if err != nil {
 		t.Fatalf("Plan() error: %v", err)
 	}
@@ -958,7 +976,7 @@ func TestReconcileOrdering(t *testing.T) {
 	}
 
 	target := config.Target{Name: "test"}
-	report, err := Apply(cfg, target, mock, "[forseti]")
+	report, err := Apply(makeRT(cfg, target), mock, makeOpts("[forseti]"))
 	if err != nil {
 		t.Fatalf("Apply() error: %v", err)
 	}
@@ -981,7 +999,7 @@ func TestGravityOnlyOnAdlistChanges(t *testing.T) {
 			Adlists: []config.Adlist{{URL: "https://example.com/list.txt"}},
 		}
 		target := config.Target{Name: "test"}
-		report, _ := Apply(cfg, target, mock, "[forseti]")
+		report, _ := Apply(makeRT(cfg, target), mock, makeOpts("[forseti]"))
 		if !report.Diff.NeedsGravity {
 			t.Error("NeedsGravity should be true when adlists change")
 		}
@@ -997,7 +1015,7 @@ func TestGravityOnlyOnAdlistChanges(t *testing.T) {
 			Deny:    []config.DenyEntry{{Domain: "ads.example.com"}},
 		}
 		target := config.Target{Name: "test"}
-		report, _ := Apply(cfg, target, mock, "[forseti]")
+		report, _ := Apply(makeRT(cfg, target), mock, makeOpts("[forseti]"))
 		if report.Diff.NeedsGravity {
 			t.Error("NeedsGravity should be false when only domains change")
 		}
@@ -1011,14 +1029,14 @@ func TestMultiTargetIndependentFailure(t *testing.T) {
 	cfg := &config.Config{}
 	target := config.Target{Name: "failing-target"}
 
-	_, err := Plan(cfg, target, failMock, "[forseti]")
+	_, err := Plan(makeRT(cfg, target), failMock, makeOpts("[forseti]"))
 	if err == nil {
 		t.Error("expected error for failing target")
 	}
 
 	okMock := newMockAPI()
 	target2 := config.Target{Name: "ok-target"}
-	report, err := Plan(cfg, target2, okMock, "[forseti]")
+	report, err := Plan(makeRT(cfg, target2), okMock, makeOpts("[forseti]"))
 	if err != nil {
 		t.Fatalf("ok target should not error: %v", err)
 	}
@@ -1035,7 +1053,7 @@ func TestApplyListErrors(t *testing.T) {
 	t.Run("ListGroups error", func(t *testing.T) {
 		mock := newMockAPI()
 		mock.listGroupsErr = errors.New("fail")
-		_, err := Apply(cfg, target, mock, marker)
+		_, err := Apply(makeRT(cfg, target), mock, makeOpts(marker))
 		if err == nil {
 			t.Error("expected error")
 		}
@@ -1044,7 +1062,7 @@ func TestApplyListErrors(t *testing.T) {
 	t.Run("ListAdlists error", func(t *testing.T) {
 		mock := newMockAPI()
 		mock.listAdlistsErr = errors.New("fail")
-		_, err := Apply(cfg, target, mock, marker)
+		_, err := Apply(makeRT(cfg, target), mock, makeOpts(marker))
 		if err == nil {
 			t.Error("expected error")
 		}
@@ -1053,7 +1071,7 @@ func TestApplyListErrors(t *testing.T) {
 	t.Run("ListDomains deny error", func(t *testing.T) {
 		mock := newMockAPI()
 		mock.listDomainsErr["deny/exact"] = errors.New("fail")
-		_, err := Apply(cfg, target, mock, marker)
+		_, err := Apply(makeRT(cfg, target), mock, makeOpts(marker))
 		if err == nil {
 			t.Error("expected error")
 		}
@@ -1062,7 +1080,7 @@ func TestApplyListErrors(t *testing.T) {
 	t.Run("ListDomains allow error", func(t *testing.T) {
 		mock := newMockAPI()
 		mock.listDomainsErr["allow/exact"] = errors.New("fail")
-		_, err := Apply(cfg, target, mock, marker)
+		_, err := Apply(makeRT(cfg, target), mock, makeOpts(marker))
 		if err == nil {
 			t.Error("expected error")
 		}
@@ -1071,7 +1089,7 @@ func TestApplyListErrors(t *testing.T) {
 	t.Run("ListDNSRecords error", func(t *testing.T) {
 		mock := newMockAPI()
 		mock.listDNSErr = errors.New("fail")
-		_, err := Apply(cfg, target, mock, marker)
+		_, err := Apply(makeRT(cfg, target), mock, makeOpts(marker))
 		if err == nil {
 			t.Error("expected error")
 		}
@@ -1080,7 +1098,7 @@ func TestApplyListErrors(t *testing.T) {
 	t.Run("ListClients error", func(t *testing.T) {
 		mock := newMockAPI()
 		mock.listClientsErr = errors.New("fail")
-		_, err := Apply(cfg, target, mock, marker)
+		_, err := Apply(makeRT(cfg, target), mock, makeOpts(marker))
 		if err == nil {
 			t.Error("expected error")
 		}
@@ -1095,7 +1113,7 @@ func TestApplyCreateErrors(t *testing.T) {
 		mock := newMockAPI()
 		mock.createGroupErr = errors.New("fail")
 		cfg := &config.Config{Groups: []config.Group{{Name: "test"}}}
-		report, err := Apply(cfg, target, mock, marker)
+		report, err := Apply(makeRT(cfg, target), mock, makeOpts(marker))
 		if err != nil {
 			t.Fatalf("Apply should not return hard error: %v", err)
 		}
@@ -1108,7 +1126,7 @@ func TestApplyCreateErrors(t *testing.T) {
 		mock := newMockAPI()
 		mock.createAdlistErr = errors.New("fail")
 		cfg := &config.Config{Adlists: []config.Adlist{{URL: "https://x.com/l.txt"}}}
-		report, err := Apply(cfg, target, mock, marker)
+		report, err := Apply(makeRT(cfg, target), mock, makeOpts(marker))
 		if err != nil {
 			t.Fatalf("Apply should not return hard error: %v", err)
 		}
@@ -1121,7 +1139,7 @@ func TestApplyCreateErrors(t *testing.T) {
 		mock := newMockAPI()
 		mock.createDomainErr = errors.New("fail")
 		cfg := &config.Config{Deny: []config.DenyEntry{{Domain: "bad.com"}}}
-		report, err := Apply(cfg, target, mock, marker)
+		report, err := Apply(makeRT(cfg, target), mock, makeOpts(marker))
 		if err != nil {
 			t.Fatalf("Apply should not return hard error: %v", err)
 		}
@@ -1134,7 +1152,7 @@ func TestApplyCreateErrors(t *testing.T) {
 		mock := newMockAPI()
 		mock.createDomainErr = errors.New("fail")
 		cfg := &config.Config{Allow: []config.AllowEntry{{Domain: "good.com"}}}
-		report, err := Apply(cfg, target, mock, marker)
+		report, err := Apply(makeRT(cfg, target), mock, makeOpts(marker))
 		if err != nil {
 			t.Fatalf("Apply should not return hard error: %v", err)
 		}
@@ -1147,7 +1165,7 @@ func TestApplyCreateErrors(t *testing.T) {
 		mock := newMockAPI()
 		mock.addDNSErr = errors.New("fail")
 		cfg := &config.Config{LocalDNS: []config.LocalDNSEntry{{IP: "1.2.3.4", Domain: "test.local"}}}
-		report, err := Apply(cfg, target, mock, marker)
+		report, err := Apply(makeRT(cfg, target), mock, makeOpts(marker))
 		if err != nil {
 			t.Fatalf("Apply should not return hard error: %v", err)
 		}
@@ -1160,7 +1178,7 @@ func TestApplyCreateErrors(t *testing.T) {
 		mock := newMockAPI()
 		mock.createClientErr = errors.New("fail")
 		cfg := &config.Config{Clients: []config.ClientEntry{{Match: "192.168.1.1"}}}
-		report, err := Apply(cfg, target, mock, marker)
+		report, err := Apply(makeRT(cfg, target), mock, makeOpts(marker))
 		if err != nil {
 			t.Fatalf("Apply should not return hard error: %v", err)
 		}
@@ -1179,7 +1197,7 @@ func TestApplyDeleteErrors(t *testing.T) {
 		mock.deleteGroupsErr = errors.New("fail")
 		mock.groups = []pihole.APIGroup{{ID: 1, Name: "old", Comment: "[forseti]"}}
 		cfg := &config.Config{}
-		report, err := Apply(cfg, target, mock, marker)
+		report, err := Apply(makeRT(cfg, target), mock, makeOpts(marker))
 		if err != nil {
 			t.Fatalf("Apply should not return hard error: %v", err)
 		}
@@ -1193,7 +1211,7 @@ func TestApplyDeleteErrors(t *testing.T) {
 		mock.deleteAdlistsErr = errors.New("fail")
 		mock.adlists = []pihole.APIList{{ID: 1, Address: "http://old.com/l.txt", Comment: "[forseti]"}}
 		cfg := &config.Config{}
-		report, err := Apply(cfg, target, mock, marker)
+		report, err := Apply(makeRT(cfg, target), mock, makeOpts(marker))
 		if err != nil {
 			t.Fatalf("Apply should not return hard error: %v", err)
 		}
@@ -1207,7 +1225,7 @@ func TestApplyDeleteErrors(t *testing.T) {
 		mock.deleteDomainsErr = errors.New("fail")
 		mock.domains["deny/exact"] = []pihole.APIDomain{{ID: 1, Domain: "old.com", Comment: "[forseti]"}}
 		cfg := &config.Config{}
-		report, err := Apply(cfg, target, mock, marker)
+		report, err := Apply(makeRT(cfg, target), mock, makeOpts(marker))
 		if err != nil {
 			t.Fatalf("Apply should not return hard error: %v", err)
 		}
@@ -1221,7 +1239,7 @@ func TestApplyDeleteErrors(t *testing.T) {
 		mock.deleteDomainsErr = errors.New("fail")
 		mock.domains["allow/exact"] = []pihole.APIDomain{{ID: 1, Domain: "old.com", Comment: "[forseti]"}}
 		cfg := &config.Config{}
-		report, err := Apply(cfg, target, mock, marker)
+		report, err := Apply(makeRT(cfg, target), mock, makeOpts(marker))
 		if err != nil {
 			t.Fatalf("Apply should not return hard error: %v", err)
 		}
@@ -1234,8 +1252,8 @@ func TestApplyDeleteErrors(t *testing.T) {
 		mock := newMockAPI()
 		mock.deleteDNSErr = errors.New("fail")
 		mock.dnsRecords = []pihole.APIDNSRecord{{IP: "10.0.0.1", Domain: "old.local"}}
-		cfg := &config.Config{Reconcile: config.Reconcile{LocalDNSPurge: true}}
-		report, err := Apply(cfg, target, mock, marker)
+		cfg := &config.Config{}
+		report, err := Apply(makeRT(cfg, target), mock, ReconcileOptions{Marker: marker, LocalDNSPurge: true})
 		if err != nil {
 			t.Fatalf("Apply should not return hard error: %v", err)
 		}
@@ -1249,7 +1267,7 @@ func TestApplyDeleteErrors(t *testing.T) {
 		mock.deleteClientsErr = errors.New("fail")
 		mock.clients = []pihole.APIClient{{ID: 1, Client: "192.168.1.200", Comment: "[forseti]"}}
 		cfg := &config.Config{}
-		report, err := Apply(cfg, target, mock, marker)
+		report, err := Apply(makeRT(cfg, target), mock, makeOpts(marker))
 		if err != nil {
 			t.Fatalf("Apply should not return hard error: %v", err)
 		}
@@ -1274,7 +1292,7 @@ func TestApplyFullReconcile(t *testing.T) {
 	}
 
 	target := config.Target{Name: "full-test"}
-	report, err := Apply(cfg, target, mock, "[forseti]")
+	report, err := Apply(makeRT(cfg, target), mock, makeOpts("[forseti]"))
 	if err != nil {
 		t.Fatalf("Apply() error: %v", err)
 	}
@@ -1308,7 +1326,7 @@ func TestPlanNeedsGravity(t *testing.T) {
 		Adlists: []config.Adlist{{URL: "http://new.com/l.txt"}},
 	}
 	target := config.Target{Name: "test"}
-	report, err := Plan(cfg, target, mock, "[forseti]")
+	report, err := Plan(makeRT(cfg, target), mock, makeOpts("[forseti]"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1323,7 +1341,7 @@ func TestPlanNoGravityOnDomainChanges(t *testing.T) {
 		Deny: []config.DenyEntry{{Domain: "ads.com"}},
 	}
 	target := config.Target{Name: "test"}
-	report, err := Plan(cfg, target, mock, "[forseti]")
+	report, err := Plan(makeRT(cfg, target), mock, makeOpts("[forseti]"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1347,7 +1365,7 @@ func TestPlanMixedExactAndRegexDeny(t *testing.T) {
 		},
 	}
 	target := config.Target{Name: "test"}
-	report, err := Plan(cfg, target, mock, "[forseti]")
+	report, err := Plan(makeRT(cfg, target), mock, makeOpts("[forseti]"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1375,7 +1393,7 @@ func TestPlanRegexPerKindIsolation(t *testing.T) {
 		},
 	}
 	target := config.Target{Name: "test"}
-	report, err := Plan(cfg, target, mock, "[forseti]")
+	report, err := Plan(makeRT(cfg, target), mock, makeOpts("[forseti]"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1395,7 +1413,7 @@ func TestApplyRegexDomain(t *testing.T) {
 		},
 	}
 	target := config.Target{Name: "test"}
-	report, err := Apply(cfg, target, mock, "[forseti]")
+	report, err := Apply(makeRT(cfg, target), mock, makeOpts("[forseti]"))
 	if err != nil {
 		t.Fatalf("Apply() error: %v", err)
 	}
@@ -1421,7 +1439,7 @@ func TestApplyDeletesManagedRegex(t *testing.T) {
 		},
 	}
 	target := config.Target{Name: "test"}
-	_, err := Apply(cfg, target, mock, "[forseti]")
+	_, err := Apply(makeRT(cfg, target), mock, makeOpts("[forseti]"))
 	if err != nil {
 		t.Fatalf("Apply() error: %v", err)
 	}
@@ -1526,7 +1544,7 @@ func TestApplyCNAME(t *testing.T) {
 		},
 	}
 	target := config.Target{Name: "test"}
-	report, err := Apply(cfg, target, mock, "[forseti]")
+	report, err := Apply(makeRT(cfg, target), mock, makeOpts("[forseti]"))
 	if err != nil {
 		t.Fatalf("Apply() error: %v", err)
 	}
@@ -1543,11 +1561,9 @@ func TestApplyCNAMEPurge(t *testing.T) {
 	mock.cnameRecords = []pihole.APICNAMERecord{
 		{Domain: "stale.example.com", Target: "old.example.com"},
 	}
-	cfg := &config.Config{
-		Reconcile: config.Reconcile{CNAMEPurge: true},
-	}
+	cfg := &config.Config{}
 	target := config.Target{Name: "test"}
-	report, err := Apply(cfg, target, mock, "[forseti]")
+	report, err := Apply(makeRT(cfg, target), mock, ReconcileOptions{Marker: "[forseti]", CNAMEPurge: true})
 	if err != nil {
 		t.Fatalf("Apply() error: %v", err)
 	}
