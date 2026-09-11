@@ -434,7 +434,7 @@ func TestSyncAdlistsDeleteError(t *testing.T) {
 	s := &Syncer{pool: pool, cfg: cfg, metrics: m, marker: "[forseti-sync]"}
 	s.syncAdlists(replica, []pihole.APIList{}, []pihole.APIList{
 		{ID: 1, Address: "https://stale.com/list.txt", Comment: "[forseti-sync]"},
-	})
+	}, nil, nil)
 }
 
 // === Domain sync tests (deny & allow) ===
@@ -591,7 +591,7 @@ func TestSyncDomainsDeleteError(t *testing.T) {
 	s := &Syncer{pool: pool, cfg: cfg, metrics: m, marker: "[forseti-sync]"}
 	s.syncDomains(replica, "deny", "exact", []pihole.APIDomain{}, []pihole.APIDomain{
 		{ID: 1, Domain: "stale.example.com", Comment: "[forseti-sync]"},
-	})
+	}, nil, nil)
 }
 
 // === DNS sync tests ===
@@ -814,7 +814,7 @@ func TestSyncClientsDeleteError(t *testing.T) {
 	s := &Syncer{pool: pool, cfg: cfg, metrics: m, marker: "[forseti-sync]"}
 	s.syncClients(replica, []pihole.APIClient{}, []pihole.APIClient{
 		{ID: 1, Client: "192.168.1.200", Comment: "[forseti-sync]"},
-	})
+	}, nil, nil)
 }
 
 // === SyncAll / getPrimary / load error paths ===
@@ -1224,6 +1224,39 @@ func TestSyncRegexDomainPropagation(t *testing.T) {
 	if got := replicaCounters.creates.Load(); got != 1 {
 		t.Errorf("creates = %d, want 1 (regex domain should be synced)", got)
 	}
+}
+
+func TestTranslateGroupIDs(t *testing.T) {
+	primaryIDToName := map[int]string{1: "default", 2: "ads", 3: "tracking"}
+	replicaNameToID := map[string]int{"default": 10, "ads": 20}
+
+	t.Run("full resolution", func(t *testing.T) {
+		result := translateGroupIDs([]int{1, 2}, primaryIDToName, replicaNameToID)
+		if len(result) != 2 || result[0] != 10 || result[1] != 20 {
+			t.Errorf("got %v, want [10 20]", result)
+		}
+	})
+
+	t.Run("partial resolution", func(t *testing.T) {
+		result := translateGroupIDs([]int{1, 3}, primaryIDToName, replicaNameToID)
+		if len(result) != 1 || result[0] != 10 {
+			t.Errorf("got %v, want [10] (tracking not on replica)", result)
+		}
+	})
+
+	t.Run("empty input", func(t *testing.T) {
+		result := translateGroupIDs(nil, primaryIDToName, replicaNameToID)
+		if len(result) != 0 {
+			t.Errorf("got %v, want empty", result)
+		}
+	})
+
+	t.Run("unknown primary ID", func(t *testing.T) {
+		result := translateGroupIDs([]int{99}, primaryIDToName, replicaNameToID)
+		if len(result) != 0 {
+			t.Errorf("got %v, want empty", result)
+		}
+	})
 }
 
 func TestSyncRegexAndExactIndependent(t *testing.T) {

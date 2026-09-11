@@ -86,26 +86,38 @@ func (s *Syncer) syncReplica(target config.Target, primary *state, resources map
 		report.Deleted += d
 	}
 
+	primaryIDToName := buildPrimaryIDToName(primary.groups)
+	replicaNameToID := buildReplicaNameToID(replicaState.groups)
+
+	if resources["groups"] {
+		replicaGroups, err := replica.ListGroups()
+		if err != nil {
+			log.Printf("[%s] error re-fetching replica groups: %v", target.Name, err)
+		} else {
+			replicaNameToID = buildReplicaNameToID(replicaGroups)
+		}
+	}
+
 	if resources["adlists"] {
-		a, d := s.syncAdlists(replica, primary.adlists, replicaState.adlists)
+		a, d := s.syncAdlists(replica, primary.adlists, replicaState.adlists, primaryIDToName, replicaNameToID)
 		report.Added += a
 		report.Deleted += d
 	}
 
 	if resources["deny"] {
-		a, d := s.syncDomains(replica, "deny", "exact", primary.deny, replicaState.deny)
+		a, d := s.syncDomains(replica, "deny", "exact", primary.deny, replicaState.deny, primaryIDToName, replicaNameToID)
 		report.Added += a
 		report.Deleted += d
-		a, d = s.syncDomains(replica, "deny", "regex", primary.denyRegex, replicaState.denyRegex)
+		a, d = s.syncDomains(replica, "deny", "regex", primary.denyRegex, replicaState.denyRegex, primaryIDToName, replicaNameToID)
 		report.Added += a
 		report.Deleted += d
 	}
 
 	if resources["allow"] {
-		a, d := s.syncDomains(replica, "allow", "exact", primary.allow, replicaState.allow)
+		a, d := s.syncDomains(replica, "allow", "exact", primary.allow, replicaState.allow, primaryIDToName, replicaNameToID)
 		report.Added += a
 		report.Deleted += d
-		a, d = s.syncDomains(replica, "allow", "regex", primary.allowRegex, replicaState.allowRegex)
+		a, d = s.syncDomains(replica, "allow", "regex", primary.allowRegex, replicaState.allowRegex, primaryIDToName, replicaNameToID)
 		report.Added += a
 		report.Deleted += d
 	}
@@ -117,7 +129,7 @@ func (s *Syncer) syncReplica(target config.Target, primary *state, resources map
 	}
 
 	if resources["clients"] {
-		a, d := s.syncClients(replica, primary.clients, replicaState.clients)
+		a, d := s.syncClients(replica, primary.clients, replicaState.clients, primaryIDToName, replicaNameToID)
 		report.Added += a
 		report.Deleted += d
 	}
@@ -240,7 +252,7 @@ func (s *Syncer) syncGroups(replica *pihole.Client, primary, replicaGroups []pih
 	return
 }
 
-func (s *Syncer) syncAdlists(replica *pihole.Client, primary, replicaAdlists []pihole.APIList) (added, deleted int) {
+func (s *Syncer) syncAdlists(replica *pihole.Client, primary, replicaAdlists []pihole.APIList, primaryIDToName map[int]string, replicaNameToID map[string]int) (added, deleted int) {
 	primaryByURL := make(map[string]pihole.APIList)
 	for _, a := range primary {
 		primaryByURL[a.Address] = a
@@ -253,7 +265,8 @@ func (s *Syncer) syncAdlists(replica *pihole.Client, primary, replicaAdlists []p
 
 	for url, a := range primaryByURL {
 		if _, exists := replicaByURL[url]; !exists {
-			if _, err := replica.CreateAdlist(a.Address, s.marker, a.Enabled, nil); err != nil {
+			groups := translateGroupIDs(a.Groups, primaryIDToName, replicaNameToID)
+			if _, err := replica.CreateAdlist(a.Address, s.marker, a.Enabled, groups); err != nil {
 				log.Printf("[sync] create adlist %q: %v", url, err)
 			} else {
 				added++
@@ -276,7 +289,7 @@ func (s *Syncer) syncAdlists(replica *pihole.Client, primary, replicaAdlists []p
 	return
 }
 
-func (s *Syncer) syncDomains(replica *pihole.Client, domType, kind string, primary, replicaDomains []pihole.APIDomain) (added, deleted int) {
+func (s *Syncer) syncDomains(replica *pihole.Client, domType, kind string, primary, replicaDomains []pihole.APIDomain, primaryIDToName map[int]string, replicaNameToID map[string]int) (added, deleted int) {
 	primaryByDomain := make(map[string]pihole.APIDomain)
 	for _, d := range primary {
 		primaryByDomain[d.Domain] = d
@@ -289,7 +302,8 @@ func (s *Syncer) syncDomains(replica *pihole.Client, domType, kind string, prima
 
 	for domain, d := range primaryByDomain {
 		if _, exists := replicaByDomain[domain]; !exists {
-			if _, err := replica.CreateDomain(domType, kind, d.Domain, s.marker, d.Enabled, nil); err != nil {
+			groups := translateGroupIDs(d.Groups, primaryIDToName, replicaNameToID)
+			if _, err := replica.CreateDomain(domType, kind, d.Domain, s.marker, d.Enabled, groups); err != nil {
 				log.Printf("[sync] create %s/%s %q: %v", domType, kind, domain, err)
 			} else {
 				added++
@@ -346,7 +360,7 @@ func (s *Syncer) syncDNS(replica *pihole.Client, primary, replicaDNS []pihole.AP
 	return
 }
 
-func (s *Syncer) syncClients(replica *pihole.Client, primary, replicaClients []pihole.APIClient) (added, deleted int) {
+func (s *Syncer) syncClients(replica *pihole.Client, primary, replicaClients []pihole.APIClient, primaryIDToName map[int]string, replicaNameToID map[string]int) (added, deleted int) {
 	primaryByIP := make(map[string]pihole.APIClient)
 	for _, c := range primary {
 		primaryByIP[c.Client] = c
@@ -359,7 +373,8 @@ func (s *Syncer) syncClients(replica *pihole.Client, primary, replicaClients []p
 
 	for ip, c := range primaryByIP {
 		if _, exists := replicaByIP[ip]; !exists {
-			if _, err := replica.CreateClient(c.Client, s.marker, nil); err != nil {
+			groups := translateGroupIDs(c.Groups, primaryIDToName, replicaNameToID)
+			if _, err := replica.CreateClient(c.Client, s.marker, groups); err != nil {
 				log.Printf("[sync] create client %q: %v", ip, err)
 			} else {
 				added++
@@ -380,4 +395,36 @@ func (s *Syncer) syncClients(replica *pihole.Client, primary, replicaClients []p
 	}
 
 	return
+}
+
+func buildPrimaryIDToName(groups []pihole.APIGroup) map[int]string {
+	m := make(map[int]string)
+	for _, g := range groups {
+		m[g.ID] = g.Name
+	}
+	return m
+}
+
+func buildReplicaNameToID(groups []pihole.APIGroup) map[string]int {
+	m := make(map[string]int)
+	for _, g := range groups {
+		m[strings.ToLower(g.Name)] = g.ID
+	}
+	return m
+}
+
+func translateGroupIDs(primaryIDs []int, primaryIDToName map[int]string, replicaNameToID map[string]int) []int {
+	var result []int
+	for _, id := range primaryIDs {
+		name, ok := primaryIDToName[id]
+		if !ok {
+			continue
+		}
+		replicaID, ok := replicaNameToID[strings.ToLower(name)]
+		if !ok {
+			continue
+		}
+		result = append(result, replicaID)
+	}
+	return result
 }
