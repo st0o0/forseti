@@ -187,6 +187,25 @@ reconcile:
 	}
 }
 
+func TestDurationDecodeError(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+reconcile:
+  interval:
+    - not
+    - a
+    - string
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for non-string duration")
+	}
+}
+
 func TestDurationInvalid(t *testing.T) {
 	cfg := `
 targets:
@@ -217,6 +236,37 @@ targets:
 	}
 	if !strings.Contains(err.Error(), "invalid URL") {
 		t.Errorf("error should mention invalid URL, got: %v", err)
+	}
+}
+
+func TestValidationFTPURL(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: ftp://localhost:80
+    password: test
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for ftp URL")
+	}
+	if !strings.Contains(err.Error(), "invalid URL") {
+		t.Errorf("error should mention invalid URL, got: %v", err)
+	}
+}
+
+func TestValidationURLNoHost(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://
+    password: test
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for URL with no host")
 	}
 }
 
@@ -382,6 +432,541 @@ groups:
 	}
 	if !strings.Contains(err.Error(), "at least one target") {
 		t.Errorf("error should mention targets required, got: %v", err)
+	}
+}
+
+func TestValidationInvalidMode(t *testing.T) {
+	cfg := `
+mode: banana
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for invalid mode")
+	}
+	if !strings.Contains(err.Error(), "mode must be") {
+		t.Errorf("error should mention mode, got: %v", err)
+	}
+}
+
+func TestValidationMissingTargetName(t *testing.T) {
+	cfg := `
+targets:
+  - url: http://localhost:80
+    password: test
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for missing target name")
+	}
+	if !strings.Contains(err.Error(), "name is required") {
+		t.Errorf("error should mention name, got: %v", err)
+	}
+}
+
+func TestValidationMissingTargetURL(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    password: test
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for missing target URL")
+	}
+	if !strings.Contains(err.Error(), "url is required") {
+		t.Errorf("error should mention url, got: %v", err)
+	}
+}
+
+func TestValidationMissingTargetPassword(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for missing password")
+	}
+	if !strings.Contains(err.Error(), "password is required") {
+		t.Errorf("error should mention password, got: %v", err)
+	}
+}
+
+func TestValidationGravityScheduleFields(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+    gravity:
+      schedule: "1 2 3"
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for invalid gravity schedule fields")
+	}
+	if !strings.Contains(err.Error(), "gravity schedule must have 5 fields") {
+		t.Errorf("error should mention 5 fields, got: %v", err)
+	}
+}
+
+func TestValidationSyncModeRequiresRole(t *testing.T) {
+	cfg := `
+mode: sync
+targets:
+  - name: primary
+    url: http://localhost:80
+    password: test
+    role: primary
+  - name: replica
+    url: http://localhost:81
+    password: test
+sync:
+  primary: primary
+  resources: [adlists]
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for missing role on replica")
+	}
+	if !strings.Contains(err.Error(), "role is required") {
+		t.Errorf("error should mention role, got: %v", err)
+	}
+}
+
+func TestValidationSyncModeInvalidRole(t *testing.T) {
+	cfg := `
+mode: sync
+targets:
+  - name: primary
+    url: http://localhost:80
+    password: test
+    role: primary
+  - name: replica
+    url: http://localhost:81
+    password: test
+    role: backup
+sync:
+  primary: primary
+  resources: [adlists]
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for invalid role")
+	}
+	if !strings.Contains(err.Error(), "role must be") {
+		t.Errorf("error should mention role, got: %v", err)
+	}
+}
+
+func TestValidationSyncNoPrimary(t *testing.T) {
+	cfg := `
+mode: sync
+targets:
+  - name: one
+    url: http://localhost:80
+    password: test
+    role: replica
+  - name: two
+    url: http://localhost:81
+    password: test
+    role: replica
+sync:
+  primary: one
+  resources: [adlists]
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for no primary")
+	}
+}
+
+func TestValidationSyncMultiplePrimaries(t *testing.T) {
+	cfg := `
+mode: sync
+targets:
+  - name: one
+    url: http://localhost:80
+    password: test
+    role: primary
+  - name: two
+    url: http://localhost:81
+    password: test
+    role: primary
+sync:
+  primary: one
+  resources: [adlists]
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for multiple primaries")
+	}
+}
+
+func TestValidationSyncMissingPrimaryField(t *testing.T) {
+	cfg := `
+mode: sync
+targets:
+  - name: one
+    url: http://localhost:80
+    password: test
+    role: primary
+  - name: two
+    url: http://localhost:81
+    password: test
+    role: replica
+sync:
+  resources: [adlists]
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for missing sync.primary")
+	}
+	if !strings.Contains(err.Error(), "sync.primary is required") {
+		t.Errorf("error should mention sync.primary, got: %v", err)
+	}
+}
+
+func TestValidationSyncPrimaryPointsToReplica(t *testing.T) {
+	cfg := `
+mode: sync
+targets:
+  - name: one
+    url: http://localhost:80
+    password: test
+    role: primary
+  - name: two
+    url: http://localhost:81
+    password: test
+    role: replica
+sync:
+  primary: two
+  resources: [adlists]
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error when sync.primary points to a replica")
+	}
+	if !strings.Contains(err.Error(), "must reference a target with role: primary") {
+		t.Errorf("error should mention role: primary, got: %v", err)
+	}
+}
+
+func TestValidationSyncPrimaryMismatch(t *testing.T) {
+	cfg := `
+mode: sync
+targets:
+  - name: one
+    url: http://localhost:80
+    password: test
+    role: primary
+  - name: two
+    url: http://localhost:81
+    password: test
+    role: replica
+sync:
+  primary: nonexistent
+  resources: [adlists]
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for primary mismatch")
+	}
+	if !strings.Contains(err.Error(), "must reference a target with role: primary") {
+		t.Errorf("error should mention reference, got: %v", err)
+	}
+}
+
+func TestValidationSyncNoResources(t *testing.T) {
+	cfg := `
+mode: sync
+targets:
+  - name: one
+    url: http://localhost:80
+    password: test
+    role: primary
+  - name: two
+    url: http://localhost:81
+    password: test
+    role: replica
+sync:
+  primary: one
+  resources: []
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for empty resources")
+	}
+	if !strings.Contains(err.Error(), "must list at least one resource") {
+		t.Errorf("error should mention resources, got: %v", err)
+	}
+}
+
+func TestValidationSyncInvalidResource(t *testing.T) {
+	cfg := `
+mode: sync
+targets:
+  - name: one
+    url: http://localhost:80
+    password: test
+    role: primary
+  - name: two
+    url: http://localhost:81
+    password: test
+    role: replica
+sync:
+  primary: one
+  resources: [invalid_thing]
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for invalid resource")
+	}
+	if !strings.Contains(err.Error(), "unknown resource") {
+		t.Errorf("error should mention unknown resource, got: %v", err)
+	}
+}
+
+func TestValidationSyncModeValid(t *testing.T) {
+	cfg := `
+mode: sync
+targets:
+  - name: primary
+    url: http://localhost:80
+    password: test
+    role: primary
+  - name: replica
+    url: http://localhost:81
+    password: test
+    role: replica
+sync:
+  primary: primary
+  resources: [adlists, deny, allow]
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err != nil {
+		t.Fatalf("valid sync config should not error: %v", err)
+	}
+}
+
+func TestValidationEmptyGroupName(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+groups:
+  - name: ""
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for empty group name")
+	}
+}
+
+func TestValidationEmptyAdlistURL(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+adlists:
+  - url: ""
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for empty adlist URL")
+	}
+}
+
+func TestValidationEmptyDenyDomain(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+deny:
+  - domain: ""
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for empty deny domain")
+	}
+}
+
+func TestValidationInvalidAllowDomain(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+allow:
+  - domain: "not a domain!"
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for invalid allow domain")
+	}
+}
+
+func TestValidationDuplicateAllowDomain(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+allow:
+  - domain: safe.example.com
+  - domain: safe.example.com
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for duplicate allow domain")
+	}
+	if !strings.Contains(err.Error(), "duplicate domain") {
+		t.Errorf("error should mention duplicate, got: %v", err)
+	}
+}
+
+func TestValidationLocalDNSInvalidIP(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+local_dns:
+  - domain: nas.lan
+    ip: not-an-ip
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for invalid IP")
+	}
+	if !strings.Contains(err.Error(), "invalid IP") {
+		t.Errorf("error should mention invalid IP, got: %v", err)
+	}
+}
+
+func TestValidationLocalDNSInvalidDomain(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+local_dns:
+  - domain: "not a domain!"
+    ip: 192.168.1.1
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for invalid local DNS domain")
+	}
+}
+
+func TestValidationClientEmptyMatch(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+clients:
+  - match: ""
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for empty client match")
+	}
+	if !strings.Contains(err.Error(), "match is required") {
+		t.Errorf("error should mention match, got: %v", err)
+	}
+}
+
+func TestValidationClientUndefinedGroup(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+clients:
+  - match: 192.168.1.1
+    groups: [nonexistent]
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for undefined group in client")
+	}
+	if !strings.Contains(err.Error(), "undefined group") {
+		t.Errorf("error should mention undefined group, got: %v", err)
+	}
+}
+
+func TestLoadInvalidYAML(t *testing.T) {
+	path := writeTestConfig(t, "{{{{invalid yaml")
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for invalid YAML")
+	}
+}
+
+func TestLoadMissingFile(t *testing.T) {
+	_, err := Load("/nonexistent/path/config.yml")
+	if err == nil {
+		t.Fatal("expected error for missing file")
+	}
+}
+
+func TestDefaultSyncInterval(t *testing.T) {
+	cfg := `
+mode: sync
+targets:
+  - name: primary
+    url: http://localhost:80
+    password: test
+    role: primary
+  - name: replica
+    url: http://localhost:81
+    password: test
+    role: replica
+sync:
+  primary: primary
+  resources: [adlists]
+`
+	path := writeTestConfig(t, cfg)
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if c.Sync.Interval.Duration != 5*time.Minute {
+		t.Errorf("default sync interval = %v, want 5m", c.Sync.Interval.Duration)
 	}
 }
 

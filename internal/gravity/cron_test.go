@@ -86,6 +86,126 @@ func TestScheduleNextEvery15Min(t *testing.T) {
 	}
 }
 
+func TestScheduleNextMonthBoundary(t *testing.T) {
+	sched, err := ParseSchedule("0 0 1 * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	from := time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
+	next := sched.Next(from)
+
+	if next.Month() != time.February || next.Day() != 1 {
+		t.Errorf("next = %v, want Feb 1", next)
+	}
+}
+
+func TestScheduleNextDayOfWeek(t *testing.T) {
+	sched, err := ParseSchedule("30 4 * * 1-5")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	from := time.Date(2026, 9, 11, 12, 0, 0, 0, time.UTC) // Friday
+	next := sched.Next(from)
+
+	if next.Weekday() < time.Monday || next.Weekday() > time.Friday {
+		t.Errorf("next weekday = %s, want Mon-Fri", next.Weekday())
+	}
+	if next.Hour() != 4 || next.Minute() != 30 {
+		t.Errorf("next time = %02d:%02d, want 04:30", next.Hour(), next.Minute())
+	}
+}
+
+func TestScheduleNextNoMatch(t *testing.T) {
+	sched, err := ParseSchedule("0 0 31 2 *")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	from := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	next := sched.Next(from)
+
+	if !next.IsZero() {
+		t.Errorf("expected zero time for impossible schedule, got %v", next)
+	}
+}
+
+func TestParseFieldStep(t *testing.T) {
+	_, err := ParseSchedule("*/abc * * * *")
+	if err == nil {
+		t.Error("expected error for invalid step")
+	}
+}
+
+func TestParseFieldStepZero(t *testing.T) {
+	_, err := ParseSchedule("*/0 * * * *")
+	if err == nil {
+		t.Error("expected error for zero step")
+	}
+}
+
+func TestParseFieldSingleValueOutOfBounds(t *testing.T) {
+	_, err := ParseSchedule("-1 * * * *")
+	if err == nil {
+		t.Error("expected error for negative value")
+	}
+}
+
+func TestParseFieldRangeStartInvalid(t *testing.T) {
+	_, err := ParseSchedule("abc-5 * * * *")
+	if err == nil {
+		t.Error("expected error for invalid range start")
+	}
+}
+
+func TestParseFieldRangeEndInvalid(t *testing.T) {
+	_, err := ParseSchedule("1-abc * * * *")
+	if err == nil {
+		t.Error("expected error for invalid range end")
+	}
+}
+
+func TestParseFieldRangeOutOfBounds(t *testing.T) {
+	_, err := ParseSchedule("50-70 * * * *")
+	if err == nil {
+		t.Error("expected error for range out of bounds")
+	}
+}
+
+func TestParseFieldRangeReversed(t *testing.T) {
+	_, err := ParseSchedule("10-5 * * * *")
+	if err == nil {
+		t.Error("expected error for reversed range")
+	}
+}
+
+func TestParseFieldStepWithRange(t *testing.T) {
+	sched, err := ParseSchedule("1-10/3 * * * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	from := time.Date(2026, 9, 11, 10, 0, 0, 0, time.UTC)
+	next := sched.Next(from)
+	if next.Minute() != 1 {
+		t.Errorf("next minute = %d, want 1", next.Minute())
+	}
+}
+
+func TestParseFieldCommaList(t *testing.T) {
+	sched, err := ParseSchedule("0 3 1,15 * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	from := time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC)
+	next := sched.Next(from)
+	if next.Day() != 15 {
+		t.Errorf("next day = %d, want 15", next.Day())
+	}
+}
+
 func TestStaggeredSchedules(t *testing.T) {
 	s1, _ := ParseSchedule("0 3 * * 0")
 	s2, _ := ParseSchedule("0 4 * * 0")
