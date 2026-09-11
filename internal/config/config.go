@@ -82,10 +82,12 @@ type Adlist struct {
 
 type DenyEntry struct {
 	Domain string `yaml:"domain"`
+	Kind   string `yaml:"kind"`
 }
 
 type AllowEntry struct {
 	Domain string `yaml:"domain"`
+	Kind   string `yaml:"kind"`
 }
 
 type LocalDNSEntry struct {
@@ -182,6 +184,16 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Sync.Interval.Duration == 0 {
 		cfg.Sync.Interval.Duration = 5 * time.Minute
+	}
+	for i := range cfg.Deny {
+		if cfg.Deny[i].Kind == "" {
+			cfg.Deny[i].Kind = "exact"
+		}
+	}
+	for i := range cfg.Allow {
+		if cfg.Allow[i].Kind == "" {
+			cfg.Allow[i].Kind = "exact"
+		}
 	}
 }
 
@@ -308,23 +320,47 @@ func validate(cfg *Config) error {
 
 	denyDomains := make(map[string]bool)
 	for i, d := range cfg.Deny {
-		if err := validateDomain(d.Domain); err != nil {
-			errs = append(errs, fmt.Errorf("deny[%d]: %w", i, err))
-		} else if denyDomains[d.Domain] {
+		if d.Kind != "exact" && d.Kind != "regex" {
+			errs = append(errs, fmt.Errorf("deny[%d]: kind must be \"exact\" or \"regex\", got %q", i, d.Kind))
+		} else if d.Kind == "regex" {
+			if d.Domain == "" {
+				errs = append(errs, fmt.Errorf("deny[%d]: domain is required", i))
+			} else if _, err := regexp.Compile(d.Domain); err != nil {
+				errs = append(errs, fmt.Errorf("deny[%d]: invalid regex %q: %v", i, d.Domain, err))
+			}
+		} else {
+			if err := validateDomain(d.Domain); err != nil {
+				errs = append(errs, fmt.Errorf("deny[%d]: %w", i, err))
+			}
+		}
+		dedupKey := d.Kind + ":" + d.Domain
+		if denyDomains[dedupKey] {
 			errs = append(errs, fmt.Errorf("deny[%d]: duplicate domain %q", i, d.Domain))
 		} else {
-			denyDomains[d.Domain] = true
+			denyDomains[dedupKey] = true
 		}
 	}
 
 	allowDomains := make(map[string]bool)
 	for i, a := range cfg.Allow {
-		if err := validateDomain(a.Domain); err != nil {
-			errs = append(errs, fmt.Errorf("allow[%d]: %w", i, err))
-		} else if allowDomains[a.Domain] {
+		if a.Kind != "exact" && a.Kind != "regex" {
+			errs = append(errs, fmt.Errorf("allow[%d]: kind must be \"exact\" or \"regex\", got %q", i, a.Kind))
+		} else if a.Kind == "regex" {
+			if a.Domain == "" {
+				errs = append(errs, fmt.Errorf("allow[%d]: domain is required", i))
+			} else if _, err := regexp.Compile(a.Domain); err != nil {
+				errs = append(errs, fmt.Errorf("allow[%d]: invalid regex %q: %v", i, a.Domain, err))
+			}
+		} else {
+			if err := validateDomain(a.Domain); err != nil {
+				errs = append(errs, fmt.Errorf("allow[%d]: %w", i, err))
+			}
+		}
+		dedupKey := a.Kind + ":" + a.Domain
+		if allowDomains[dedupKey] {
 			errs = append(errs, fmt.Errorf("allow[%d]: duplicate domain %q", i, a.Domain))
 		} else {
-			allowDomains[a.Domain] = true
+			allowDomains[dedupKey] = true
 		}
 	}
 

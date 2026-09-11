@@ -96,10 +96,16 @@ func (s *Syncer) syncReplica(target config.Target, primary *state, resources map
 		a, d := s.syncDomains(replica, "deny", "exact", primary.deny, replicaState.deny)
 		report.Added += a
 		report.Deleted += d
+		a, d = s.syncDomains(replica, "deny", "regex", primary.denyRegex, replicaState.denyRegex)
+		report.Added += a
+		report.Deleted += d
 	}
 
 	if resources["allow"] {
 		a, d := s.syncDomains(replica, "allow", "exact", primary.allow, replicaState.allow)
+		report.Added += a
+		report.Deleted += d
+		a, d = s.syncDomains(replica, "allow", "regex", primary.allowRegex, replicaState.allowRegex)
 		report.Added += a
 		report.Deleted += d
 	}
@@ -139,12 +145,14 @@ func (s *Syncer) getPrimary() (*pihole.Client, error) {
 }
 
 type state struct {
-	groups  []pihole.APIGroup
-	adlists []pihole.APIList
-	deny    []pihole.APIDomain
-	allow   []pihole.APIDomain
-	dns     []pihole.APIDNSRecord
-	clients []pihole.APIClient
+	groups    []pihole.APIGroup
+	adlists   []pihole.APIList
+	deny      []pihole.APIDomain
+	denyRegex []pihole.APIDomain
+	allow     []pihole.APIDomain
+	allowRegex []pihole.APIDomain
+	dns       []pihole.APIDNSRecord
+	clients   []pihole.APIClient
 }
 
 func (st *state) load(client *pihole.Client, resources map[string]bool) error {
@@ -164,13 +172,21 @@ func (st *state) load(client *pihole.Client, resources map[string]bool) error {
 	if resources["deny"] {
 		st.deny, err = client.ListDomains("deny", "exact")
 		if err != nil {
-			return fmt.Errorf("list deny: %w", err)
+			return fmt.Errorf("list deny/exact: %w", err)
+		}
+		st.denyRegex, err = client.ListDomains("deny", "regex")
+		if err != nil {
+			return fmt.Errorf("list deny/regex: %w", err)
 		}
 	}
 	if resources["allow"] {
 		st.allow, err = client.ListDomains("allow", "exact")
 		if err != nil {
-			return fmt.Errorf("list allow: %w", err)
+			return fmt.Errorf("list allow/exact: %w", err)
+		}
+		st.allowRegex, err = client.ListDomains("allow", "regex")
+		if err != nil {
+			return fmt.Errorf("list allow/regex: %w", err)
 		}
 	}
 	if resources["local_dns"] {

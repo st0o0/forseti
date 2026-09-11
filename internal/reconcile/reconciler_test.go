@@ -1311,3 +1311,104 @@ func TestPlanNoGravityOnDomainChanges(t *testing.T) {
 		t.Error("Plan should not set NeedsGravity for domain-only changes")
 	}
 }
+
+func TestPlanMixedExactAndRegexDeny(t *testing.T) {
+	mock := newMockAPI()
+	mock.domains["deny/exact"] = []pihole.APIDomain{
+		{ID: 1, Domain: "existing.com", Comment: "[forseti]"},
+	}
+	mock.domains["deny/regex"] = []pihole.APIDomain{}
+
+	cfg := &config.Config{
+		Deny: []config.DenyEntry{
+			{Domain: "existing.com", Kind: "exact"},
+			{Domain: "newdomain.com", Kind: "exact"},
+			{Domain: "(^|\\.)ads\\.", Kind: "regex"},
+		},
+	}
+	target := config.Target{Name: "test"}
+	report, err := Plan(cfg, target, mock, "[forseti]")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Deny.Adds) != 2 {
+		t.Errorf("deny adds = %d, want 2 (1 exact + 1 regex)", len(report.Deny.Adds))
+	}
+	if report.Deny.Unchanged != 1 {
+		t.Errorf("deny unchanged = %d, want 1", report.Deny.Unchanged)
+	}
+}
+
+func TestPlanRegexPerKindIsolation(t *testing.T) {
+	mock := newMockAPI()
+	mock.domains["deny/exact"] = []pihole.APIDomain{
+		{ID: 1, Domain: "ads.com", Comment: "[forseti]"},
+	}
+	mock.domains["deny/regex"] = []pihole.APIDomain{
+		{ID: 2, Domain: "(^|\\.)ads\\.", Comment: "[forseti]"},
+	}
+
+	cfg := &config.Config{
+		Deny: []config.DenyEntry{
+			{Domain: "ads.com", Kind: "exact"},
+			{Domain: "(^|\\.)ads\\.", Kind: "regex"},
+		},
+	}
+	target := config.Target{Name: "test"}
+	report, err := Plan(cfg, target, mock, "[forseti]")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Deny.HasChanges() {
+		t.Error("expected no changes when exact and regex both match")
+	}
+	if report.Deny.Unchanged != 2 {
+		t.Errorf("deny unchanged = %d, want 2", report.Deny.Unchanged)
+	}
+}
+
+func TestApplyRegexDomain(t *testing.T) {
+	mock := newMockAPI()
+	cfg := &config.Config{
+		Deny: []config.DenyEntry{
+			{Domain: "(^|\\.)ads\\.", Kind: "regex"},
+		},
+	}
+	target := config.Target{Name: "test"}
+	report, err := Apply(cfg, target, mock, "[forseti]")
+	if err != nil {
+		t.Fatalf("Apply() error: %v", err)
+	}
+	if len(report.Errors) > 0 {
+		t.Errorf("unexpected errors: %v", report.Errors)
+	}
+	if len(mock.createdDomains) != 1 {
+		t.Errorf("created domains = %d, want 1", len(mock.createdDomains))
+	}
+	if mock.createdDomains[0] != "deny:(^|\\.)ads\\." {
+		t.Errorf("created domain = %q, want deny:(^|\\.)ads\\.", mock.createdDomains[0])
+	}
+}
+
+func TestApplyDeletesManagedRegex(t *testing.T) {
+	mock := newMockAPI()
+	mock.domains["deny/regex"] = []pihole.APIDomain{
+		{ID: 5, Domain: "(^|\\.)old\\.", Comment: "[forseti]"},
+	}
+	cfg := &config.Config{
+		Deny: []config.DenyEntry{
+			{Domain: "(^|\\.)new\\.", Kind: "regex"},
+		},
+	}
+	target := config.Target{Name: "test"}
+	_, err := Apply(cfg, target, mock, "[forseti]")
+	if err != nil {
+		t.Fatalf("Apply() error: %v", err)
+	}
+	if len(mock.createdDomains) != 1 {
+		t.Errorf("created = %d, want 1", len(mock.createdDomains))
+	}
+	if len(mock.deletedDomains2) != 1 {
+		t.Errorf("deleted = %d, want 1", len(mock.deletedDomains2))
+	}
+}

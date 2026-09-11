@@ -91,17 +91,23 @@ func Plan(cfg *config.Config, target config.Target, api PiholeAPI, marker string
 	report.Adlists = diffAdlists(cfg.Adlists, adlists, marker, groupNameToID)
 	report.NeedsGravity = report.Adlists.HasChanges()
 
-	denyDomains, err := api.ListDomains("deny", "exact")
-	if err != nil {
-		return nil, fmt.Errorf("list deny domains: %w", err)
+	for _, kind := range collectDenyKinds(cfg.Deny) {
+		denyDomains, err := api.ListDomains("deny", kind)
+		if err != nil {
+			return nil, fmt.Errorf("list deny/%s: %w", kind, err)
+		}
+		kindDiff := diffDomains(filterDenyByKind(cfg.Deny, kind), denyDomains, marker)
+		mergeDiff(&report.Deny, kindDiff)
 	}
-	report.Deny = diffDomains(cfg.Deny, denyDomains, marker)
 
-	allowDomains, err := api.ListDomains("allow", "exact")
-	if err != nil {
-		return nil, fmt.Errorf("list allow domains: %w", err)
+	for _, kind := range collectAllowKinds(cfg.Allow) {
+		allowDomains, err := api.ListDomains("allow", kind)
+		if err != nil {
+			return nil, fmt.Errorf("list allow/%s: %w", kind, err)
+		}
+		kindDiff := diffAllowDomains(filterAllowByKind(cfg.Allow, kind), allowDomains, marker)
+		mergeDiff(&report.Allow, kindDiff)
 	}
-	report.Allow = diffAllowDomains(cfg.Allow, allowDomains, marker)
 
 	dnsRecords, err := api.ListDNSRecords()
 	if err != nil {
@@ -172,38 +178,46 @@ func Apply(cfg *config.Config, target config.Target, api PiholeAPI, marker strin
 	}
 	report.Diff.NeedsGravity = report.Diff.Adlists.HasChanges()
 
-	// Deny domains
-	denyDomains, err := api.ListDomains("deny", "exact")
-	if err != nil {
-		return nil, fmt.Errorf("list deny: %w", err)
-	}
-	report.Diff.Deny = diffDomains(cfg.Deny, denyDomains, marker)
-	for _, entry := range report.Diff.Deny.Adds {
-		if _, err := api.CreateDomain("deny", "exact", entry.Key, marker, true, nil); err != nil {
-			report.Errors = append(report.Errors, fmt.Errorf("create deny %q: %w", entry.Key, err))
+	// Deny domains (per-kind)
+	for _, kind := range collectDenyKinds(cfg.Deny) {
+		denyDomains, err := api.ListDomains("deny", kind)
+		if err != nil {
+			return nil, fmt.Errorf("list deny/%s: %w", kind, err)
 		}
-	}
-	if keys := collectKeys(report.Diff.Deny.Deletes); len(keys) > 0 {
-		if err := api.DeleteDomains(keys); err != nil {
-			report.Errors = append(report.Errors, fmt.Errorf("delete deny domains: %w", err))
+		kindDeny := filterDenyByKind(cfg.Deny, kind)
+		kindDiff := diffDomains(kindDeny, denyDomains, marker)
+		for _, entry := range kindDiff.Adds {
+			if _, err := api.CreateDomain("deny", kind, entry.Key, marker, true, nil); err != nil {
+				report.Errors = append(report.Errors, fmt.Errorf("create deny/%s %q: %w", kind, entry.Key, err))
+			}
 		}
+		if keys := collectKeys(kindDiff.Deletes); len(keys) > 0 {
+			if err := api.DeleteDomains(keys); err != nil {
+				report.Errors = append(report.Errors, fmt.Errorf("delete deny/%s domains: %w", kind, err))
+			}
+		}
+		mergeDiff(&report.Diff.Deny, kindDiff)
 	}
 
-	// Allow domains
-	allowDomains, err := api.ListDomains("allow", "exact")
-	if err != nil {
-		return nil, fmt.Errorf("list allow: %w", err)
-	}
-	report.Diff.Allow = diffAllowDomains(cfg.Allow, allowDomains, marker)
-	for _, entry := range report.Diff.Allow.Adds {
-		if _, err := api.CreateDomain("allow", "exact", entry.Key, marker, true, nil); err != nil {
-			report.Errors = append(report.Errors, fmt.Errorf("create allow %q: %w", entry.Key, err))
+	// Allow domains (per-kind)
+	for _, kind := range collectAllowKinds(cfg.Allow) {
+		allowDomains, err := api.ListDomains("allow", kind)
+		if err != nil {
+			return nil, fmt.Errorf("list allow/%s: %w", kind, err)
 		}
-	}
-	if keys := collectKeys(report.Diff.Allow.Deletes); len(keys) > 0 {
-		if err := api.DeleteDomains(keys); err != nil {
-			report.Errors = append(report.Errors, fmt.Errorf("delete allow domains: %w", err))
+		kindAllow := filterAllowByKind(cfg.Allow, kind)
+		kindDiff := diffAllowDomains(kindAllow, allowDomains, marker)
+		for _, entry := range kindDiff.Adds {
+			if _, err := api.CreateDomain("allow", kind, entry.Key, marker, true, nil); err != nil {
+				report.Errors = append(report.Errors, fmt.Errorf("create allow/%s %q: %w", kind, entry.Key, err))
+			}
 		}
+		if keys := collectKeys(kindDiff.Deletes); len(keys) > 0 {
+			if err := api.DeleteDomains(keys); err != nil {
+				report.Errors = append(report.Errors, fmt.Errorf("delete allow/%s domains: %w", kind, err))
+			}
+		}
+		mergeDiff(&report.Diff.Allow, kindDiff)
 	}
 
 	// Local DNS
@@ -485,4 +499,79 @@ func findClientByMatch(clients []config.ClientEntry, match string) config.Client
 		}
 	}
 	return config.ClientEntry{}
+}
+
+func collectDenyKinds(entries []config.DenyEntry) []string {
+	seen := map[string]bool{}
+	for _, e := range entries {
+		k := e.Kind
+		if k == "" {
+			k = "exact"
+		}
+		seen[k] = true
+	}
+	if len(seen) == 0 {
+		seen["exact"] = true
+	}
+	kinds := make([]string, 0, len(seen))
+	for k := range seen {
+		kinds = append(kinds, k)
+	}
+	sort.Strings(kinds)
+	return kinds
+}
+
+func collectAllowKinds(entries []config.AllowEntry) []string {
+	seen := map[string]bool{}
+	for _, e := range entries {
+		k := e.Kind
+		if k == "" {
+			k = "exact"
+		}
+		seen[k] = true
+	}
+	if len(seen) == 0 {
+		seen["exact"] = true
+	}
+	kinds := make([]string, 0, len(seen))
+	for k := range seen {
+		kinds = append(kinds, k)
+	}
+	sort.Strings(kinds)
+	return kinds
+}
+
+func filterDenyByKind(entries []config.DenyEntry, kind string) []config.DenyEntry {
+	var out []config.DenyEntry
+	for _, e := range entries {
+		k := e.Kind
+		if k == "" {
+			k = "exact"
+		}
+		if k == kind {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+func filterAllowByKind(entries []config.AllowEntry, kind string) []config.AllowEntry {
+	var out []config.AllowEntry
+	for _, e := range entries {
+		k := e.Kind
+		if k == "" {
+			k = "exact"
+		}
+		if k == kind {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+func mergeDiff(target *ResourceDiff, source ResourceDiff) {
+	target.Adds = append(target.Adds, source.Adds...)
+	target.Deletes = append(target.Deletes, source.Deletes...)
+	target.Updates = append(target.Updates, source.Updates...)
+	target.Unchanged += source.Unchanged
 }

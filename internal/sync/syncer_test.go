@@ -15,12 +15,14 @@ import (
 )
 
 type testData struct {
-	groups  []pihole.APIGroup
-	adlists []pihole.APIList
-	deny    []pihole.APIDomain
-	allow   []pihole.APIDomain
-	dns     []string // "ip domain" entries
-	clients []pihole.APIClient
+	groups     []pihole.APIGroup
+	adlists    []pihole.APIList
+	deny       []pihole.APIDomain
+	denyRegex  []pihole.APIDomain
+	allow      []pihole.APIDomain
+	allowRegex []pihole.APIDomain
+	dns        []string // "ip domain" entries
+	clients    []pihole.APIClient
 }
 
 type testCounters struct {
@@ -58,13 +60,18 @@ func newFullTestServer(data testData, counters *testCounters) *httptest.Server {
 		case r.URL.Path == "/api/lists:batchDelete" && r.Method == http.MethodPost:
 			counters.deletes.Add(1)
 
-		// Domains (deny & allow)
+		// Domains (deny & allow, exact & regex)
 		case strings.HasPrefix(r.URL.Path, "/api/domains/") && r.Method == http.MethodGet:
 			var domains []pihole.APIDomain
-			if strings.Contains(r.URL.Path, "/deny/") {
+			switch {
+			case strings.HasSuffix(r.URL.Path, "/deny/exact"):
 				domains = data.deny
-			} else {
+			case strings.HasSuffix(r.URL.Path, "/deny/regex"):
+				domains = data.denyRegex
+			case strings.HasSuffix(r.URL.Path, "/allow/exact"):
 				domains = data.allow
+			case strings.HasSuffix(r.URL.Path, "/allow/regex"):
+				domains = data.allowRegex
 			}
 			json.NewEncoder(w).Encode(map[string]any{"domains": domains})
 		case strings.HasPrefix(r.URL.Path, "/api/domains/") && r.Method == http.MethodPost:
@@ -259,11 +266,18 @@ func newCreateFailServer(data testData) *httptest.Server {
 			case r.URL.Path == "/api/lists":
 				json.NewEncoder(w).Encode(map[string]any{"lists": data.adlists})
 			case strings.HasPrefix(r.URL.Path, "/api/domains/"):
-				if strings.Contains(r.URL.Path, "/deny/") {
-					json.NewEncoder(w).Encode(map[string]any{"domains": data.deny})
-				} else {
-					json.NewEncoder(w).Encode(map[string]any{"domains": data.allow})
+				var domains []pihole.APIDomain
+				switch {
+				case strings.HasSuffix(r.URL.Path, "/deny/exact"):
+					domains = data.deny
+				case strings.HasSuffix(r.URL.Path, "/deny/regex"):
+					domains = data.denyRegex
+				case strings.HasSuffix(r.URL.Path, "/allow/exact"):
+					domains = data.allow
+				case strings.HasSuffix(r.URL.Path, "/allow/regex"):
+					domains = data.allowRegex
 				}
+				json.NewEncoder(w).Encode(map[string]any{"domains": domains})
 			case r.URL.Path == "/api/config/dns/hosts":
 				json.NewEncoder(w).Encode(map[string]any{"config": map[string]any{"dns": map[string]any{"hosts": data.dns}}})
 			case r.URL.Path == "/api/clients":
@@ -1183,5 +1197,64 @@ func TestSyncGroupsCaseInsensitive(t *testing.T) {
 
 	if got := replicaCounters.creates.Load(); got != 0 {
 		t.Errorf("creates = %d, want 0 (case-insensitive match)", got)
+	}
+}
+
+func TestSyncRegexDomainPropagation(t *testing.T) {
+	primaryCounters := &testCounters{}
+	primarySrv := newFullTestServer(testData{
+		denyRegex: []pihole.APIDomain{
+			{ID: 1, Domain: "(^|\\.)ads\\.", Kind: "regex", Comment: "primary regex"},
+		},
+	}, primaryCounters)
+	defer primarySrv.Close()
+
+	replicaCounters := &testCounters{}
+	replicaSrv := newFullTestServer(testData{}, replicaCounters)
+	defer replicaSrv.Close()
+
+	pool := session.NewPool()
+	defer pool.Close()
+
+	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"deny"})
+	m := metrics.NewServer(0, "/metrics")
+	syncer := NewSyncer(pool, cfg, m)
+	syncer.SyncAll()
+
+	if got := replicaCounters.creates.Load(); got != 1 {
+		t.Errorf("creates = %d, want 1 (regex domain should be synced)", got)
+	}
+}
+
+func TestSyncRegexAndExactIndependent(t *testing.T) {
+	primaryCounters := &testCounters{}
+	primarySrv := newFullTestServer(testData{
+		deny: []pihole.APIDomain{
+			{ID: 1, Domain: "ads.com", Kind: "exact"},
+		},
+		denyRegex: []pihole.APIDomain{
+			{ID: 2, Domain: "(^|\\.)ads\\.", Kind: "regex"},
+		},
+	}, primaryCounters)
+	defer primarySrv.Close()
+
+	replicaCounters := &testCounters{}
+	replicaSrv := newFullTestServer(testData{
+		deny: []pihole.APIDomain{
+			{ID: 10, Domain: "ads.com", Kind: "exact"},
+		},
+	}, replicaCounters)
+	defer replicaSrv.Close()
+
+	pool := session.NewPool()
+	defer pool.Close()
+
+	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"deny"})
+	m := metrics.NewServer(0, "/metrics")
+	syncer := NewSyncer(pool, cfg, m)
+	syncer.SyncAll()
+
+	if got := replicaCounters.creates.Load(); got != 1 {
+		t.Errorf("creates = %d, want 1 (only regex should be created, exact already exists)", got)
 	}
 }

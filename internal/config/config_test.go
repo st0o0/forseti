@@ -1119,3 +1119,79 @@ targets:
 		t.Errorf("default scrape interval %v below minimum", c.Metrics.ScrapeInterval.Duration)
 	}
 }
+
+func TestDenyKindDefault(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+deny:
+  - domain: ads.example.com
+`
+	path := writeTestConfig(t, cfg)
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if c.Deny[0].Kind != "exact" {
+		t.Errorf("Kind = %q, want exact", c.Deny[0].Kind)
+	}
+}
+
+func TestDenyKindRegex(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+deny:
+  - domain: "(^|\\.)ads\\."
+    kind: regex
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err != nil {
+		t.Fatalf("regex kind should be valid: %v", err)
+	}
+}
+
+func TestDenyKindInvalid(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+deny:
+  - domain: ads.example.com
+    kind: wildcard
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for invalid kind")
+	}
+	if !strings.Contains(err.Error(), "kind must be") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestDenyRegexInvalidPattern(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+deny:
+  - domain: "[invalid"
+    kind: regex
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for invalid regex")
+	}
+	if !strings.Contains(err.Error(), "invalid regex") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
