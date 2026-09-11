@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"flag"
+	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -162,7 +164,7 @@ func runWatch(args []string) int {
 
 	go func() {
 		log.Printf("metrics server listening on :%d%s", cfg.Metrics.Port, cfg.Metrics.Path)
-		if err := srv.Start(); err != nil && err.Error() != "http: Server closed" {
+		if err := srv.Start(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Printf("metrics server error: %v", err)
 		}
 	}()

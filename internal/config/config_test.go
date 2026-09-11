@@ -986,3 +986,39 @@ clients:
 		t.Fatalf("plain IP should be valid, got: %v", err)
 	}
 }
+
+func TestLocalDNSPurgeDefault(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+`
+	path := writeTestConfig(t, cfg)
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if c.Reconcile.LocalDNSPurge {
+		t.Error("LocalDNSPurge should default to false")
+	}
+}
+
+func TestLocalDNSPurgeExplicitTrue(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+reconcile:
+  local_dns_purge: true
+`
+	path := writeTestConfig(t, cfg)
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if !c.Reconcile.LocalDNSPurge {
+		t.Error("LocalDNSPurge should be true when explicitly set")
+	}
+}

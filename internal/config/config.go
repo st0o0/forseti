@@ -62,6 +62,7 @@ type Reconcile struct {
 	Interval        Duration `yaml:"interval"`
 	Marker          string   `yaml:"marker"`
 	GravityOnChange *bool    `yaml:"gravity_on_change"`
+	LocalDNSPurge   bool     `yaml:"local_dns_purge"`
 }
 
 type Group struct {

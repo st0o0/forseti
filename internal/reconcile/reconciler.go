@@ -99,7 +99,7 @@ func Plan(cfg *config.Config, target config.Target, api PiholeAPI, marker string
 	if err != nil {
 		return nil, fmt.Errorf("list DNS records: %w", err)
 	}
-	report.LocalDNS = diffDNS(cfg.LocalDNS, dnsRecords)
+	report.LocalDNS = diffDNS(cfg.LocalDNS, dnsRecords, cfg.Reconcile.LocalDNSPurge)
 
 	clients, err := api.ListClients()
 	if err != nil {
@@ -196,7 +196,7 @@ func Apply(cfg *config.Config, target config.Target, api PiholeAPI, marker strin
 	if err != nil {
 		return nil, fmt.Errorf("list DNS: %w", err)
 	}
-	report.Diff.LocalDNS = diffDNS(cfg.LocalDNS, dnsRecords)
+	report.Diff.LocalDNS = diffDNS(cfg.LocalDNS, dnsRecords, cfg.Reconcile.LocalDNSPurge)
 	for _, entry := range report.Diff.LocalDNS.Adds {
 		parts := strings.SplitN(entry.Key, " ", 2)
 		if err := api.AddDNSRecord(parts[0], parts[1]); err != nil {
@@ -337,7 +337,7 @@ func diffAllowDomains(desired []config.AllowEntry, actual []pihole.APIDomain, ma
 	return diff
 }
 
-func diffDNS(desired []config.LocalDNSEntry, actual []pihole.APIDNSRecord) ResourceDiff {
+func diffDNS(desired []config.LocalDNSEntry, actual []pihole.APIDNSRecord, purge bool) ResourceDiff {
 	var diff ResourceDiff
 	actualKeys := make(map[string]bool)
 	for _, r := range actual {
@@ -355,10 +355,12 @@ func diffDNS(desired []config.LocalDNSEntry, actual []pihole.APIDNSRecord) Resou
 		}
 	}
 
-	for _, r := range actual {
-		key := r.IP + " " + r.Domain
-		if !desiredKeys[key] {
-			diff.Deletes = append(diff.Deletes, DiffEntry{Action: ActionDelete, Key: key})
+	if purge {
+		for _, r := range actual {
+			key := r.IP + " " + r.Domain
+			if !desiredKeys[key] {
+				diff.Deletes = append(diff.Deletes, DiffEntry{Action: ActionDelete, Key: key})
+			}
 		}
 	}
 	return diff

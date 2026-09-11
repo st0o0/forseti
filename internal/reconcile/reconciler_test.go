@@ -292,6 +292,7 @@ func TestDiffDNS(t *testing.T) {
 		diff := diffDNS(
 			[]config.LocalDNSEntry{{IP: "192.168.1.1", Domain: "router.local"}},
 			nil,
+			false,
 		)
 		if len(diff.Adds) != 1 || diff.Adds[0].Key != "192.168.1.1 router.local" {
 			t.Errorf("expected add, got %v", diff.Adds)
@@ -302,6 +303,7 @@ func TestDiffDNS(t *testing.T) {
 		diff := diffDNS(
 			[]config.LocalDNSEntry{{IP: "192.168.1.1", Domain: "router.local"}},
 			[]pihole.APIDNSRecord{{IP: "192.168.1.1", Domain: "router.local"}},
+			false,
 		)
 		if diff.Unchanged != 1 {
 			t.Errorf("unchanged = %d, want 1", diff.Unchanged)
@@ -311,17 +313,52 @@ func TestDiffDNS(t *testing.T) {
 		}
 	})
 
-	t.Run("delete DNS record not in desired", func(t *testing.T) {
+	t.Run("additive-only preserves unmanaged records", func(t *testing.T) {
 		diff := diffDNS(
-			nil,
-			[]pihole.APIDNSRecord{{IP: "10.0.0.1", Domain: "old.local"}},
+			[]config.LocalDNSEntry{{IP: "192.168.1.1", Domain: "router.local"}},
+			[]pihole.APIDNSRecord{
+				{IP: "192.168.1.1", Domain: "router.local"},
+				{IP: "10.0.0.1", Domain: "manual.local"},
+			},
+			false,
 		)
-		if len(diff.Deletes) != 1 || diff.Deletes[0].Key != "10.0.0.1 old.local" {
-			t.Errorf("expected delete, got %v", diff.Deletes)
+		if len(diff.Deletes) != 0 {
+			t.Errorf("additive-only should not delete, got %v", diff.Deletes)
+		}
+		if diff.Unchanged != 1 {
+			t.Errorf("unchanged = %d, want 1", diff.Unchanged)
 		}
 	})
 
-	t.Run("mixed add delete and unchanged", func(t *testing.T) {
+	t.Run("purge mode deletes unmanaged records", func(t *testing.T) {
+		diff := diffDNS(
+			[]config.LocalDNSEntry{{IP: "192.168.1.1", Domain: "router.local"}},
+			[]pihole.APIDNSRecord{
+				{IP: "192.168.1.1", Domain: "router.local"},
+				{IP: "10.0.0.1", Domain: "stale.local"},
+			},
+			true,
+		)
+		if len(diff.Deletes) != 1 || diff.Deletes[0].Key != "10.0.0.1 stale.local" {
+			t.Errorf("purge should delete stale, got %v", diff.Deletes)
+		}
+	})
+
+	t.Run("purge with empty desired deletes all", func(t *testing.T) {
+		diff := diffDNS(
+			nil,
+			[]pihole.APIDNSRecord{
+				{IP: "10.0.0.1", Domain: "old.local"},
+				{IP: "10.0.0.2", Domain: "also-old.local"},
+			},
+			true,
+		)
+		if len(diff.Deletes) != 2 {
+			t.Errorf("purge with empty desired should delete all, got %d", len(diff.Deletes))
+		}
+	})
+
+	t.Run("mixed add and unchanged without purge", func(t *testing.T) {
 		diff := diffDNS(
 			[]config.LocalDNSEntry{
 				{IP: "192.168.1.1", Domain: "router.local"},
@@ -331,6 +368,30 @@ func TestDiffDNS(t *testing.T) {
 				{IP: "192.168.1.1", Domain: "router.local"},
 				{IP: "10.0.0.1", Domain: "old.local"},
 			},
+			false,
+		)
+		if len(diff.Adds) != 1 {
+			t.Errorf("adds = %d, want 1", len(diff.Adds))
+		}
+		if len(diff.Deletes) != 0 {
+			t.Errorf("deletes = %d, want 0 (additive-only)", len(diff.Deletes))
+		}
+		if diff.Unchanged != 1 {
+			t.Errorf("unchanged = %d, want 1", diff.Unchanged)
+		}
+	})
+
+	t.Run("mixed add delete and unchanged with purge", func(t *testing.T) {
+		diff := diffDNS(
+			[]config.LocalDNSEntry{
+				{IP: "192.168.1.1", Domain: "router.local"},
+				{IP: "192.168.1.2", Domain: "new.local"},
+			},
+			[]pihole.APIDNSRecord{
+				{IP: "192.168.1.1", Domain: "router.local"},
+				{IP: "10.0.0.1", Domain: "old.local"},
+			},
+			true,
 		)
 		if len(diff.Adds) != 1 {
 			t.Errorf("adds = %d, want 1", len(diff.Adds))
@@ -344,7 +405,7 @@ func TestDiffDNS(t *testing.T) {
 	})
 
 	t.Run("empty desired and actual", func(t *testing.T) {
-		diff := diffDNS(nil, nil)
+		diff := diffDNS(nil, nil, false)
 		if diff.HasChanges() {
 			t.Error("empty diff should have no changes")
 		}
@@ -916,7 +977,7 @@ func TestApplyDeleteErrors(t *testing.T) {
 		mock := newMockAPI()
 		mock.deleteDNSErr = errors.New("fail")
 		mock.dnsRecords = []pihole.APIDNSRecord{{IP: "10.0.0.1", Domain: "old.local"}}
-		cfg := &config.Config{}
+		cfg := &config.Config{Reconcile: config.Reconcile{LocalDNSPurge: true}}
 		report, err := Apply(cfg, target, mock, marker)
 		if err != nil {
 			t.Fatalf("Apply should not return hard error: %v", err)
