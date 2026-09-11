@@ -2,7 +2,7 @@ package sync
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -39,7 +39,7 @@ type SyncReport struct {
 func (s *Syncer) SyncAll() {
 	primary, err := s.getPrimary()
 	if err != nil {
-		log.Printf("[sync] primary session error: %v", err)
+		slog.Error("primary session error", "component", "sync", "error", err)
 		return
 	}
 
@@ -50,7 +50,7 @@ func (s *Syncer) SyncAll() {
 
 	var primaryState state
 	if err := primaryState.load(primary, resources); err != nil {
-		log.Printf("[sync] error reading primary: %v", err)
+		slog.Error("error reading primary", "component", "sync", "error", err)
 		return
 	}
 
@@ -67,14 +67,14 @@ func (s *Syncer) syncReplica(target config.Target, primary *state, resources map
 
 	replica, err := s.pool.Get(target)
 	if err != nil {
-		log.Printf("[%s] sync session error: %v", target.Name, err)
+		slog.Error("sync session error", "target", target.Name, "error", err)
 		s.metrics.MarkTargetUnreachable(target.Name)
 		return
 	}
 
 	var replicaState state
 	if err := replicaState.load(replica, resources); err != nil {
-		log.Printf("[%s] sync error reading replica: %v", target.Name, err)
+		slog.Error("sync error reading replica", "target", target.Name, "error", err)
 		return
 	}
 
@@ -92,7 +92,7 @@ func (s *Syncer) syncReplica(target config.Target, primary *state, resources map
 	if resources["groups"] {
 		replicaGroups, err := replica.ListGroups()
 		if err != nil {
-			log.Printf("[%s] error re-fetching replica groups: %v", target.Name, err)
+			slog.Error("error re-fetching replica groups", "target", target.Name, "error", err)
 		} else {
 			replicaNameToID = buildReplicaNameToID(replicaGroups)
 		}
@@ -143,7 +143,7 @@ func (s *Syncer) syncReplica(target config.Target, primary *state, resources map
 	})
 
 	if report.Added > 0 || report.Deleted > 0 {
-		log.Printf("[%s] synced: +%d -%d in %s", target.Name, report.Added, report.Deleted, report.Duration.Round(time.Millisecond))
+		slog.Info("synced", "target", target.Name, "added", report.Added, "deleted", report.Deleted, "duration", report.Duration.Round(time.Millisecond))
 	}
 }
 
@@ -230,7 +230,7 @@ func (s *Syncer) syncGroups(replica *pihole.Client, primary, replicaGroups []pih
 	for name, g := range primaryByName {
 		if _, exists := replicaByName[name]; !exists {
 			if _, err := replica.CreateGroup(g.Name, s.marker, g.Enabled); err != nil {
-				log.Printf("[sync] create group %q: %v", g.Name, err)
+				slog.Error("create group failed", "component", "sync", "group", g.Name, "error", err)
 			} else {
 				added++
 			}
@@ -241,7 +241,7 @@ func (s *Syncer) syncGroups(replica *pihole.Client, primary, replicaGroups []pih
 		if _, exists := primaryByName[name]; !exists {
 			if strings.Contains(g.Comment, s.marker) {
 				if err := replica.DeleteGroups([]string{g.Name}); err != nil {
-					log.Printf("[sync] delete group %q: %v", g.Name, err)
+					slog.Error("delete group failed", "component", "sync", "group", g.Name, "error", err)
 				} else {
 					deleted++
 				}
@@ -267,7 +267,7 @@ func (s *Syncer) syncAdlists(replica *pihole.Client, primary, replicaAdlists []p
 		if _, exists := replicaByURL[url]; !exists {
 			groups := translateGroupIDs(a.Groups, primaryIDToName, replicaNameToID)
 			if _, err := replica.CreateAdlist(a.Address, s.marker, a.Enabled, groups); err != nil {
-				log.Printf("[sync] create adlist %q: %v", url, err)
+				slog.Error("create adlist failed", "component", "sync", "adlist", url, "error", err)
 			} else {
 				added++
 			}
@@ -278,7 +278,7 @@ func (s *Syncer) syncAdlists(replica *pihole.Client, primary, replicaAdlists []p
 		if _, exists := primaryByURL[url]; !exists {
 			if strings.Contains(a.Comment, s.marker) {
 				if err := replica.DeleteAdlists([]string{url}); err != nil {
-					log.Printf("[sync] delete adlist %q: %v", url, err)
+					slog.Error("delete adlist failed", "component", "sync", "adlist", url, "error", err)
 				} else {
 					deleted++
 				}
@@ -304,7 +304,7 @@ func (s *Syncer) syncDomains(replica *pihole.Client, domType, kind string, prima
 		if _, exists := replicaByDomain[domain]; !exists {
 			groups := translateGroupIDs(d.Groups, primaryIDToName, replicaNameToID)
 			if _, err := replica.CreateDomain(domType, kind, d.Domain, s.marker, d.Enabled, groups); err != nil {
-				log.Printf("[sync] create %s/%s %q: %v", domType, kind, domain, err)
+				slog.Error("create domain failed", "component", "sync", "type", domType, "kind", kind, "domain", domain, "error", err)
 			} else {
 				added++
 			}
@@ -315,7 +315,7 @@ func (s *Syncer) syncDomains(replica *pihole.Client, domType, kind string, prima
 		if _, exists := primaryByDomain[domain]; !exists {
 			if strings.Contains(d.Comment, s.marker) {
 				if err := replica.DeleteDomains([]string{domain}); err != nil {
-					log.Printf("[sync] delete %s %q: %v", domType, domain, err)
+					slog.Error("delete domain failed", "component", "sync", "type", domType, "domain", domain, "error", err)
 				} else {
 					deleted++
 				}
@@ -340,7 +340,7 @@ func (s *Syncer) syncDNS(replica *pihole.Client, primary, replicaDNS []pihole.AP
 	for key, r := range primaryKeys {
 		if _, exists := replicaKeys[key]; !exists {
 			if err := replica.AddDNSRecord(r.IP, r.Domain); err != nil {
-				log.Printf("[sync] add DNS %q: %v", key, err)
+				slog.Error("add DNS failed", "component", "sync", "record", key, "error", err)
 			} else {
 				added++
 			}
@@ -350,7 +350,7 @@ func (s *Syncer) syncDNS(replica *pihole.Client, primary, replicaDNS []pihole.AP
 	for key, r := range replicaKeys {
 		if _, exists := primaryKeys[key]; !exists {
 			if err := replica.DeleteDNSRecord(r.IP, r.Domain); err != nil {
-				log.Printf("[sync] delete DNS %q: %v", key, err)
+				slog.Error("delete DNS failed", "component", "sync", "record", key, "error", err)
 			} else {
 				deleted++
 			}
@@ -375,7 +375,7 @@ func (s *Syncer) syncClients(replica *pihole.Client, primary, replicaClients []p
 		if _, exists := replicaByIP[ip]; !exists {
 			groups := translateGroupIDs(c.Groups, primaryIDToName, replicaNameToID)
 			if _, err := replica.CreateClient(c.Client, s.marker, groups); err != nil {
-				log.Printf("[sync] create client %q: %v", ip, err)
+				slog.Error("create client failed", "component", "sync", "client", ip, "error", err)
 			} else {
 				added++
 			}
@@ -386,7 +386,7 @@ func (s *Syncer) syncClients(replica *pihole.Client, primary, replicaClients []p
 		if _, exists := primaryByIP[ip]; !exists {
 			if strings.Contains(c.Comment, s.marker) {
 				if err := replica.DeleteClients([]string{ip}); err != nil {
-					log.Printf("[sync] delete client %q: %v", ip, err)
+					slog.Error("delete client failed", "component", "sync", "client", ip, "error", err)
 				} else {
 					deleted++
 				}

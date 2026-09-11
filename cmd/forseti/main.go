@@ -2,10 +2,10 @@ package main
 
 import (
 	"context"
-	"flag"
 	"errors"
+	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -135,6 +135,29 @@ func runApply(args []string) int {
 	return exitCode
 }
 
+func setupLogger(level, format string) {
+	var slogLevel slog.Level
+	switch level {
+	case "debug":
+		slogLevel = slog.LevelDebug
+	case "warn":
+		slogLevel = slog.LevelWarn
+	case "error":
+		slogLevel = slog.LevelError
+	default:
+		slogLevel = slog.LevelInfo
+	}
+
+	opts := &slog.HandlerOptions{Level: slogLevel}
+	var handler slog.Handler
+	if format == "json" {
+		handler = slog.NewJSONHandler(os.Stdout, opts)
+	} else {
+		handler = slog.NewTextHandler(os.Stdout, opts)
+	}
+	slog.SetDefault(slog.New(handler))
+}
+
 func tryReloadConfig(cfgPath string, lastMtime *time.Time) (*config.Config, error) {
 	info, err := os.Stat(cfgPath)
 	if err != nil {
@@ -158,6 +181,8 @@ func runWatch(args []string) int {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
+
+	setupLogger(cfg.LogLevel, cfg.LogFormat)
 
 	info, err := os.Stat(cfgPath)
 	if err != nil {
@@ -186,9 +211,9 @@ func runWatch(args []string) int {
 	}
 
 	go func() {
-		log.Printf("metrics server listening on :%d%s", cfg.Metrics.Port, cfg.Metrics.Path)
+		slog.Info("metrics server listening", "port", cfg.Metrics.Port, "path", cfg.Metrics.Path)
 		if err := srv.Start(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Printf("metrics server error: %v", err)
+			slog.Error("metrics server error", "error", err)
 		}
 	}()
 
@@ -197,7 +222,7 @@ func runWatch(args []string) int {
 
 	go gravSched.Start(ctx)
 
-	log.Printf("mode: %s", cfg.Mode)
+	slog.Info("starting", "mode", cfg.Mode)
 
 	switch cfg.Mode {
 	case config.ModeConfig:
@@ -211,21 +236,22 @@ func runWatch(args []string) int {
 			select {
 			case <-ticker.C:
 				if newCfg, err := tryReloadConfig(cfgPath, &lastMtime); err != nil {
-					log.Printf("config reload failed: %v", err)
+					slog.Error("config reload failed", "error", err)
 					srv.RecordConfigReload(false)
 				} else if newCfg != nil {
-					log.Printf("config reloaded successfully")
+					slog.Info("config reloaded successfully")
 					srv.RecordConfigReload(true)
+					setupLogger(newCfg.LogLevel, newCfg.LogFormat)
 					if newCfg.Reconcile.Interval.Duration != cfg.Reconcile.Interval.Duration {
 						ticker.Reset(newCfg.Reconcile.Interval.Duration)
-						log.Printf("reconcile interval updated to %s", newCfg.Reconcile.Interval.Duration)
+						slog.Info("reconcile interval updated", "interval", newCfg.Reconcile.Interval.Duration)
 					}
 					cfg = newCfg
 					srv.SetConfigMetrics(cfg)
 				}
 				reconcileAll(cfg, srv, pool, gravSched)
 			case <-ctx.Done():
-				log.Println("shutting down...")
+				slog.Info("shutting down")
 				pool.Close()
 				shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
@@ -245,21 +271,22 @@ func runWatch(args []string) int {
 			select {
 			case <-ticker.C:
 				if newCfg, err := tryReloadConfig(cfgPath, &lastMtime); err != nil {
-					log.Printf("config reload failed: %v", err)
+					slog.Error("config reload failed", "error", err)
 					srv.RecordConfigReload(false)
 				} else if newCfg != nil {
-					log.Printf("config reloaded successfully")
+					slog.Info("config reloaded successfully")
 					srv.RecordConfigReload(true)
+					setupLogger(newCfg.LogLevel, newCfg.LogFormat)
 					if newCfg.Sync.Interval.Duration != cfg.Sync.Interval.Duration {
 						ticker.Reset(newCfg.Sync.Interval.Duration)
-						log.Printf("sync interval updated to %s", newCfg.Sync.Interval.Duration)
+						slog.Info("sync interval updated", "interval", newCfg.Sync.Interval.Duration)
 					}
 					cfg = newCfg
 					syncer = forsetisync.NewSyncer(pool, cfg, srv)
 				}
 				syncer.SyncAll()
 			case <-ctx.Done():
-				log.Println("shutting down...")
+				slog.Info("shutting down")
 				pool.Close()
 				shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
@@ -277,7 +304,7 @@ func reconcileAll(cfg *config.Config, srv *metrics.Server, pool *session.Pool, g
 		start := time.Now()
 		client, err := pool.Get(target)
 		if err != nil {
-			log.Printf("[%s] session error: %v", target.Name, err)
+			slog.Error("session error", "target", target.Name, "error", err)
 			srv.MarkTargetUnreachable(target.Name)
 			continue
 		}
@@ -286,7 +313,7 @@ func reconcileAll(cfg *config.Config, srv *metrics.Server, pool *session.Pool, g
 		duration := time.Since(start)
 
 		if err != nil {
-			log.Printf("[%s] reconcile error: %v", target.Name, err)
+			slog.Error("reconcile error", "target", target.Name, "error", err)
 			srv.RecordReconcile(metrics.ReconcileResult{
 				Target:   target.Name,
 				Duration: duration,
@@ -308,17 +335,17 @@ func reconcileAll(cfg *config.Config, srv *metrics.Server, pool *session.Pool, g
 		})
 
 		for _, e := range report.Errors {
-			log.Printf("[%s] warning: %v", target.Name, e)
+			slog.Warn("reconcile warning", "target", target.Name, "error", e)
 		}
 
 		if report.Diff.NeedsGravity && cfg.Reconcile.GravityOnChange != nil && *cfg.Reconcile.GravityOnChange {
 			if err := gravSched.TriggerNow(target.Name, gravity.ReasonAdlistChange); err != nil {
-				log.Printf("[%s] gravity trigger error: %v", target.Name, err)
+				slog.Error("gravity trigger error", "target", target.Name, "error", err)
 			}
 		}
 
 		if hasDiff(&report.Diff) {
-			log.Printf("[%s] reconciled in %s", target.Name, duration.Round(time.Millisecond))
+			slog.Info("reconciled", "target", target.Name, "duration", duration.Round(time.Millisecond))
 		}
 	}
 }

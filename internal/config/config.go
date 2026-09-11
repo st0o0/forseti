@@ -26,6 +26,8 @@ const (
 
 type Config struct {
 	Mode      Mode            `yaml:"mode"`
+	LogLevel  string          `yaml:"log_level"`
+	LogFormat string          `yaml:"log_format"`
 	Metrics   Metrics         `yaml:"metrics"`
 	Targets   []Target        `yaml:"targets"`
 	Reconcile Reconcile       `yaml:"reconcile"`
@@ -192,6 +194,12 @@ func applyDefaults(cfg *Config) {
 	if cfg.Sync.Interval.Duration == 0 {
 		cfg.Sync.Interval.Duration = 5 * time.Minute
 	}
+	if cfg.LogLevel == "" {
+		cfg.LogLevel = "info"
+	}
+	if cfg.LogFormat == "" {
+		cfg.LogFormat = "text"
+	}
 	for i := range cfg.Deny {
 		if cfg.Deny[i].Kind == "" {
 			cfg.Deny[i].Kind = "exact"
@@ -280,6 +288,15 @@ func validate(cfg *Config) error {
 				errs = append(errs, fmt.Errorf("sync.resources[%d]: unknown resource %q", i, r))
 			}
 		}
+	}
+
+	validLogLevels := map[string]bool{"debug": true, "info": true, "warn": true, "error": true}
+	if !validLogLevels[cfg.LogLevel] {
+		errs = append(errs, fmt.Errorf("log_level must be debug/info/warn/error, got %q", cfg.LogLevel))
+	}
+	validLogFormats := map[string]bool{"text": true, "json": true}
+	if !validLogFormats[cfg.LogFormat] {
+		errs = append(errs, fmt.Errorf("log_format must be text/json, got %q", cfg.LogFormat))
 	}
 
 	if cfg.Reconcile.Interval.Duration > 0 && cfg.Reconcile.Interval.Duration < MinReconcileInterval {

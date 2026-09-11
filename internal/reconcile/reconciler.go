@@ -2,7 +2,7 @@ package reconcile
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"sort"
 	"strings"
 
@@ -269,7 +269,7 @@ func Apply(cfg *config.Config, target config.Target, api PiholeAPI, marker strin
 		}
 	}
 	if report.Diff.CNAME.HasChanges() {
-		log.Printf("WARNING: CNAME changes will trigger FTL restart (brief DNS outage)")
+		slog.Warn("CNAME changes will trigger FTL restart (brief DNS outage)")
 	}
 
 	// Clients

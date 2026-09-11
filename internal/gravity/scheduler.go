@@ -3,7 +3,7 @@ package gravity
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -70,7 +70,7 @@ func (s *Scheduler) Start(ctx context.Context) {
 	}
 
 	for _, e := range s.entries {
-		log.Printf("[%s] gravity scheduled, next run: %s", e.target.Name, e.next.Format(time.RFC3339))
+		slog.Debug("gravity scheduled", "target", e.target.Name, "next_run", e.next.Format(time.RFC3339))
 	}
 
 	ticker := time.NewTicker(30 * time.Second)
@@ -129,11 +129,11 @@ func (s *Scheduler) TriggerNow(targetName string, reason TriggerReason) error {
 }
 
 func (s *Scheduler) trigger(e *entry, reason TriggerReason) {
-	log.Printf("[%s] triggering gravity (%s)", e.target.Name, reason)
+	slog.Info("triggering gravity", "target", e.target.Name, "reason", reason)
 
 	client, err := s.pool.Get(e.target)
 	if err != nil {
-		log.Printf("[%s] gravity session error: %v", e.target.Name, err)
+		slog.Error("gravity session error", "target", e.target.Name, "error", err)
 		if s.recorder != nil {
 			s.recorder.RecordGravityRun(e.target.Name, string(reason), 0, err)
 		}
@@ -145,9 +145,9 @@ func (s *Scheduler) trigger(e *entry, reason TriggerReason) {
 	duration := time.Since(start)
 
 	if err != nil {
-		log.Printf("[%s] gravity error: %v", e.target.Name, err)
+		slog.Error("gravity error", "target", e.target.Name, "error", err)
 	} else {
-		log.Printf("[%s] gravity completed in %s", e.target.Name, duration.Round(time.Millisecond))
+		slog.Info("gravity completed", "target", e.target.Name, "duration", duration.Round(time.Millisecond))
 	}
 
 	if s.recorder != nil {

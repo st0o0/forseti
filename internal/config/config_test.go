@@ -1275,3 +1275,76 @@ targets:
 		t.Error("CNAMEPurge should default to false")
 	}
 }
+
+func TestLogLevelDefault(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+`
+	path := writeTestConfig(t, cfg)
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if c.LogLevel != "info" {
+		t.Errorf("LogLevel = %q, want info", c.LogLevel)
+	}
+	if c.LogFormat != "text" {
+		t.Errorf("LogFormat = %q, want text", c.LogFormat)
+	}
+}
+
+func TestLogLevelValid(t *testing.T) {
+	for _, level := range []string{"debug", "info", "warn", "error"} {
+		cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+log_level: ` + level + `
+`
+		path := writeTestConfig(t, cfg)
+		_, err := Load(path)
+		if err != nil {
+			t.Errorf("log_level %q should be valid, got: %v", level, err)
+		}
+	}
+}
+
+func TestLogLevelInvalid(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+log_level: trace
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for invalid log_level")
+	}
+	if !strings.Contains(err.Error(), "log_level must be") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestLogFormatInvalid(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+log_format: xml
+`
+	path := writeTestConfig(t, cfg)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for invalid log_format")
+	}
+	if !strings.Contains(err.Error(), "log_format must be") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}

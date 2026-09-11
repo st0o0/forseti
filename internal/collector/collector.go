@@ -2,7 +2,7 @@ package collector
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -77,7 +77,7 @@ func (c *Collector) Collect(ctx context.Context) {
 func (c *Collector) collectTarget(ctx context.Context, target config.Target) {
 	client, err := c.pool.Get(target)
 	if err != nil {
-		log.Printf("[%s] collector session error: %v", target.Name, err)
+		slog.Error("collector session error", "target", target.Name, "error", err)
 		c.metrics.MarkTargetUnreachable(target.Name)
 		c.metrics.RecordCollectorFetch(target.Name, "error")
 		return
@@ -115,12 +115,12 @@ func (c *Collector) collectTarget(ctx context.Context, target config.Target) {
 
 	select {
 	case <-ctx.Done():
-		log.Printf("[%s] collector timeout", target.Name)
+		slog.Warn("collector timeout", "target", target.Name)
 		c.metrics.RecordCollectorFetch(target.Name, "error")
 		return
 	case sr := <-statsCh:
 		if sr.err != nil {
-			log.Printf("[%s] stats error: %v", target.Name, sr.err)
+			slog.Error("stats error", "target", target.Name, "error", sr.err)
 			c.metrics.RecordCollectorFetch(target.Name, "error")
 			return
 		}
@@ -137,14 +137,14 @@ func (c *Collector) collectTarget(ctx context.Context, target config.Target) {
 		c.metrics.UpdateStats(target.Name, sr.stats)
 
 		if br.err != nil {
-			log.Printf("[%s] blocking status error: %v", target.Name, br.err)
+			slog.Warn("blocking status error", "target", target.Name, "error", br.err)
 		} else {
 			entry.blocking = br.blocking
 			c.metrics.UpdateBlockingStatus(target.Name, br.blocking)
 		}
 
 		if ur.err != nil {
-			log.Printf("[%s] upstreams error: %v", target.Name, ur.err)
+			slog.Warn("upstreams error", "target", target.Name, "error", ur.err)
 		} else {
 			entry.upstreams = ur.upstreams
 			c.metrics.UpdateUpstreams(target.Name, ur.upstreams)
