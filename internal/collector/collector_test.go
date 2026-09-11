@@ -40,6 +40,9 @@ func newPiholeTestServer(callCount *atomic.Int32) *httptest.Server {
 		case r.URL.Path == "/api/stats/upstreams":
 			callCount.Add(1)
 			_ = json.NewEncoder(w).Encode(map[string]any{"upstreams": []any{}})
+		case r.URL.Path == "/api/dhcp/leases":
+			callCount.Add(1)
+			_ = json.NewEncoder(w).Encode(map[string]any{"leases": []any{}})
 		default:
 			w.WriteHeader(http.StatusOK)
 		}
@@ -55,15 +58,15 @@ func TestCollectCacheMiss(t *testing.T) {
 	defer pool.Close()
 
 	target := config.Target{Name: "test", URL: srv.URL, Password: "pw"}
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 
-	coll := NewCollector(pool, []config.Target{target}, 30*time.Second, m)
+	coll := NewCollector(pool, []config.Target{target}, 30*time.Second, m, config.CollectorToggles{})
 
 	ctx := context.Background()
 	coll.Collect(ctx)
 
-	if got := callCount.Load(); got != 3 {
-		t.Errorf("API calls on cache miss = %d, want 3 (stats + blocking + upstreams)", got)
+	if got := callCount.Load(); got != 4 {
+		t.Errorf("API calls on cache miss = %d, want 4 (stats + blocking + upstreams + dhcp)", got)
 	}
 }
 
@@ -76,9 +79,9 @@ func TestCollectCacheHit(t *testing.T) {
 	defer pool.Close()
 
 	target := config.Target{Name: "test", URL: srv.URL, Password: "pw"}
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 
-	coll := NewCollector(pool, []config.Target{target}, 30*time.Second, m)
+	coll := NewCollector(pool, []config.Target{target}, 30*time.Second, m, config.CollectorToggles{})
 
 	ctx := context.Background()
 	coll.Collect(ctx)
@@ -101,9 +104,9 @@ func TestCollectCacheExpiry(t *testing.T) {
 	defer pool.Close()
 
 	target := config.Target{Name: "test", URL: srv.URL, Password: "pw"}
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 
-	coll := NewCollector(pool, []config.Target{target}, 10*time.Millisecond, m)
+	coll := NewCollector(pool, []config.Target{target}, 10*time.Millisecond, m, config.CollectorToggles{})
 
 	ctx := context.Background()
 	coll.Collect(ctx)
@@ -138,9 +141,9 @@ func TestCollectTimeout(t *testing.T) {
 	defer pool.Close()
 
 	target := config.Target{Name: "slow", URL: srv.URL, Password: "pw"}
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 
-	coll := NewCollector(pool, []config.Target{target}, 30*time.Second, m)
+	coll := NewCollector(pool, []config.Target{target}, 30*time.Second, m, config.CollectorToggles{})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
@@ -163,9 +166,9 @@ func TestCollectMetricsFetchAndCacheHit(t *testing.T) {
 	defer pool.Close()
 
 	target := config.Target{Name: "test", URL: srv.URL, Password: "pw"}
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 
-	coll := NewCollector(pool, []config.Target{target}, 30*time.Second, m)
+	coll := NewCollector(pool, []config.Target{target}, 30*time.Second, m, config.CollectorToggles{})
 
 	ctx := context.Background()
 	coll.Collect(ctx)
@@ -195,15 +198,15 @@ func TestCollectParallelTargets(t *testing.T) {
 		{Name: "alpha", URL: srv.URL, Password: "pw"},
 		{Name: "beta", URL: srv.URL, Password: "pw"},
 	}
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 
-	coll := NewCollector(pool, targets, 30*time.Second, m)
+	coll := NewCollector(pool, targets, 30*time.Second, m, config.CollectorToggles{})
 
 	ctx := context.Background()
 	coll.Collect(ctx)
 
-	if got := callCount.Load(); got != 6 {
-		t.Errorf("API calls for 2 targets = %d, want 6 (3 per target)", got)
+	if got := callCount.Load(); got != 8 {
+		t.Errorf("API calls for 2 targets = %d, want 8 (4 per target)", got)
 	}
 }
 
@@ -242,9 +245,9 @@ func TestCollectPartialBlockingError(t *testing.T) {
 	defer pool.Close()
 
 	target := config.Target{Name: "partial", URL: srv.URL, Password: "pw"}
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 
-	coll := NewCollector(pool, []config.Target{target}, 30*time.Second, m)
+	coll := NewCollector(pool, []config.Target{target}, 30*time.Second, m, config.CollectorToggles{})
 
 	ctx := context.Background()
 	coll.Collect(ctx)
@@ -288,9 +291,9 @@ func TestCollectPartialUpstreamsError(t *testing.T) {
 	defer pool.Close()
 
 	target := config.Target{Name: "partial-ups", URL: srv.URL, Password: "pw"}
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 
-	coll := NewCollector(pool, []config.Target{target}, 30*time.Second, m)
+	coll := NewCollector(pool, []config.Target{target}, 30*time.Second, m, config.CollectorToggles{})
 
 	ctx := context.Background()
 	coll.Collect(ctx)
@@ -311,9 +314,9 @@ func TestCollectSessionError(t *testing.T) {
 	defer pool.Close()
 
 	target := config.Target{Name: "unreachable", URL: srv.URL, Password: "pw"}
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 
-	coll := NewCollector(pool, []config.Target{target}, 30*time.Second, m)
+	coll := NewCollector(pool, []config.Target{target}, 30*time.Second, m, config.CollectorToggles{})
 
 	ctx := context.Background()
 	coll.Collect(ctx)
@@ -349,9 +352,9 @@ func TestCollectStatsError(t *testing.T) {
 	defer pool.Close()
 
 	target := config.Target{Name: "statserr", URL: srv.URL, Password: "pw"}
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 
-	coll := NewCollector(pool, []config.Target{target}, 30*time.Second, m)
+	coll := NewCollector(pool, []config.Target{target}, 30*time.Second, m, config.CollectorToggles{})
 
 	ctx := context.Background()
 	coll.Collect(ctx)
@@ -374,9 +377,9 @@ func TestCollectAllCachedNoFetch(t *testing.T) {
 		{Name: "a", URL: srv.URL, Password: "pw"},
 		{Name: "b", URL: srv.URL, Password: "pw"},
 	}
-	m := metrics.NewServer(0, "/metrics")
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 
-	coll := NewCollector(pool, targets, 30*time.Second, m)
+	coll := NewCollector(pool, targets, 30*time.Second, m, config.CollectorToggles{})
 
 	ctx := context.Background()
 	coll.Collect(ctx)

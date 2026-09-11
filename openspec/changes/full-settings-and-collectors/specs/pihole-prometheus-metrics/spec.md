@@ -1,6 +1,4 @@
-# Pi-hole Prometheus Metrics
-
-Registering and populating the full set of forseti_* Prometheus metrics from collected Pi-hole stats.
+## MODIFIED Requirements
 
 ### Requirement: Summary-derived query metrics
 The metrics server SHALL register and populate the following gauges from Stats data:
@@ -74,3 +72,9 @@ The metrics server SHALL populate `forseti_blocking_status{target}` with 1 when 
 #### Scenario: Blocking disabled
 - **WHEN** GetBlockingStatus returns false
 - **THEN** `forseti_blocking_status{target}` SHALL be 0
+
+## RENAMED Requirements
+
+### Requirement: Pi-hole stats metrics prefix
+- **FROM:** `pihole_dns_queries`, `pihole_dns_queries_blocked`, `pihole_blocked_percentage`, `pihole_gravity_last_update`, `pihole_status`, `pihole_domains_blocked`, `pihole_queries_forwarded`, `pihole_queries_cached`, `pihole_unique_domains`, `pihole_request_frequency`, `pihole_clients_active`, `pihole_clients_seen`, `pihole_dns_queries_by_type`, `pihole_dns_queries_by_status`, `pihole_dns_replies_by_type`, `pihole_upstream_queries`, `pihole_upstream_response_seconds`, `pihole_upstream_response_variance`
+- **TO:** `forseti_dns_queries`, `forseti_dns_queries_blocked`, `forseti_blocked_percentage`, `forseti_gravity_last_update_timestamp`, `forseti_blocking_status`, `forseti_domains_blocked`, `forseti_queries_forwarded`, `forseti_queries_cached`, `forseti_unique_domains`, `forseti_request_frequency`, `forseti_clients_active`, `forseti_clients_seen`, `forseti_dns_queries_by_type`, `forseti_dns_queries_by_status`, `forseti_dns_replies_by_type`, `forseti_upstream_queries`, `forseti_upstream_response_seconds`, `forseti_upstream_response_variance`

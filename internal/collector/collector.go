@@ -24,17 +24,19 @@ type Collector struct {
 	targets []config.Target
 	ttl     time.Duration
 	metrics *metrics.Server
+	toggles config.CollectorToggles
 
 	mu    sync.RWMutex
 	cache map[string]*cachedStats
 }
 
-func NewCollector(pool *session.Pool, targets []config.Target, ttl time.Duration, m *metrics.Server) *Collector {
+func NewCollector(pool *session.Pool, targets []config.Target, ttl time.Duration, m *metrics.Server, toggles config.CollectorToggles) *Collector {
 	return &Collector{
 		pool:    pool,
 		targets: targets,
 		ttl:     ttl,
 		metrics: m,
+		toggles: toggles,
 		cache:   make(map[string]*cachedStats),
 	}
 }
@@ -95,23 +97,51 @@ func (c *Collector) collectTarget(ctx context.Context, target config.Target) {
 		upstreams []pihole.UpstreamStats
 		err       error
 	}
+	type dhcpResult struct {
+		leases []pihole.APIDHCPLease
+		err    error
+	}
 
 	statsCh := make(chan statsResult, 1)
 	blockingCh := make(chan blockingResult, 1)
 	upstreamsCh := make(chan upstreamsResult, 1)
+	dhcpCh := make(chan dhcpResult, 1)
 
-	go func() {
-		s, err := client.GetStats()
-		statsCh <- statsResult{s, err}
-	}()
-	go func() {
-		b, err := client.GetBlockingStatus()
-		blockingCh <- blockingResult{b, err}
-	}()
-	go func() {
-		u, err := client.GetUpstreams()
-		upstreamsCh <- upstreamsResult{u, err}
-	}()
+	if c.toggles.IsEnabled("stats") {
+		go func() {
+			s, err := client.GetStats()
+			statsCh <- statsResult{s, err}
+		}()
+	} else {
+		statsCh <- statsResult{}
+	}
+
+	if c.toggles.IsEnabled("blocking") {
+		go func() {
+			b, err := client.GetBlockingStatus()
+			blockingCh <- blockingResult{b, err}
+		}()
+	} else {
+		blockingCh <- blockingResult{}
+	}
+
+	if c.toggles.IsEnabled("upstreams") {
+		go func() {
+			u, err := client.GetUpstreams()
+			upstreamsCh <- upstreamsResult{u, err}
+		}()
+	} else {
+		upstreamsCh <- upstreamsResult{}
+	}
+
+	if c.toggles.IsEnabled("dhcp") {
+		go func() {
+			l, err := client.GetDHCPLeases()
+			dhcpCh <- dhcpResult{l, err}
+		}()
+	} else {
+		dhcpCh <- dhcpResult{}
+	}
 
 	select {
 	case <-ctx.Done():
@@ -119,35 +149,49 @@ func (c *Collector) collectTarget(ctx context.Context, target config.Target) {
 		c.metrics.RecordCollectorFetch(target.Name, "error")
 		return
 	case sr := <-statsCh:
-		if sr.err != nil {
-			slog.Error("stats error", "target", target.Name, "error", sr.err)
-			c.metrics.RecordCollectorFetch(target.Name, "error")
-			return
+		if c.toggles.IsEnabled("stats") {
+			if sr.err != nil {
+				slog.Error("stats error", "target", target.Name, "error", sr.err)
+				c.metrics.RecordCollectorFetch(target.Name, "error")
+				return
+			}
+			c.metrics.UpdateStats(target.Name, sr.stats)
 		}
 		c.metrics.RecordCollectorFetch(target.Name, "success")
 
 		br := <-blockingCh
 		ur := <-upstreamsCh
+		dr := <-dhcpCh
 
 		entry := &cachedStats{
 			stats:     sr.stats,
 			fetchedAt: time.Now(),
 		}
 
-		c.metrics.UpdateStats(target.Name, sr.stats)
-
-		if br.err != nil {
-			slog.Warn("blocking status error", "target", target.Name, "error", br.err)
-		} else {
-			entry.blocking = br.blocking
-			c.metrics.UpdateBlockingStatus(target.Name, br.blocking)
+		if c.toggles.IsEnabled("blocking") {
+			if br.err != nil {
+				slog.Warn("blocking status error", "target", target.Name, "error", br.err)
+			} else {
+				entry.blocking = br.blocking
+				c.metrics.UpdateBlockingStatus(target.Name, br.blocking)
+			}
 		}
 
-		if ur.err != nil {
-			slog.Warn("upstreams error", "target", target.Name, "error", ur.err)
-		} else {
-			entry.upstreams = ur.upstreams
-			c.metrics.UpdateUpstreams(target.Name, ur.upstreams)
+		if c.toggles.IsEnabled("upstreams") {
+			if ur.err != nil {
+				slog.Warn("upstreams error", "target", target.Name, "error", ur.err)
+			} else {
+				entry.upstreams = ur.upstreams
+				c.metrics.UpdateUpstreams(target.Name, ur.upstreams)
+			}
+		}
+
+		if c.toggles.IsEnabled("dhcp") {
+			if dr.err != nil {
+				slog.Warn("dhcp leases error", "target", target.Name, "error", dr.err)
+			} else {
+				c.metrics.UpdateDHCPLeases(target.Name, len(dr.leases))
+			}
 		}
 
 		c.mu.Lock()

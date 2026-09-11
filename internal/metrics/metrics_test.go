@@ -15,7 +15,7 @@ import (
 )
 
 func TestNewServerRegistration(t *testing.T) {
-	s := NewServer(0, "/metrics")
+	s := NewServer(0, "/metrics", config.CollectorToggles{})
 	if s == nil {
 		t.Fatal("NewServer returned nil")
 		return
@@ -40,7 +40,7 @@ func TestNewServerRegistration(t *testing.T) {
 }
 
 func TestRecordReconcile(t *testing.T) {
-	s := NewServer(0, "/metrics")
+	s := NewServer(0, "/metrics", config.CollectorToggles{})
 
 	s.RecordReconcile(ReconcileResult{
 		Target:   "pihole-test",
@@ -80,7 +80,7 @@ func TestRecordReconcile(t *testing.T) {
 }
 
 func TestUpdateStats(t *testing.T) {
-	s := NewServer(0, "/metrics")
+	s := NewServer(0, "/metrics", config.CollectorToggles{})
 
 	s.UpdateStats("pihole-test", &pihole.Stats{
 		QueriesTotal:      12345,
@@ -100,67 +100,67 @@ func TestUpdateStats(t *testing.T) {
 
 	m := &dto.Metric{}
 
-	g, _ := s.piholeQueries.GetMetricWithLabelValues("pihole-test")
+	g, _ := s.statsQueries.GetMetricWithLabelValues("pihole-test")
 	_ = g.Write(m)
 	if m.GetGauge().GetValue() != 12345 {
 		t.Errorf("queries = %f, want 12345", m.GetGauge().GetValue())
 	}
 
-	g, _ = s.piholeDomainsBlocked.GetMetricWithLabelValues("pihole-test")
+	g, _ = s.statsDomainsBlocked.GetMetricWithLabelValues("pihole-test")
 	_ = g.Write(m)
 	if m.GetGauge().GetValue() != 80000 {
 		t.Errorf("domains_blocked = %f, want 80000", m.GetGauge().GetValue())
 	}
 
-	g, _ = s.piholeQueriesForwarded.GetMetricWithLabelValues("pihole-test")
+	g, _ = s.statsQueriesForwarded.GetMetricWithLabelValues("pihole-test")
 	_ = g.Write(m)
 	if m.GetGauge().GetValue() != 8000 {
 		t.Errorf("forwarded = %f, want 8000", m.GetGauge().GetValue())
 	}
 
-	g, _ = s.piholeQueriesCached.GetMetricWithLabelValues("pihole-test")
+	g, _ = s.statsQueriesCached.GetMetricWithLabelValues("pihole-test")
 	_ = g.Write(m)
 	if m.GetGauge().GetValue() != 3000 {
 		t.Errorf("cached = %f, want 3000", m.GetGauge().GetValue())
 	}
 
-	g, _ = s.piholeUniqueDomains.GetMetricWithLabelValues("pihole-test")
+	g, _ = s.statsUniqueDomains.GetMetricWithLabelValues("pihole-test")
 	_ = g.Write(m)
 	if m.GetGauge().GetValue() != 5678 {
 		t.Errorf("unique_domains = %f, want 5678", m.GetGauge().GetValue())
 	}
 
-	g, _ = s.piholeRequestFrequency.GetMetricWithLabelValues("pihole-test")
+	g, _ = s.statsRequestFrequency.GetMetricWithLabelValues("pihole-test")
 	_ = g.Write(m)
 	if m.GetGauge().GetValue() != 1.5 {
 		t.Errorf("frequency = %f, want 1.5", m.GetGauge().GetValue())
 	}
 
-	g, _ = s.piholeClientsActive.GetMetricWithLabelValues("pihole-test")
+	g, _ = s.statsClientsActive.GetMetricWithLabelValues("pihole-test")
 	_ = g.Write(m)
 	if m.GetGauge().GetValue() != 15 {
 		t.Errorf("clients_active = %f, want 15", m.GetGauge().GetValue())
 	}
 
-	g, _ = s.piholeClientsTotal.GetMetricWithLabelValues("pihole-test")
+	g, _ = s.statsClientsTotal.GetMetricWithLabelValues("pihole-test")
 	_ = g.Write(m)
 	if m.GetGauge().GetValue() != 42 {
 		t.Errorf("clients_total = %f, want 42", m.GetGauge().GetValue())
 	}
 
-	g, _ = s.piholeQueryTypes.GetMetricWithLabelValues("pihole-test", "A")
+	g, _ = s.queryTypes.GetMetricWithLabelValues("pihole-test", "A")
 	_ = g.Write(m)
 	if m.GetGauge().GetValue() != 5000 {
 		t.Errorf("query_types A = %f, want 5000", m.GetGauge().GetValue())
 	}
 
-	g, _ = s.piholeQueryStatus.GetMetricWithLabelValues("pihole-test", "GRAVITY")
+	g, _ = s.queryStatus.GetMetricWithLabelValues("pihole-test", "GRAVITY")
 	_ = g.Write(m)
 	if m.GetGauge().GetValue() != 800 {
 		t.Errorf("query_status GRAVITY = %f, want 800", m.GetGauge().GetValue())
 	}
 
-	g, _ = s.piholeReplyTypes.GetMetricWithLabelValues("pihole-test", "IP")
+	g, _ = s.replyTypes.GetMetricWithLabelValues("pihole-test", "IP")
 	_ = g.Write(m)
 	if m.GetGauge().GetValue() != 7000 {
 		t.Errorf("reply_types IP = %f, want 7000", m.GetGauge().GetValue())
@@ -168,10 +168,10 @@ func TestUpdateStats(t *testing.T) {
 }
 
 func TestUpdateBlockingStatus(t *testing.T) {
-	s := NewServer(0, "/metrics")
+	s := NewServer(0, "/metrics", config.CollectorToggles{})
 
 	s.UpdateBlockingStatus("pihole-test", true)
-	g, _ := s.piholeStatus.GetMetricWithLabelValues("pihole-test")
+	g, _ := s.blockingStatus.GetMetricWithLabelValues("pihole-test")
 	m := &dto.Metric{}
 	_ = g.Write(m)
 	if m.GetGauge().GetValue() != 1 {
@@ -179,7 +179,7 @@ func TestUpdateBlockingStatus(t *testing.T) {
 	}
 
 	s.UpdateBlockingStatus("pihole-test", false)
-	g, _ = s.piholeStatus.GetMetricWithLabelValues("pihole-test")
+	g, _ = s.blockingStatus.GetMetricWithLabelValues("pihole-test")
 	_ = g.Write(m)
 	if m.GetGauge().GetValue() != 0 {
 		t.Errorf("status = %f, want 0", m.GetGauge().GetValue())
@@ -187,7 +187,7 @@ func TestUpdateBlockingStatus(t *testing.T) {
 }
 
 func TestUpdateUpstreams(t *testing.T) {
-	s := NewServer(0, "/metrics")
+	s := NewServer(0, "/metrics", config.CollectorToggles{})
 
 	s.UpdateUpstreams("pihole-test", []pihole.UpstreamStats{
 		{IP: "1.1.1.1", Name: "one.one.one.one", Port: 53, Count: 5000, ResponseTime: 0.025, ResponseVariance: 0.003},
@@ -196,19 +196,19 @@ func TestUpdateUpstreams(t *testing.T) {
 
 	m := &dto.Metric{}
 
-	g, _ := s.piholeUpstreamQueries.GetMetricWithLabelValues("pihole-test", "1.1.1.1", "one.one.one.one", "53")
+	g, _ := s.upstreamQueries.GetMetricWithLabelValues("pihole-test", "1.1.1.1", "one.one.one.one", "53")
 	_ = g.Write(m)
 	if m.GetGauge().GetValue() != 5000 {
 		t.Errorf("upstream queries 1.1.1.1 = %f, want 5000", m.GetGauge().GetValue())
 	}
 
-	g, _ = s.piholeUpstreamResponse.GetMetricWithLabelValues("pihole-test", "1.1.1.1", "one.one.one.one", "53")
+	g, _ = s.upstreamResponse.GetMetricWithLabelValues("pihole-test", "1.1.1.1", "one.one.one.one", "53")
 	_ = g.Write(m)
 	if m.GetGauge().GetValue() != 0.025 {
 		t.Errorf("upstream response 1.1.1.1 = %f, want 0.025", m.GetGauge().GetValue())
 	}
 
-	g, _ = s.piholeUpstreamVariance.GetMetricWithLabelValues("pihole-test", "8.8.8.8", "dns.google", "53")
+	g, _ = s.upstreamVariance.GetMetricWithLabelValues("pihole-test", "8.8.8.8", "dns.google", "53")
 	_ = g.Write(m)
 	if m.GetGauge().GetValue() != 0.005 {
 		t.Errorf("upstream variance 8.8.8.8 = %f, want 0.005", m.GetGauge().GetValue())
@@ -216,7 +216,7 @@ func TestUpdateUpstreams(t *testing.T) {
 }
 
 func TestSetConfigMetrics(t *testing.T) {
-	s := NewServer(0, "/metrics")
+	s := NewServer(0, "/metrics", config.CollectorToggles{})
 
 	s.SetConfigMetrics(&config.Config{
 		Adlists: make([]config.Adlist, 10),
@@ -236,7 +236,7 @@ func TestSetConfigMetrics(t *testing.T) {
 }
 
 func TestRecordReconcileError(t *testing.T) {
-	s := NewServer(0, "/metrics")
+	s := NewServer(0, "/metrics", config.CollectorToggles{})
 
 	s.RecordReconcile(ReconcileResult{
 		Target:   "pihole-fail",
@@ -258,7 +258,7 @@ func TestRecordReconcileError(t *testing.T) {
 }
 
 func TestGather(t *testing.T) {
-	s := NewServer(0, "/metrics")
+	s := NewServer(0, "/metrics", config.CollectorToggles{})
 	families, err := s.Gather()
 	if err != nil {
 		t.Fatalf("Gather() error: %v", err)
@@ -269,7 +269,7 @@ func TestGather(t *testing.T) {
 }
 
 func TestSetCollectFunc(t *testing.T) {
-	s := NewServer(0, "/metrics")
+	s := NewServer(0, "/metrics", config.CollectorToggles{})
 	called := false
 	s.SetCollectFunc(func(ctx context.Context) {
 		called = true
@@ -284,7 +284,7 @@ func TestSetCollectFunc(t *testing.T) {
 }
 
 func TestStartAndShutdown(t *testing.T) {
-	s := NewServer(0, "/metrics")
+	s := NewServer(0, "/metrics", config.CollectorToggles{})
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -306,7 +306,7 @@ func TestStartAndShutdown(t *testing.T) {
 }
 
 func TestScrapeCallsCollectFunc(t *testing.T) {
-	s := NewServer(0, "/metrics")
+	s := NewServer(0, "/metrics", config.CollectorToggles{})
 	called := false
 	s.SetCollectFunc(func(ctx context.Context) {
 		called = true
@@ -342,7 +342,7 @@ func TestScrapeCallsCollectFunc(t *testing.T) {
 }
 
 func TestScrapeWithoutCollectFunc(t *testing.T) {
-	s := NewServer(0, "/metrics")
+	s := NewServer(0, "/metrics", config.CollectorToggles{})
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -371,7 +371,7 @@ func TestScrapeWithoutCollectFunc(t *testing.T) {
 }
 
 func TestUpdateStatsStaleKeysCleanup(t *testing.T) {
-	s := NewServer(0, "/metrics")
+	s := NewServer(0, "/metrics", config.CollectorToggles{})
 
 	s.UpdateStats("t", &pihole.Stats{
 		QueryTypes:  map[string]int{"A": 100, "AAAA": 200},
@@ -387,7 +387,7 @@ func TestUpdateStatsStaleKeysCleanup(t *testing.T) {
 
 	families, _ := s.Gather()
 	for _, f := range families {
-		if f.GetName() == "pihole_dns_queries_by_type" {
+		if f.GetName() == "forseti_dns_queries_by_type" {
 			for _, metric := range f.GetMetric() {
 				for _, lp := range metric.GetLabel() {
 					if lp.GetName() == "query_type" && lp.GetValue() == "AAAA" {
@@ -400,7 +400,7 @@ func TestUpdateStatsStaleKeysCleanup(t *testing.T) {
 }
 
 func TestRecordGravityRun(t *testing.T) {
-	s := NewServer(0, "/metrics")
+	s := NewServer(0, "/metrics", config.CollectorToggles{})
 
 	s.RecordGravityRun("pihole-test", "scheduled", 5*time.Second, nil)
 
@@ -418,7 +418,7 @@ func TestRecordGravityRun(t *testing.T) {
 }
 
 func TestRecordGravityRunWithError(t *testing.T) {
-	s := NewServer(0, "/metrics")
+	s := NewServer(0, "/metrics", config.CollectorToggles{})
 
 	s.RecordGravityRun("pihole-test", "adlist_change", 1*time.Second, fmt.Errorf("failed"))
 
@@ -429,7 +429,7 @@ func TestRecordGravityRunWithError(t *testing.T) {
 }
 
 func TestMarkTargetUnreachable(t *testing.T) {
-	s := NewServer(0, "/metrics")
+	s := NewServer(0, "/metrics", config.CollectorToggles{})
 
 	s.MarkTargetUnreachable("pihole-down")
 
@@ -442,7 +442,7 @@ func TestMarkTargetUnreachable(t *testing.T) {
 }
 
 func TestObserveCollectorDuration(t *testing.T) {
-	s := NewServer(0, "/metrics")
+	s := NewServer(0, "/metrics", config.CollectorToggles{})
 	s.ObserveCollectorDuration(2 * time.Second)
 
 	families, _ := s.Gather()
@@ -461,7 +461,7 @@ func TestObserveCollectorDuration(t *testing.T) {
 }
 
 func TestRecordCollectorFetch(t *testing.T) {
-	s := NewServer(0, "/metrics")
+	s := NewServer(0, "/metrics", config.CollectorToggles{})
 	s.RecordCollectorFetch("pihole-test", "success")
 	s.RecordCollectorFetch("pihole-test", "error")
 
@@ -476,7 +476,7 @@ func TestRecordCollectorFetch(t *testing.T) {
 }
 
 func TestRecordCollectorCacheHit(t *testing.T) {
-	s := NewServer(0, "/metrics")
+	s := NewServer(0, "/metrics", config.CollectorToggles{})
 	s.RecordCollectorCacheHit("pihole-test")
 	s.RecordCollectorCacheHit("pihole-test")
 
@@ -487,7 +487,7 @@ func TestRecordCollectorCacheHit(t *testing.T) {
 }
 
 func TestRecordSessionReauth(t *testing.T) {
-	s := NewServer(0, "/metrics")
+	s := NewServer(0, "/metrics", config.CollectorToggles{})
 	s.RecordSessionReauth("pihole-test")
 
 	val := getCounterValue(t, s.sessionReauth, "pihole-test")
@@ -497,7 +497,7 @@ func TestRecordSessionReauth(t *testing.T) {
 }
 
 func TestSessionActiveGauge(t *testing.T) {
-	s := NewServer(0, "/metrics")
+	s := NewServer(0, "/metrics", config.CollectorToggles{})
 
 	s.IncSessionActive()
 	s.IncSessionActive()
@@ -516,7 +516,7 @@ func TestSessionActiveGauge(t *testing.T) {
 }
 
 func TestSetBuildInfo(t *testing.T) {
-	s := NewServer(0, "/metrics")
+	s := NewServer(0, "/metrics", config.CollectorToggles{})
 	s.SetBuildInfo("1.2.3", "config")
 
 	m := &dto.Metric{}
@@ -545,7 +545,7 @@ func TestSplitUpstreamKey(t *testing.T) {
 }
 
 func TestUpdateUpstreamsStaleCleanup(t *testing.T) {
-	s := NewServer(0, "/metrics")
+	s := NewServer(0, "/metrics", config.CollectorToggles{})
 
 	s.UpdateUpstreams("pihole-test", []pihole.UpstreamStats{
 		{IP: "1.1.1.1", Name: "one", Port: 53, Count: 100, ResponseTime: 0.01, ResponseVariance: 0.001},
@@ -557,7 +557,7 @@ func TestUpdateUpstreamsStaleCleanup(t *testing.T) {
 	})
 
 	m := &dto.Metric{}
-	g, _ := s.piholeUpstreamQueries.GetMetricWithLabelValues("pihole-test", "1.1.1.1", "one", "53")
+	g, _ := s.upstreamQueries.GetMetricWithLabelValues("pihole-test", "1.1.1.1", "one", "53")
 	_ = g.Write(m)
 	if m.GetGauge().GetValue() != 150 {
 		t.Errorf("remaining upstream = %f, want 150", m.GetGauge().GetValue())
@@ -565,7 +565,7 @@ func TestUpdateUpstreamsStaleCleanup(t *testing.T) {
 
 	families, _ := s.Gather()
 	for _, f := range families {
-		if f.GetName() != "pihole_upstream_queries" {
+		if f.GetName() != "forseti_upstream_queries" {
 			continue
 		}
 		for _, metric := range f.GetMetric() {

@@ -22,61 +22,77 @@ type Server struct {
 	registry    *prometheus.Registry
 	collectFunc CollectFunc
 
+	// reconcile (toggle: reconcile)
 	reconcileRuns     *prometheus.CounterVec
 	reconcileDuration *prometheus.HistogramVec
 	reconcileChanges  *prometheus.CounterVec
 	reconcileDrift    *prometheus.GaugeVec
-	targetReachable   *prometheus.GaugeVec
 
-	configAdlists     prometheus.Gauge
-	configDenyDomains prometheus.Gauge
+	// always registered
+	targetReachable    *prometheus.GaugeVec
+	configAdlists      prometheus.Gauge
+	configDenyDomains  prometheus.Gauge
 	configAllowDomains prometheus.Gauge
 
-	piholeQueries          *prometheus.GaugeVec
-	piholeBlocked          *prometheus.GaugeVec
-	piholeBlockedPct       *prometheus.GaugeVec
-	piholeGravityLastUpdate *prometheus.GaugeVec
-	piholeStatus           *prometheus.GaugeVec
-	piholeDomainsBlocked   *prometheus.GaugeVec
+	// stats (toggle: stats)
+	statsQueries          *prometheus.GaugeVec
+	statsBlocked          *prometheus.GaugeVec
+	statsBlockedPct       *prometheus.GaugeVec
+	statsGravityLastUpdate *prometheus.GaugeVec
+	statsDomainsBlocked   *prometheus.GaugeVec
+	statsQueriesForwarded *prometheus.GaugeVec
+	statsQueriesCached    *prometheus.GaugeVec
+	statsUniqueDomains    *prometheus.GaugeVec
+	statsRequestFrequency *prometheus.GaugeVec
+	statsClientsActive    *prometheus.GaugeVec
+	statsClientsTotal     *prometheus.GaugeVec
 
-	piholeQueriesForwarded *prometheus.GaugeVec
-	piholeQueriesCached    *prometheus.GaugeVec
-	piholeUniqueDomains    *prometheus.GaugeVec
-	piholeRequestFrequency *prometheus.GaugeVec
-	piholeClientsActive    *prometheus.GaugeVec
-	piholeClientsTotal     *prometheus.GaugeVec
+	// query_types (toggle: query_types)
+	queryTypes  *prometheus.GaugeVec
+	queryStatus *prometheus.GaugeVec
+	replyTypes  *prometheus.GaugeVec
 
-	piholeQueryTypes  *prometheus.GaugeVec
-	piholeQueryStatus *prometheus.GaugeVec
-	piholeReplyTypes  *prometheus.GaugeVec
+	// upstreams (toggle: upstreams)
+	upstreamQueries  *prometheus.GaugeVec
+	upstreamResponse *prometheus.GaugeVec
+	upstreamVariance *prometheus.GaugeVec
 
-	piholeUpstreamQueries  *prometheus.GaugeVec
-	piholeUpstreamResponse *prometheus.GaugeVec
-	piholeUpstreamVariance *prometheus.GaugeVec
+	// blocking (toggle: blocking)
+	blockingStatus *prometheus.GaugeVec
 
+	// gravity (toggle: gravity)
 	gravityRuns     *prometheus.CounterVec
 	gravityDuration *prometheus.HistogramVec
 	gravityLastRun  *prometheus.GaugeVec
 	gravityErrors   *prometheus.CounterVec
 
+	// always registered
 	collectorDuration  prometheus.Histogram
 	collectorFetches   *prometheus.CounterVec
 	collectorCacheHits *prometheus.CounterVec
 
+	// sessions (toggle: sessions)
 	sessionReauth *prometheus.CounterVec
 	sessionActive prometheus.Gauge
 
+	// always registered
 	buildInfo    *prometheus.GaugeVec
 	configReload *prometheus.CounterVec
 
+	// settings_drift (toggle: settings_drift)
+	settingsDrift *prometheus.GaugeVec
+
+	// dhcp (toggle: dhcp)
+	dhcpLeasesActive *prometheus.GaugeVec
+
 	mu               sync.Mutex
-	knownQueryTypes  map[string]map[string]bool // target -> set of keys
+	knownQueryTypes  map[string]map[string]bool
 	knownQueryStatus map[string]map[string]bool
 	knownReplyTypes  map[string]map[string]bool
-	knownUpstreams   map[string]map[string]bool // target -> set of "ip|name|port"
+	knownUpstreams   map[string]map[string]bool
 }
 
-func NewServer(port int, path string) *Server {
+func NewServer(port int, path string, toggles config.CollectorToggles) *Server {
 	reg := prometheus.NewRegistry()
 	reg.MustRegister(collectors.NewGoCollector())
 
@@ -88,27 +104,7 @@ func NewServer(port int, path string) *Server {
 		knownUpstreams:   make(map[string]map[string]bool),
 	}
 
-	s.reconcileRuns = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "forseti_reconcile_runs_total",
-		Help: "Total reconcile cycles",
-	}, []string{"target", "status"})
-
-	s.reconcileDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
-		Name:    "forseti_reconcile_duration_seconds",
-		Help:    "Duration of reconcile cycles",
-		Buckets: prometheus.DefBuckets,
-	}, []string{"target"})
-
-	s.reconcileChanges = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "forseti_reconcile_changes_total",
-		Help: "Total changes applied",
-	}, []string{"target", "type", "action"})
-
-	s.reconcileDrift = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "forseti_reconcile_drift",
-		Help: "Items differing from desired state",
-	}, []string{"target", "type"})
-
+	// Always registered
 	s.targetReachable = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "forseti_target_reachable",
 		Help: "Whether target is reachable (1=yes, 0=no)",
@@ -127,156 +123,208 @@ func NewServer(port int, path string) *Server {
 		Help: "Number of configured allow domains",
 	})
 
-	s.piholeQueries = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "pihole_dns_queries",
-		Help: "Total DNS queries",
-	}, []string{"target"})
-	s.piholeBlocked = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "pihole_dns_queries_blocked",
-		Help: "Total blocked queries",
-	}, []string{"target"})
-	s.piholeBlockedPct = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "pihole_blocked_percentage",
-		Help: "Blocked query percentage",
-	}, []string{"target"})
-	s.piholeGravityLastUpdate = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "pihole_gravity_last_update",
-		Help: "Unix timestamp of last gravity update",
-	}, []string{"target"})
-	s.piholeStatus = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "pihole_status",
-		Help: "Pi-hole status (1=enabled, 0=disabled)",
-	}, []string{"target"})
-	s.piholeDomainsBlocked = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "pihole_domains_blocked",
-		Help: "Unique domains on blocklists",
-	}, []string{"target"})
-
-	s.piholeQueriesForwarded = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "pihole_queries_forwarded",
-		Help: "Forwarded query count",
-	}, []string{"target"})
-	s.piholeQueriesCached = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "pihole_queries_cached",
-		Help: "Cached query count",
-	}, []string{"target"})
-	s.piholeUniqueDomains = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "pihole_unique_domains",
-		Help: "Distinct domains queried",
-	}, []string{"target"})
-	s.piholeRequestFrequency = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "pihole_request_frequency",
-		Help: "DNS requests per second",
-	}, []string{"target"})
-	s.piholeClientsActive = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "pihole_clients_active",
-		Help: "Active clients (24h)",
-	}, []string{"target"})
-	s.piholeClientsTotal = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "pihole_clients_seen",
-		Help: "Cumulative unique clients",
-	}, []string{"target"})
-
-	s.piholeQueryTypes = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "pihole_dns_queries_by_type",
-		Help: "Queries by DNS record type",
-	}, []string{"target", "query_type"})
-	s.piholeQueryStatus = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "pihole_dns_queries_by_status",
-		Help: "Queries by resolution status",
-	}, []string{"target", "status"})
-	s.piholeReplyTypes = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "pihole_dns_replies_by_type",
-		Help: "Replies by type",
-	}, []string{"target", "reply_type"})
-
-	s.piholeUpstreamQueries = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "pihole_upstream_queries",
-		Help: "Queries routed to each upstream",
-	}, []string{"target", "upstream", "name", "port"})
-	s.piholeUpstreamResponse = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "pihole_upstream_response_seconds",
-		Help: "Average upstream response time",
-	}, []string{"target", "upstream", "name", "port"})
-	s.piholeUpstreamVariance = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "pihole_upstream_response_variance",
-		Help: "Upstream response time variance",
-	}, []string{"target", "upstream", "name", "port"})
-
-	s.gravityRuns = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "forseti_gravity_runs_total",
-		Help: "Total gravity update triggers",
-	}, []string{"target", "trigger"})
-
-	s.gravityDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
-		Name:    "forseti_gravity_duration_seconds",
-		Help:    "Duration of gravity updates",
-		Buckets: prometheus.DefBuckets,
-	}, []string{"target"})
-
-	s.gravityLastRun = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "forseti_gravity_last_run_timestamp",
-		Help: "Unix timestamp of last gravity run",
-	}, []string{"target"})
-
-	s.gravityErrors = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "forseti_gravity_errors_total",
-		Help: "Total gravity update errors",
-	}, []string{"target"})
-
 	s.collectorDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
 		Name:    "forseti_collector_duration_seconds",
 		Help:    "Duration of stats collection cycles",
 		Buckets: prometheus.DefBuckets,
 	})
-
 	s.collectorFetches = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "forseti_collector_fetches_total",
 		Help: "Total stats API fetches",
 	}, []string{"target", "status"})
-
 	s.collectorCacheHits = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "forseti_collector_cache_hits_total",
 		Help: "Total stats cache hits",
 	}, []string{"target"})
 
-	s.sessionReauth = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "forseti_session_reauth_total",
-		Help: "Total session re-authentications",
-	}, []string{"target"})
-
-	s.sessionActive = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "forseti_session_active",
-		Help: "Number of active sessions in pool",
-	})
-
 	s.buildInfo = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "forseti_build_info",
 		Help: "Build information",
 	}, []string{"version", "mode"})
-
 	s.configReload = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "forseti_config_reload_total",
 		Help: "Total config reload attempts",
 	}, []string{"result"})
 
 	reg.MustRegister(
-		s.reconcileRuns, s.reconcileDuration, s.reconcileChanges,
-		s.reconcileDrift, s.targetReachable,
+		s.targetReachable,
 		s.configAdlists, s.configDenyDomains, s.configAllowDomains,
-		s.piholeQueries, s.piholeBlocked, s.piholeBlockedPct,
-		s.piholeGravityLastUpdate,
-		s.piholeStatus, s.piholeDomainsBlocked,
-		s.piholeQueriesForwarded, s.piholeQueriesCached,
-		s.piholeUniqueDomains, s.piholeRequestFrequency,
-		s.piholeClientsActive, s.piholeClientsTotal,
-		s.piholeQueryTypes, s.piholeQueryStatus, s.piholeReplyTypes,
-		s.piholeUpstreamQueries, s.piholeUpstreamResponse, s.piholeUpstreamVariance,
-		s.gravityRuns, s.gravityDuration, s.gravityLastRun, s.gravityErrors,
 		s.collectorDuration, s.collectorFetches, s.collectorCacheHits,
-		s.sessionReauth, s.sessionActive,
 		s.buildInfo, s.configReload,
 	)
+
+	// Reconcile
+	if toggles.IsEnabled("reconcile") {
+		s.reconcileRuns = prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "forseti_reconcile_runs_total",
+			Help: "Total reconcile cycles",
+		}, []string{"target", "status"})
+		s.reconcileDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "forseti_reconcile_duration_seconds",
+			Help:    "Duration of reconcile cycles",
+			Buckets: prometheus.DefBuckets,
+		}, []string{"target"})
+		s.reconcileChanges = prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "forseti_reconcile_changes_total",
+			Help: "Total changes applied",
+		}, []string{"target", "type", "action"})
+		s.reconcileDrift = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_reconcile_drift",
+			Help: "Items differing from desired state",
+		}, []string{"target", "type"})
+		reg.MustRegister(s.reconcileRuns, s.reconcileDuration, s.reconcileChanges, s.reconcileDrift)
+	}
+
+	// Stats
+	if toggles.IsEnabled("stats") {
+		s.statsQueries = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_dns_queries",
+			Help: "Total DNS queries",
+		}, []string{"target"})
+		s.statsBlocked = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_dns_queries_blocked",
+			Help: "Total blocked queries",
+		}, []string{"target"})
+		s.statsBlockedPct = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_blocked_percentage",
+			Help: "Blocked query percentage",
+		}, []string{"target"})
+		s.statsGravityLastUpdate = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_gravity_last_update_timestamp",
+			Help: "Unix timestamp of last gravity update",
+		}, []string{"target"})
+		s.statsDomainsBlocked = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_domains_blocked",
+			Help: "Unique domains on blocklists",
+		}, []string{"target"})
+		s.statsQueriesForwarded = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_queries_forwarded",
+			Help: "Forwarded query count",
+		}, []string{"target"})
+		s.statsQueriesCached = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_queries_cached",
+			Help: "Cached query count",
+		}, []string{"target"})
+		s.statsUniqueDomains = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_unique_domains",
+			Help: "Distinct domains queried",
+		}, []string{"target"})
+		s.statsRequestFrequency = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_request_frequency",
+			Help: "DNS requests per second",
+		}, []string{"target"})
+		s.statsClientsActive = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_clients_active",
+			Help: "Active clients (24h)",
+		}, []string{"target"})
+		s.statsClientsTotal = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_clients_seen",
+			Help: "Cumulative unique clients",
+		}, []string{"target"})
+		reg.MustRegister(
+			s.statsQueries, s.statsBlocked, s.statsBlockedPct,
+			s.statsGravityLastUpdate, s.statsDomainsBlocked,
+			s.statsQueriesForwarded, s.statsQueriesCached,
+			s.statsUniqueDomains, s.statsRequestFrequency,
+			s.statsClientsActive, s.statsClientsTotal,
+		)
+	}
+
+	// Query types
+	if toggles.IsEnabled("query_types") {
+		s.queryTypes = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_dns_queries_by_type",
+			Help: "Queries by DNS record type",
+		}, []string{"target", "query_type"})
+		s.queryStatus = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_dns_queries_by_status",
+			Help: "Queries by resolution status",
+		}, []string{"target", "status"})
+		s.replyTypes = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_dns_replies_by_type",
+			Help: "Replies by type",
+		}, []string{"target", "reply_type"})
+		reg.MustRegister(s.queryTypes, s.queryStatus, s.replyTypes)
+	}
+
+	// Upstreams
+	if toggles.IsEnabled("upstreams") {
+		s.upstreamQueries = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_upstream_queries",
+			Help: "Queries routed to each upstream",
+		}, []string{"target", "upstream", "name", "port"})
+		s.upstreamResponse = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_upstream_response_seconds",
+			Help: "Average upstream response time",
+		}, []string{"target", "upstream", "name", "port"})
+		s.upstreamVariance = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_upstream_response_variance",
+			Help: "Upstream response time variance",
+		}, []string{"target", "upstream", "name", "port"})
+		reg.MustRegister(s.upstreamQueries, s.upstreamResponse, s.upstreamVariance)
+	}
+
+	// Blocking
+	if toggles.IsEnabled("blocking") {
+		s.blockingStatus = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_blocking_status",
+			Help: "Pi-hole blocking status (1=enabled, 0=disabled)",
+		}, []string{"target"})
+		reg.MustRegister(s.blockingStatus)
+	}
+
+	// Gravity
+	if toggles.IsEnabled("gravity") {
+		s.gravityRuns = prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "forseti_gravity_runs_total",
+			Help: "Total gravity update triggers",
+		}, []string{"target", "trigger"})
+		s.gravityDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "forseti_gravity_duration_seconds",
+			Help:    "Duration of gravity updates",
+			Buckets: prometheus.DefBuckets,
+		}, []string{"target"})
+		s.gravityLastRun = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_gravity_last_run_timestamp",
+			Help: "Unix timestamp of last gravity run",
+		}, []string{"target"})
+		s.gravityErrors = prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "forseti_gravity_errors_total",
+			Help: "Total gravity update errors",
+		}, []string{"target"})
+		reg.MustRegister(s.gravityRuns, s.gravityDuration, s.gravityLastRun, s.gravityErrors)
+	}
+
+	// Sessions
+	if toggles.IsEnabled("sessions") {
+		s.sessionReauth = prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "forseti_session_reauth_total",
+			Help: "Total session re-authentications",
+		}, []string{"target"})
+		s.sessionActive = prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "forseti_session_active",
+			Help: "Number of active sessions in pool",
+		})
+		reg.MustRegister(s.sessionReauth, s.sessionActive)
+	}
+
+	// Settings drift
+	if toggles.IsEnabled("settings_drift") {
+		s.settingsDrift = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_settings_drift",
+			Help: "Settings drift from desired state (1=drifted, 0=in sync)",
+		}, []string{"target", "setting"})
+		reg.MustRegister(s.settingsDrift)
+	}
+
+	// DHCP
+	if toggles.IsEnabled("dhcp") {
+		s.dhcpLeasesActive = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_dhcp_leases_active",
+			Help: "Number of active DHCP leases",
+		}, []string{"target"})
+		reg.MustRegister(s.dhcpLeasesActive)
+	}
 
 	promHandler := promhttp.HandlerFor(reg, promhttp.HandlerOpts{})
 
@@ -324,11 +372,14 @@ type ReconcileResult struct {
 	Target   string
 	Duration time.Duration
 	Success  bool
-	Changes  map[string]map[string]int // type -> action -> count
-	Drift    map[string]int            // type -> count
+	Changes  map[string]map[string]int
+	Drift    map[string]int
 }
 
 func (s *Server) RecordReconcile(r ReconcileResult) {
+	if s.reconcileRuns == nil {
+		return
+	}
 	status := "success"
 	if !r.Success {
 		status = "error"
@@ -348,40 +399,51 @@ func (s *Server) RecordReconcile(r ReconcileResult) {
 }
 
 func (s *Server) UpdateStats(target string, stats *pihole.Stats) {
+	if s.statsQueries == nil {
+		return
+	}
 	s.targetReachable.WithLabelValues(target).Set(1)
-	s.piholeQueries.WithLabelValues(target).Set(float64(stats.QueriesTotal))
-	s.piholeBlocked.WithLabelValues(target).Set(float64(stats.BlockedTotal))
-	s.piholeBlockedPct.WithLabelValues(target).Set(stats.BlockedPercentage)
-	s.piholeDomainsBlocked.WithLabelValues(target).Set(float64(stats.DomainsBlocked))
-	s.piholeGravityLastUpdate.WithLabelValues(target).Set(float64(stats.GravityLastUpdate))
+	s.statsQueries.WithLabelValues(target).Set(float64(stats.QueriesTotal))
+	s.statsBlocked.WithLabelValues(target).Set(float64(stats.BlockedTotal))
+	s.statsBlockedPct.WithLabelValues(target).Set(stats.BlockedPercentage)
+	s.statsDomainsBlocked.WithLabelValues(target).Set(float64(stats.DomainsBlocked))
+	s.statsGravityLastUpdate.WithLabelValues(target).Set(float64(stats.GravityLastUpdate))
 
-	s.piholeQueriesForwarded.WithLabelValues(target).Set(float64(stats.Forwarded))
-	s.piholeQueriesCached.WithLabelValues(target).Set(float64(stats.Cached))
-	s.piholeUniqueDomains.WithLabelValues(target).Set(float64(stats.UniqueDomains))
-	s.piholeRequestFrequency.WithLabelValues(target).Set(stats.Frequency)
-	s.piholeClientsActive.WithLabelValues(target).Set(float64(stats.ClientsActive))
-	s.piholeClientsTotal.WithLabelValues(target).Set(float64(stats.ClientsTotal))
+	s.statsQueriesForwarded.WithLabelValues(target).Set(float64(stats.Forwarded))
+	s.statsQueriesCached.WithLabelValues(target).Set(float64(stats.Cached))
+	s.statsUniqueDomains.WithLabelValues(target).Set(float64(stats.UniqueDomains))
+	s.statsRequestFrequency.WithLabelValues(target).Set(stats.Frequency)
+	s.statsClientsActive.WithLabelValues(target).Set(float64(stats.ClientsActive))
+	s.statsClientsTotal.WithLabelValues(target).Set(float64(stats.ClientsTotal))
 
-	s.mu.Lock()
-	s.knownQueryTypes[target] = updateGaugeMap(s.piholeQueryTypes, s.knownQueryTypes[target], target, stats.QueryTypes)
-	s.knownQueryStatus[target] = updateGaugeMap(s.piholeQueryStatus, s.knownQueryStatus[target], target, stats.QueryStatus)
-	s.knownReplyTypes[target] = updateGaugeMap(s.piholeReplyTypes, s.knownReplyTypes[target], target, stats.ReplyTypes)
-	s.mu.Unlock()
+	if s.queryTypes != nil {
+		s.mu.Lock()
+		s.knownQueryTypes[target] = updateGaugeMap(s.queryTypes, s.knownQueryTypes[target], target, stats.QueryTypes)
+		s.knownQueryStatus[target] = updateGaugeMap(s.queryStatus, s.knownQueryStatus[target], target, stats.QueryStatus)
+		s.knownReplyTypes[target] = updateGaugeMap(s.replyTypes, s.knownReplyTypes[target], target, stats.ReplyTypes)
+		s.mu.Unlock()
+	}
 }
 
 func (s *Server) UpdateBlockingStatus(target string, enabled bool) {
-	s.piholeStatus.WithLabelValues(target).Set(boolToFloat(enabled))
+	if s.blockingStatus == nil {
+		return
+	}
+	s.blockingStatus.WithLabelValues(target).Set(boolToFloat(enabled))
 }
 
 func (s *Server) UpdateUpstreams(target string, upstreams []pihole.UpstreamStats) {
+	if s.upstreamQueries == nil {
+		return
+	}
 	newKeys := make(map[string]bool, len(upstreams))
 	for _, u := range upstreams {
 		port := fmt.Sprintf("%d", u.Port)
 		key := u.IP + "|" + u.Name + "|" + port
 		newKeys[key] = true
-		s.piholeUpstreamQueries.WithLabelValues(target, u.IP, u.Name, port).Set(float64(u.Count))
-		s.piholeUpstreamResponse.WithLabelValues(target, u.IP, u.Name, port).Set(u.ResponseTime)
-		s.piholeUpstreamVariance.WithLabelValues(target, u.IP, u.Name, port).Set(u.ResponseVariance)
+		s.upstreamQueries.WithLabelValues(target, u.IP, u.Name, port).Set(float64(u.Count))
+		s.upstreamResponse.WithLabelValues(target, u.IP, u.Name, port).Set(u.ResponseTime)
+		s.upstreamVariance.WithLabelValues(target, u.IP, u.Name, port).Set(u.ResponseVariance)
 	}
 
 	s.mu.Lock()
@@ -389,9 +451,9 @@ func (s *Server) UpdateUpstreams(target string, upstreams []pihole.UpstreamStats
 		for key := range prev {
 			if !newKeys[key] {
 				parts := splitUpstreamKey(key)
-				s.piholeUpstreamQueries.DeleteLabelValues(target, parts[0], parts[1], parts[2])
-				s.piholeUpstreamResponse.DeleteLabelValues(target, parts[0], parts[1], parts[2])
-				s.piholeUpstreamVariance.DeleteLabelValues(target, parts[0], parts[1], parts[2])
+				s.upstreamQueries.DeleteLabelValues(target, parts[0], parts[1], parts[2])
+				s.upstreamResponse.DeleteLabelValues(target, parts[0], parts[1], parts[2])
+				s.upstreamVariance.DeleteLabelValues(target, parts[0], parts[1], parts[2])
 			}
 		}
 	}
@@ -400,6 +462,9 @@ func (s *Server) UpdateUpstreams(target string, upstreams []pihole.UpstreamStats
 }
 
 func (s *Server) RecordGravityRun(target string, trigger string, duration time.Duration, err error) {
+	if s.gravityRuns == nil {
+		return
+	}
 	s.gravityRuns.WithLabelValues(target, trigger).Inc()
 	s.gravityDuration.WithLabelValues(target).Observe(duration.Seconds())
 	s.gravityLastRun.WithLabelValues(target).Set(float64(time.Now().Unix()))
@@ -425,14 +490,23 @@ func (s *Server) RecordCollectorCacheHit(target string) {
 }
 
 func (s *Server) RecordSessionReauth(target string) {
+	if s.sessionReauth == nil {
+		return
+	}
 	s.sessionReauth.WithLabelValues(target).Inc()
 }
 
 func (s *Server) IncSessionActive() {
+	if s.sessionActive == nil {
+		return
+	}
 	s.sessionActive.Inc()
 }
 
 func (s *Server) ResetSessionActive() {
+	if s.sessionActive == nil {
+		return
+	}
 	s.sessionActive.Set(0)
 }
 
@@ -446,6 +520,22 @@ func (s *Server) RecordConfigReload(success bool) {
 		result = "failure"
 	}
 	s.configReload.WithLabelValues(result).Inc()
+}
+
+func (s *Server) UpdateSettingsDrift(target string, drifted map[string]bool) {
+	if s.settingsDrift == nil {
+		return
+	}
+	for setting, isDrifted := range drifted {
+		s.settingsDrift.WithLabelValues(target, setting).Set(boolToFloat(isDrifted))
+	}
+}
+
+func (s *Server) UpdateDHCPLeases(target string, count int) {
+	if s.dhcpLeasesActive == nil {
+		return
+	}
+	s.dhcpLeasesActive.WithLabelValues(target).Set(float64(count))
 }
 
 func updateGaugeMap(gauge *prometheus.GaugeVec, prev map[string]bool, target string, data map[string]int) map[string]bool {
