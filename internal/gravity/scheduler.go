@@ -84,7 +84,7 @@ func (s *Scheduler) Start(ctx context.Context) {
 			s.mu.Lock()
 			for i := range s.entries {
 				e := &s.entries[i]
-				if now.Before(e.next) {
+				if e.next.IsZero() || now.Before(e.next) {
 					continue
 				}
 				s.trigger(e, ReasonScheduled)
