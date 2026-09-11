@@ -1,0 +1,21 @@
+name: CI
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    uses: st0o0/github-workflows/.github/workflows/go-ci.yml@main
+    with:
+      has-e2e: false
+      docker-image-name: forseti
+
+  commits:
+    uses: st0o0/github-workflows/.github/workflows/commitlint.yml@main
