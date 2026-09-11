@@ -959,3 +959,62 @@ func TestRunWatch_SubprocessSync(t *testing.T) {
 	}
 	runWatch([]string{"--config", cfgPath})
 }
+
+func TestTryReloadConfig_Unchanged(t *testing.T) {
+	srv := newFullPiholeTestServer()
+	defer srv.Close()
+
+	cfgPath := writeTempConfig(t, srv.URL)
+	info, err := os.Stat(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lastMtime := info.ModTime()
+
+	newCfg, err := tryReloadConfig(cfgPath, &lastMtime)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if newCfg != nil {
+		t.Error("expected nil config for unchanged file")
+	}
+}
+
+func TestTryReloadConfig_Changed(t *testing.T) {
+	srv := newFullPiholeTestServer()
+	defer srv.Close()
+
+	cfgPath := writeTempConfig(t, srv.URL)
+	lastMtime := time.Time{}
+
+	newCfg, err := tryReloadConfig(cfgPath, &lastMtime)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if newCfg == nil {
+		t.Fatal("expected non-nil config for changed file")
+	}
+	if len(newCfg.Targets) != 1 {
+		t.Errorf("expected 1 target, got %d", len(newCfg.Targets))
+	}
+}
+
+func TestTryReloadConfig_InvalidFile(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := dir + "/bad.yml"
+	os.WriteFile(cfgPath, []byte("invalid: [broken"), 0o644)
+	lastMtime := time.Time{}
+
+	_, err := tryReloadConfig(cfgPath, &lastMtime)
+	if err == nil {
+		t.Error("expected error for invalid config file")
+	}
+}
+
+func TestTryReloadConfig_MissingFile(t *testing.T) {
+	lastMtime := time.Time{}
+	_, err := tryReloadConfig("/nonexistent/config.yml", &lastMtime)
+	if err == nil {
+		t.Error("expected error for missing file")
+	}
+}

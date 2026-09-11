@@ -135,6 +135,22 @@ func runApply(args []string) int {
 	return exitCode
 }
 
+func tryReloadConfig(cfgPath string, lastMtime *time.Time) (*config.Config, error) {
+	info, err := os.Stat(cfgPath)
+	if err != nil {
+		return nil, fmt.Errorf("stat config: %w", err)
+	}
+	if !info.ModTime().After(*lastMtime) {
+		return nil, nil
+	}
+	newCfg, err := config.Load(cfgPath)
+	if err != nil {
+		return nil, err
+	}
+	*lastMtime = info.ModTime()
+	return newCfg, nil
+}
+
 func runWatch(args []string) int {
 	cfgPath := parseConfigFlag(args, "watch")
 	cfg, err := config.Load(cfgPath)
@@ -142,6 +158,13 @@ func runWatch(args []string) int {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
+
+	info, err := os.Stat(cfgPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	lastMtime := info.ModTime()
 
 	pool := session.NewPool()
 
@@ -187,6 +210,19 @@ func runWatch(args []string) int {
 		for {
 			select {
 			case <-ticker.C:
+				if newCfg, err := tryReloadConfig(cfgPath, &lastMtime); err != nil {
+					log.Printf("config reload failed: %v", err)
+					srv.RecordConfigReload(false)
+				} else if newCfg != nil {
+					log.Printf("config reloaded successfully")
+					srv.RecordConfigReload(true)
+					if newCfg.Reconcile.Interval.Duration != cfg.Reconcile.Interval.Duration {
+						ticker.Reset(newCfg.Reconcile.Interval.Duration)
+						log.Printf("reconcile interval updated to %s", newCfg.Reconcile.Interval.Duration)
+					}
+					cfg = newCfg
+					srv.SetConfigMetrics(cfg)
+				}
 				reconcileAll(cfg, srv, pool, gravSched)
 			case <-ctx.Done():
 				log.Println("shutting down...")
@@ -208,6 +244,19 @@ func runWatch(args []string) int {
 		for {
 			select {
 			case <-ticker.C:
+				if newCfg, err := tryReloadConfig(cfgPath, &lastMtime); err != nil {
+					log.Printf("config reload failed: %v", err)
+					srv.RecordConfigReload(false)
+				} else if newCfg != nil {
+					log.Printf("config reloaded successfully")
+					srv.RecordConfigReload(true)
+					if newCfg.Sync.Interval.Duration != cfg.Sync.Interval.Duration {
+						ticker.Reset(newCfg.Sync.Interval.Duration)
+						log.Printf("sync interval updated to %s", newCfg.Sync.Interval.Duration)
+					}
+					cfg = newCfg
+					syncer = forsetisync.NewSyncer(pool, cfg, srv)
+				}
 				syncer.SyncAll()
 			case <-ctx.Done():
 				log.Println("shutting down...")

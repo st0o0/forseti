@@ -64,7 +64,8 @@ type Server struct {
 	sessionReauth *prometheus.CounterVec
 	sessionActive prometheus.Gauge
 
-	buildInfo *prometheus.GaugeVec
+	buildInfo    *prometheus.GaugeVec
+	configReload *prometheus.CounterVec
 
 	knownQueryTypes  map[string]map[string]bool // target -> set of keys
 	knownQueryStatus map[string]map[string]bool
@@ -251,6 +252,11 @@ func NewServer(port int, path string) *Server {
 		Help: "Build information",
 	}, []string{"version", "mode"})
 
+	s.configReload = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "forseti_config_reload_total",
+		Help: "Total config reload attempts",
+	}, []string{"result"})
+
 	reg.MustRegister(
 		s.reconcileRuns, s.reconcileDuration, s.reconcileChanges,
 		s.reconcileDrift, s.targetReachable,
@@ -266,7 +272,7 @@ func NewServer(port int, path string) *Server {
 		s.gravityRuns, s.gravityDuration, s.gravityLastRun, s.gravityErrors,
 		s.collectorDuration, s.collectorFetches, s.collectorCacheHits,
 		s.sessionReauth, s.sessionActive,
-		s.buildInfo,
+		s.buildInfo, s.configReload,
 	)
 
 	promHandler := promhttp.HandlerFor(reg, promhttp.HandlerOpts{})
@@ -425,6 +431,14 @@ func (s *Server) ResetSessionActive() {
 
 func (s *Server) SetBuildInfo(version, mode string) {
 	s.buildInfo.WithLabelValues(version, mode).Set(1)
+}
+
+func (s *Server) RecordConfigReload(success bool) {
+	result := "success"
+	if !success {
+		result = "failure"
+	}
+	s.configReload.WithLabelValues(result).Inc()
 }
 
 func updateGaugeMap(gauge *prometheus.GaugeVec, prev map[string]bool, target string, data map[string]int) map[string]bool {
