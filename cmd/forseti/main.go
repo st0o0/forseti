@@ -399,6 +399,20 @@ func reconcileAll(cfg *config.Config, resolved []config.ResolvedTarget, srv *met
 
 			if _, err := reconcile.ApplySettings(rt.Name, &rt.Settings, client); err != nil {
 				slog.Error("settings reconcile error", "target", rt.Name, "error", err)
+			} else if settingsDiff.HasChanges() {
+				postDiff, err := reconcile.DiffSettings(&rt.Settings, client)
+				if err != nil {
+					slog.Error("settings post-apply diff error", "target", rt.Name, "error", err)
+				} else {
+					postDrifted := make(map[string]bool)
+					for _, m := range reconcile.BuildDesiredSettingsList(&rt.Settings) {
+						postDrifted[m.ForsetiPath] = false
+					}
+					for _, c := range postDiff.Changes {
+						postDrifted[c.Name] = true
+					}
+					srv.UpdateSettingsDrift(rt.Name, postDrifted)
+				}
 			}
 		}
 

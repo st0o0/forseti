@@ -3,7 +3,7 @@ services:
     image: pihole/pihole:latest
     container_name: forseti-pihole-alpha
     ports:
-      - "8080:80"
+      - "18080:80"
       - "15353:53/tcp"
       - "15353:53/udp"
     environment:
@@ -11,12 +11,18 @@ services:
       TZ: Europe/Berlin
     networks:
       - forseti-dev
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost/admin/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
 
   pihole-beta:
     image: pihole/pihole:latest
     container_name: forseti-pihole-beta
     ports:
-      - "8081:80"
+      - "18081:80"
       - "15354:53/tcp"
       - "15354:53/udp"
     environment:
@@ -24,6 +30,12 @@ services:
       TZ: Europe/Berlin
     networks:
       - forseti-dev
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost/admin/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
 
   forseti:
     build:
@@ -31,8 +43,10 @@ services:
       dockerfile: Dockerfile
     container_name: forseti
     depends_on:
-      - pihole-alpha
-      - pihole-beta
+      pihole-alpha:
+        condition: service_healthy
+      pihole-beta:
+        condition: service_healthy
     volumes:
       - ./forseti.dev.yml:/config/forseti.yml:ro
     environment:

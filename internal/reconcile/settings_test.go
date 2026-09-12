@@ -85,7 +85,7 @@ func TestDiffSettings_AllMatch(t *testing.T) {
 		config: map[string]any{
 			"dns": map[string]any{
 				"cache": map[string]any{
-					"optimizer": float64(1),
+					"optimizer": float64(3600),
 				},
 			},
 		},
@@ -180,7 +180,7 @@ func TestApplySettings_NoChanges(t *testing.T) {
 		config: map[string]any{
 			"dns": map[string]any{
 				"cache": map[string]any{
-					"optimizer": float64(1),
+					"optimizer": float64(3600),
 				},
 			},
 		},
@@ -251,8 +251,8 @@ func TestBuildDesiredSettingsList_NewDNSFields(t *testing.T) {
 		"dns.dnssec":             "dns/dnssec",
 		"dns.listening_mode":     "dns/listeningMode",
 		"dns.query_logging":      "dns/queryLogging",
-		"dns.resolve_ipv4":       "dns/resolveIPv4",
-		"dns.resolve_ipv6":       "dns/resolveIPv6",
+		"dns.resolve_ipv4":       "resolver/resolveIPv4",
+		"dns.resolve_ipv6":       "resolver/resolveIPv6",
 		"dns.rev_server.enabled": "dns/revServer/active",
 		"dns.rev_server.cidr":    "dns/revServer/cidr",
 		"dns.rev_server.target":  "dns/revServer/target",
@@ -365,7 +365,7 @@ func TestBuildDesiredSettingsList_BlockingNewFields(t *testing.T) {
 	}
 }
 
-func TestBuildDesiredSettingsList_BoolFieldsProduceIntegers(t *testing.T) {
+func TestBuildDesiredSettingsList_BoolFieldsProduceBools(t *testing.T) {
 	s := &config.Settings{
 		DNS: config.DNSSettings{
 			Cache: config.CacheSettings{
@@ -398,21 +398,20 @@ func TestBuildDesiredSettingsList_BoolFieldsProduceIntegers(t *testing.T) {
 	}
 
 	mappings := BuildDesiredSettingsList(s)
-	boolFields := map[string]int{
-		"dns.cache.force_on_disk": 1,
-		"dns.domain_needed":      0,
-		"dns.bogus_priv":         1,
-		"dns.dnssec":             0,
-		"dns.query_logging":      1,
-		"dns.cname_deep_inspect": 0,
-		"dns.resolve_ipv4":       1,
-		"dns.resolve_ipv6":       0,
-		"dns.rev_server.enabled": 1,
-		"blocking.active":        0,
-		"dhcp.active":            1,
-		"dhcp.ipv6":              0,
-		"dhcp.rapid_commit":      1,
-		"misc.check.load":        0,
+	boolFields := map[string]bool{
+		"dns.domain_needed":      false,
+		"dns.bogus_priv":         true,
+		"dns.dnssec":             false,
+		"dns.query_logging":      true,
+		"dns.cname_deep_inspect": false,
+		"dns.resolve_ipv4":       true,
+		"dns.resolve_ipv6":       false,
+		"dns.rev_server.enabled": true,
+		"blocking.active":        false,
+		"dhcp.active":            true,
+		"dhcp.ipv6":              false,
+		"dhcp.rapid_commit":      true,
+		"misc.check.load":        false,
 	}
 
 	for _, m := range mappings {
@@ -420,13 +419,13 @@ func TestBuildDesiredSettingsList_BoolFieldsProduceIntegers(t *testing.T) {
 		if !isBool {
 			continue
 		}
-		intVal, ok := m.Value.(int)
+		boolVal, ok := m.Value.(bool)
 		if !ok {
-			t.Errorf("%s: Value type = %T, want int", m.ForsetiPath, m.Value)
+			t.Errorf("%s: Value type = %T, want bool", m.ForsetiPath, m.Value)
 			continue
 		}
-		if intVal != expected {
-			t.Errorf("%s: Value = %d, want %d", m.ForsetiPath, intVal, expected)
+		if boolVal != expected {
+			t.Errorf("%s: Value = %v, want %v", m.ForsetiPath, boolVal, expected)
 		}
 		delete(boolFields, m.ForsetiPath)
 	}
@@ -435,7 +434,37 @@ func TestBuildDesiredSettingsList_BoolFieldsProduceIntegers(t *testing.T) {
 	}
 }
 
-func TestNormalizeValue(t *testing.T) {
+func TestBuildDesiredSettingsList_OptimizerMapping(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    bool
+		expected int
+	}{
+		{"true maps to 3600", true, 3600},
+		{"false maps to 0", false, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &config.Settings{
+				DNS: config.DNSSettings{
+					Cache: config.CacheSettings{ForceOnDisk: boolPtr(tt.input)},
+				},
+			}
+			mappings := BuildDesiredSettingsList(s)
+			for _, m := range mappings {
+				if m.ForsetiPath == "dns.cache.force_on_disk" {
+					if m.Value != tt.expected {
+						t.Errorf("force_on_disk=%v: Value = %v (%T), want %d", tt.input, m.Value, m.Value, tt.expected)
+					}
+					return
+				}
+			}
+			t.Error("missing mapping for dns.cache.force_on_disk")
+		})
+	}
+}
+
+func TestSettingsNeedUpdate(t *testing.T) {
 	tests := []struct {
 		name     string
 		a, b     any
@@ -443,11 +472,20 @@ func TestNormalizeValue(t *testing.T) {
 	}{
 		{"bool false vs float64 0", false, float64(0), true},
 		{"bool true vs float64 1", true, float64(1), true},
+		{"bool true vs int 1", true, 1, true},
+		{"bool false vs int 0", false, 0, true},
+		{"bool true vs int 0", true, 0, false},
+		{"bool false vs int 1", false, 1, false},
+		{"bool true vs float64 0", true, float64(0), false},
+		{"bool false vs float64 1", false, float64(1), false},
 		{"int 10000 vs float64 10000", 10000, float64(10000), true},
 		{"int 500 vs float64 1500", 500, float64(1500), false},
 		{"int 1 vs int 1", 1, 1, true},
 		{"string vs string", "all", "all", true},
 		{"string vs different string", "all", "local", false},
+		{"string case insensitive", "local", "LOCAL", true},
+		{"string case insensitive mixed", "Local", "LOCAL", true},
+		{"string case insensitive different", "local", "ALL", false},
 	}
 
 	for _, tt := range tests {

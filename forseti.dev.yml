@@ -17,6 +17,23 @@ targets:
     gravity:
       schedule: "0 4 * * 0"
 
+settings:
+  dns:
+    cache:
+      size: 10000
+      force_on_disk: true
+    listening_mode: local
+    cname_deep_inspect: true
+    query_logging: true
+    domain_needed: true
+    bogus_priv: true
+    dnssec: false
+    resolve_ipv4: true
+    resolve_ipv6: false
+  blocking:
+    active: true
+    mode: "NULL"
+
 reconcile:
   interval: 30s
   marker: "[forseti]"
