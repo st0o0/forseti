@@ -408,7 +408,7 @@ func TestAPIError(t *testing.T) {
 
 func TestWaitForReadyImmediate(t *testing.T) {
 	_, client := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/info" {
+		if r.URL.Path == "/api/info/login" {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
@@ -424,7 +424,7 @@ func TestWaitForReadyAfterRetries(t *testing.T) {
 	var calls atomic.Int32
 
 	_, client := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/info" {
+		if r.URL.Path == "/api/info/login" {
 			n := calls.Add(1)
 			if n < 3 {
 				w.WriteHeader(http.StatusServiceUnavailable)
@@ -446,7 +446,7 @@ func TestWaitForReadyAfterRetries(t *testing.T) {
 
 func TestWaitForReadyTimeout(t *testing.T) {
 	_, client := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/info" {
+		if r.URL.Path == "/api/info/login" {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}

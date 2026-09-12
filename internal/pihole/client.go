@@ -3,21 +3,25 @@ package pihole
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
+	"syscall"
 	"time"
 )
 
 type Client struct {
-	baseURL    string
-	password   string
-	httpClient *http.Client
-	sid        string
-	OnReauth   func()
+	baseURL        string
+	password       string
+	httpClient     *http.Client
+	sid            string
+	OnReauth       func()
+	GravityTimeout time.Duration
 }
 
 func NewClient(baseURL, password string) *Client {
@@ -33,10 +37,69 @@ func NewClient(baseURL, password string) *Client {
 type APIError struct {
 	StatusCode int
 	Message    string
+	Key        string
+	Hint       string
 }
 
 func (e *APIError) Error() string {
 	return fmt.Sprintf("pihole api: %d %s", e.StatusCode, e.Message)
+}
+
+func parseAPIError(statusCode int, body []byte) *APIError {
+	ae := &APIError{StatusCode: statusCode, Message: string(body)}
+	var parsed struct {
+		Error struct {
+			Key     string `json:"key"`
+			Message string `json:"message"`
+			Hint    string `json:"hint"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(body, &parsed) == nil && parsed.Error.Key != "" {
+		ae.Key = parsed.Error.Key
+		ae.Hint = parsed.Error.Hint
+	}
+	return ae
+}
+
+func IsNotFound(err error) bool {
+	var apiErr *APIError
+	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound
+}
+
+func IsGravityCorrupted(err error) bool {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		if strings.Contains(apiErr.Hint, "no such table") {
+			return true
+		}
+		return strings.Contains(apiErr.Message, "no such table")
+	}
+	return false
+}
+
+func IsTransient(err error) bool {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		if apiErr.StatusCode == http.StatusServiceUnavailable {
+			return true
+		}
+		if apiErr.StatusCode == http.StatusBadRequest &&
+			(apiErr.Key == "database_error" ||
+				strings.Contains(apiErr.Message, "database_error") ||
+				strings.Contains(apiErr.Message, "Database not available")) {
+			return true
+		}
+		return false
+	}
+
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		if errors.Is(opErr.Err, syscall.ECONNREFUSED) || errors.Is(opErr.Err, syscall.ECONNRESET) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // Auth
@@ -243,7 +306,21 @@ func (c *Client) DeleteAdlists(addresses []string) error {
 	for i, addr := range addresses {
 		items[i] = map[string]string{"item": addr}
 	}
-	return c.doJSON(http.MethodPost, "/api/lists:batchDelete?type=block", items, nil)
+	err := c.doJSON(http.MethodPost, "/api/lists:batchDelete?type=block", items, nil)
+	if !IsNotFound(err) {
+		return err
+	}
+	slog.Debug("batchDelete returned 404, trying individual deletes", "count", len(addresses))
+	for _, addr := range addresses {
+		if err := c.DeleteAdlist(addr); err != nil && !IsNotFound(err) {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *Client) DeleteAdlist(address string) error {
+	return c.doJSON(http.MethodDelete, "/api/lists/"+url.PathEscape(address)+"?type=block", nil, nil)
 }
 
 // Domains
@@ -531,7 +608,7 @@ func (c *Client) PatchConfig(path string, value any) error {
 func (c *Client) WaitForReady(maxWait time.Duration, interval time.Duration) error {
 	deadline := time.Now().Add(maxWait)
 	for {
-		req, err := http.NewRequest(http.MethodGet, c.baseURL+"/api/info", nil)
+		req, err := http.NewRequest(http.MethodGet, c.baseURL+"/api/info/login", nil)
 		if err != nil {
 			return fmt.Errorf("wait ready: %w", err)
 		}
@@ -552,9 +629,64 @@ func (c *Client) WaitForReady(maxWait time.Duration, interval time.Duration) err
 	}
 }
 
+type FTLInfo struct {
+	Database struct {
+		Gravity     int `json:"gravity"`
+		Groups      int `json:"groups"`
+		Lists       int `json:"lists"`
+		Clients     int `json:"clients"`
+		Antigravity int `json:"antigravity"`
+	} `json:"database"`
+	PID    int     `json:"pid"`
+	Uptime float64 `json:"uptime"`
+}
+
+func (c *Client) GetFTLInfo() (*FTLInfo, error) {
+	var resp struct {
+		FTL FTLInfo `json:"ftl"`
+	}
+	if err := c.doJSON(http.MethodGet, "/api/info/ftl", nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp.FTL, nil
+}
+
+func (c *Client) CheckReadiness() error {
+	info, err := c.GetFTLInfo()
+	if err != nil {
+		return fmt.Errorf("readiness check: %w", err)
+	}
+	if info.PID == 0 {
+		return fmt.Errorf("readiness check: FTL not started (pid=0)")
+	}
+	return nil
+}
+
+func (c *Client) CheckAlive() error {
+	req, err := http.NewRequest(http.MethodGet, c.baseURL+"/api/info/login", nil)
+	if err != nil {
+		return fmt.Errorf("alive check: %w", err)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("alive check: %w", err)
+	}
+	resp.Body.Close()
+	return nil
+}
+
 // Actions
 
 func (c *Client) TriggerGravity() error {
+	timeout := c.GravityTimeout
+	if timeout == 0 {
+		timeout = 5 * time.Minute
+	}
+
+	origClient := c.httpClient
+	c.httpClient = &http.Client{Timeout: timeout}
+	defer func() { c.httpClient = origClient }()
+
 	return c.doJSON(http.MethodPost, "/api/action/gravity", nil, nil)
 }
 
@@ -633,10 +765,7 @@ func (c *Client) doJSONOnce(method, path string, reqBody any, respTarget any) (s
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return resp.StatusCode, &APIError{
-			StatusCode: resp.StatusCode,
-			Message:    string(respData),
-		}
+		return resp.StatusCode, parseAPIError(resp.StatusCode, respData)
 	}
 
 	if respTarget != nil && len(respData) > 0 {

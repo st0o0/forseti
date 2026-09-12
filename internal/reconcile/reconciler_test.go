@@ -2,7 +2,9 @@ package reconcile
 
 import (
 	"errors"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/st0o0/forseti/internal/config"
 	"github.com/st0o0/forseti/internal/pihole"
@@ -1022,6 +1024,61 @@ func TestGravityOnlyOnAdlistChanges(t *testing.T) {
 	})
 }
 
+func TestNeedsGravityPhantomDeletes(t *testing.T) {
+	target := config.Target{Name: "test"}
+	marker := "[forseti]"
+	notFound := &pihole.APIError{StatusCode: 404, Message: "not found"}
+
+	t.Run("all deletes 404 no gravity", func(t *testing.T) {
+		mock := newMockAPI()
+		mock.deleteAdlistsErr = notFound
+		mock.adlists = []pihole.APIList{
+			{ID: 1, Address: "http://old.com/l.txt", Comment: "[forseti]"},
+		}
+		cfg := &config.Config{}
+		report, err := Apply(makeRT(cfg, target), mock, makeOpts(marker))
+		if err != nil {
+			t.Fatalf("Apply error: %v", err)
+		}
+		if report.Diff.NeedsGravity {
+			t.Error("NeedsGravity should be false when all deletes return 404")
+		}
+	})
+
+	t.Run("create succeeds plus delete 404 needs gravity", func(t *testing.T) {
+		mock := newMockAPI()
+		mock.deleteAdlistsErr = notFound
+		mock.adlists = []pihole.APIList{
+			{ID: 1, Address: "http://old.com/l.txt", Comment: "[forseti]"},
+		}
+		cfg := &config.Config{
+			Adlists: []config.Adlist{{URL: "http://new.com/l.txt"}},
+		}
+		report, err := Apply(makeRT(cfg, target), mock, makeOpts(marker))
+		if err != nil {
+			t.Fatalf("Apply error: %v", err)
+		}
+		if !report.Diff.NeedsGravity {
+			t.Error("NeedsGravity should be true when create succeeds even if delete is 404")
+		}
+	})
+
+	t.Run("successful delete needs gravity", func(t *testing.T) {
+		mock := newMockAPI()
+		mock.adlists = []pihole.APIList{
+			{ID: 1, Address: "http://old.com/l.txt", Comment: "[forseti]"},
+		}
+		cfg := &config.Config{}
+		report, err := Apply(makeRT(cfg, target), mock, makeOpts(marker))
+		if err != nil {
+			t.Fatalf("Apply error: %v", err)
+		}
+		if !report.Diff.NeedsGravity {
+			t.Error("NeedsGravity should be true when delete succeeds")
+		}
+	})
+}
+
 func TestMultiTargetIndependentFailure(t *testing.T) {
 	failMock := newMockAPI()
 	failMock.listGroupsErr = errors.New("connection refused")
@@ -1275,6 +1332,236 @@ func TestApplyDeleteErrors(t *testing.T) {
 			t.Errorf("expected 1 error, got %d", len(report.Errors))
 		}
 	})
+}
+
+func TestApplyDelete404IsIdempotent(t *testing.T) {
+	target := config.Target{Name: "test"}
+	marker := "[forseti]"
+	notFound := &pihole.APIError{StatusCode: 404, Message: "not found"}
+
+	t.Run("DeleteGroups 404 no error", func(t *testing.T) {
+		mock := newMockAPI()
+		mock.deleteGroupsErr = notFound
+		mock.groups = []pihole.APIGroup{{ID: 1, Name: "old", Comment: "[forseti]"}}
+		cfg := &config.Config{}
+		report, err := Apply(makeRT(cfg, target), mock, makeOpts(marker))
+		if err != nil {
+			t.Fatalf("Apply should not return hard error: %v", err)
+		}
+		if len(report.Errors) != 0 {
+			t.Errorf("expected 0 errors for 404, got %d: %v", len(report.Errors), report.Errors)
+		}
+	})
+
+	t.Run("DeleteAdlists 404 no error", func(t *testing.T) {
+		mock := newMockAPI()
+		mock.deleteAdlistsErr = notFound
+		mock.adlists = []pihole.APIList{{ID: 1, Address: "http://old.com/l.txt", Comment: "[forseti]"}}
+		cfg := &config.Config{}
+		report, err := Apply(makeRT(cfg, target), mock, makeOpts(marker))
+		if err != nil {
+			t.Fatalf("Apply should not return hard error: %v", err)
+		}
+		if len(report.Errors) != 0 {
+			t.Errorf("expected 0 errors for 404, got %d: %v", len(report.Errors), report.Errors)
+		}
+	})
+
+	t.Run("DeleteDomains 404 no error", func(t *testing.T) {
+		mock := newMockAPI()
+		mock.deleteDomainsErr = notFound
+		mock.domains["deny/exact"] = []pihole.APIDomain{{ID: 1, Domain: "old.com", Comment: "[forseti]"}}
+		cfg := &config.Config{}
+		report, err := Apply(makeRT(cfg, target), mock, makeOpts(marker))
+		if err != nil {
+			t.Fatalf("Apply should not return hard error: %v", err)
+		}
+		if len(report.Errors) != 0 {
+			t.Errorf("expected 0 errors for 404, got %d: %v", len(report.Errors), report.Errors)
+		}
+	})
+
+	t.Run("DeleteClients 404 no error", func(t *testing.T) {
+		mock := newMockAPI()
+		mock.deleteClientsErr = notFound
+		mock.clients = []pihole.APIClient{{ID: 1, Client: "192.168.1.200", Comment: "[forseti]"}}
+		cfg := &config.Config{}
+		report, err := Apply(makeRT(cfg, target), mock, makeOpts(marker))
+		if err != nil {
+			t.Fatalf("Apply should not return hard error: %v", err)
+		}
+		if len(report.Errors) != 0 {
+			t.Errorf("expected 0 errors for 404, got %d: %v", len(report.Errors), report.Errors)
+		}
+	})
+
+	t.Run("Delete 500 still errors", func(t *testing.T) {
+		mock := newMockAPI()
+		mock.deleteGroupsErr = &pihole.APIError{StatusCode: 500, Message: "internal"}
+		mock.groups = []pihole.APIGroup{{ID: 1, Name: "old", Comment: "[forseti]"}}
+		cfg := &config.Config{}
+		report, err := Apply(makeRT(cfg, target), mock, makeOpts(marker))
+		if err != nil {
+			t.Fatalf("Apply should not return hard error: %v", err)
+		}
+		if len(report.Errors) != 1 {
+			t.Errorf("expected 1 error for 500, got %d", len(report.Errors))
+		}
+	})
+}
+
+func TestRetryListTransientSuccess(t *testing.T) {
+	orig := retryBackoffs
+	retryBackoffs = []time.Duration{0, 0, 0}
+	defer func() { retryBackoffs = orig }()
+
+	target := config.Target{Name: "test"}
+	marker := "[forseti]"
+	transientErr := &pihole.APIError{StatusCode: 400, Message: `{"error":{"key":"database_error","message":"Database not available"}}`}
+
+	var calls atomic.Int32
+	mock := newMockAPI()
+	mock.listGroupsErr = nil
+	origListGroups := mock.ListGroups
+	_ = origListGroups
+
+	retryMock := &retryMockAPI{
+		mockAPI: newMockAPI(),
+		listGroupsFunc: func() ([]pihole.APIGroup, error) {
+			n := calls.Add(1)
+			if n <= 1 {
+				return nil, transientErr
+			}
+			return nil, nil
+		},
+	}
+
+	cfg := &config.Config{}
+	_, err := Plan(makeRT(cfg, target), retryMock, makeOpts(marker))
+	if err != nil {
+		t.Fatalf("Plan should succeed on retry, got: %v", err)
+	}
+	if got := calls.Load(); got != 2 {
+		t.Errorf("expected 2 calls (1 fail + 1 success), got %d", got)
+	}
+}
+
+func TestRetryListTransientExhausted(t *testing.T) {
+	orig := retryBackoffs
+	retryBackoffs = []time.Duration{0, 0, 0}
+	defer func() { retryBackoffs = orig }()
+
+	target := config.Target{Name: "test"}
+	marker := "[forseti]"
+	transientErr := &pihole.APIError{StatusCode: 400, Message: `{"error":{"key":"database_error","message":"Database not available"}}`}
+
+	var calls atomic.Int32
+	retryMock := &retryMockAPI{
+		mockAPI: newMockAPI(),
+		listGroupsFunc: func() ([]pihole.APIGroup, error) {
+			calls.Add(1)
+			return nil, transientErr
+		},
+	}
+
+	cfg := &config.Config{}
+	_, err := Plan(makeRT(cfg, target), retryMock, makeOpts(marker))
+	if err == nil {
+		t.Fatal("Plan should fail after all retries exhausted")
+	}
+	if got := calls.Load(); got != 4 {
+		t.Errorf("expected 4 calls (1 initial + 3 retries), got %d", got)
+	}
+}
+
+func TestRetryListNonTransientNoRetry(t *testing.T) {
+	orig := retryBackoffs
+	retryBackoffs = []time.Duration{0, 0, 0}
+	defer func() { retryBackoffs = orig }()
+
+	target := config.Target{Name: "test"}
+	marker := "[forseti]"
+	permErr := &pihole.APIError{StatusCode: 401, Message: "unauthorized"}
+
+	var calls atomic.Int32
+	retryMock := &retryMockAPI{
+		mockAPI: newMockAPI(),
+		listGroupsFunc: func() ([]pihole.APIGroup, error) {
+			calls.Add(1)
+			return nil, permErr
+		},
+	}
+
+	cfg := &config.Config{}
+	_, err := Plan(makeRT(cfg, target), retryMock, makeOpts(marker))
+	if err == nil {
+		t.Fatal("Plan should fail on non-transient error")
+	}
+	if got := calls.Load(); got != 1 {
+		t.Errorf("expected 1 call (no retry for non-transient), got %d", got)
+	}
+}
+
+type retryMockAPI struct {
+	*mockAPI
+	listGroupsFunc func() ([]pihole.APIGroup, error)
+}
+
+func (r *retryMockAPI) ListGroups() ([]pihole.APIGroup, error) {
+	if r.listGroupsFunc != nil {
+		return r.listGroupsFunc()
+	}
+	return r.mockAPI.ListGroups()
+}
+
+func TestRetryWriteTransientSuccess(t *testing.T) {
+	orig := retryBackoffs
+	retryBackoffs = []time.Duration{0, 0, 0}
+	defer func() { retryBackoffs = orig }()
+
+	transientErr := &pihole.APIError{StatusCode: 400, Message: `readonly`, Key: "database_error"}
+
+	mock := newMockAPI()
+	mock.createAdlistErr = transientErr
+
+	retryMock := &retryMockAPI{
+		mockAPI: mock,
+	}
+
+	cfg := &config.Config{
+		Adlists: []config.Adlist{{URL: "http://new.com/l.txt"}},
+	}
+	target := config.Target{Name: "test"}
+
+	report, err := Apply(makeRT(cfg, target), retryMock, makeOpts("[forseti]"))
+	if err != nil {
+		t.Fatalf("Apply should not hard-error: %v", err)
+	}
+	if len(report.Errors) == 0 {
+		t.Log("transient error exhausted retries, error reported as expected")
+	}
+}
+
+func TestRetryWriteNonTransientNoRetry(t *testing.T) {
+	orig := retryBackoffs
+	retryBackoffs = []time.Duration{0, 0, 0}
+	defer func() { retryBackoffs = orig }()
+
+	mock := newMockAPI()
+	mock.createAdlistErr = &pihole.APIError{StatusCode: 403, Message: "forbidden"}
+
+	cfg := &config.Config{
+		Adlists: []config.Adlist{{URL: "http://new.com/l.txt"}},
+	}
+	target := config.Target{Name: "test"}
+
+	report, err := Apply(makeRT(cfg, target), mock, makeOpts("[forseti]"))
+	if err != nil {
+		t.Fatalf("Apply should not hard-error: %v", err)
+	}
+	if len(report.Errors) != 1 {
+		t.Errorf("expected 1 error for permanent failure, got %d", len(report.Errors))
+	}
 }
 
 func TestApplyFullReconcile(t *testing.T) {

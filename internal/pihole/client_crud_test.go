@@ -819,6 +819,31 @@ func TestDoJSONNetworkError(t *testing.T) {
 	}
 }
 
+func TestDeleteAdlistsFallbackToIndividual(t *testing.T) {
+	individualDeletes := 0
+	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/lists:batchDelete" {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"error":{"key":"not_found","message":"Not found"}}`))
+			return
+		}
+		if r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/lists/") {
+			individualDeletes++
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+
+	err := c.DeleteAdlists([]string{"http://list1.txt", "http://list2.txt"})
+	if err != nil {
+		t.Fatalf("DeleteAdlists should succeed with fallback: %v", err)
+	}
+	if individualDeletes != 2 {
+		t.Errorf("expected 2 individual deletes, got %d", individualDeletes)
+	}
+}
+
 // TriggerGravity error
 
 func TestTriggerGravityError(t *testing.T) {
