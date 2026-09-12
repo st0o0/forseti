@@ -210,7 +210,9 @@ targets:
     url: http://bad
     password: nope
 `
-	os.WriteFile(filepath.Join(dir, "override.yaml"), []byte(overrideContent), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "override.yaml"), []byte(overrideContent), 0o644); err != nil {
+		t.Fatalf("write override: %v", err)
+	}
 
 	mainConfig := `
 targets:
@@ -239,7 +241,9 @@ func TestLoadOverrideDuplicateAfterMerge(t *testing.T) {
 deny:
   - domain: ads.example.com
 `
-	os.WriteFile(filepath.Join(dir, "override.yaml"), []byte(overrideContent), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "override.yaml"), []byte(overrideContent), 0o644); err != nil {
+		t.Fatalf("write override: %v", err)
+	}
 
 	mainConfig := `
 targets:
