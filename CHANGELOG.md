@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.4](https://github.com/st0o0/forseti/compare/v0.1.3...v0.1.4) (2026-09-12)
+
+
+### Features
+
+* add error classification, retry logic, and transient fault handling ([7db3679](https://github.com/st0o0/forseti/commit/7db367969af587885dd664851fca1f496043ad97))
+* add per-target worker architecture with health metrics and readiness checks ([e7d2950](https://github.com/st0o0/forseti/commit/e7d29505703d3c79a40af0cd6852c9ec2935f59f))
+* prevent gravity loop with in-flight tracking and async triggers ([b938927](https://github.com/st0o0/forseti/commit/b938927464d398627cb8a5aefb4570ff554ec7c6))
+
+
+### Documentation
+
+* add openspec specs for worker, error resilience, gravity loop prevention, and backoff ([85044b3](https://github.com/st0o0/forseti/commit/85044b3d1a5c496999782f6373110f78c25e2ca0))
+
 ## [0.1.3](https://github.com/st0o0/forseti/compare/v0.1.2...v0.1.3) (2026-09-12)
 
 
