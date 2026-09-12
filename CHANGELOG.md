@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.2](https://github.com/st0o0/forseti/compare/v0.1.1...v0.1.2) (2026-09-12)
+
+
+### Bug Fixes
+
+* check error returns in merge test to satisfy errcheck linter ([57f7ce9](https://github.com/st0o0/forseti/commit/57f7ce9ec89075329139cb1d5ff26eeef01fe776))
+* check remaining errcheck violations in merge test ([b882729](https://github.com/st0o0/forseti/commit/b882729606fa55eef2656f49b7ad4b6c69f4ee12))
+* settings reconciliation bugs and API path corrections ([744b435](https://github.com/st0o0/forseti/commit/744b4354d2f5685aaf9d857a9f5216070e84a064))
+
 ## [0.1.1](https://github.com/st0o0/forseti/compare/v0.1.0...v0.1.1) (2026-09-12)
 
 
