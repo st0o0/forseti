@@ -378,6 +378,7 @@ func reconcileAll(cfg *config.Config, resolved []config.ResolvedTarget, srv *met
 		client, err := pool.Get(rt.Target)
 		if err != nil {
 			slog.Error("session error", "target", rt.Name, "error", err)
+			pool.Invalidate(rt.Name)
 			srv.MarkTargetUnreachable(rt.Name)
 			continue
 		}
@@ -400,6 +401,13 @@ func reconcileAll(cfg *config.Config, resolved []config.ResolvedTarget, srv *met
 			if _, err := reconcile.ApplySettings(rt.Name, &rt.Settings, client); err != nil {
 				slog.Error("settings reconcile error", "target", rt.Name, "error", err)
 			} else if settingsDiff.HasChanges() {
+				slog.Info("waiting for FTL ready after settings change", "target", rt.Name)
+				if err := client.WaitForReady(30*time.Second, 500*time.Millisecond); err != nil {
+					slog.Error("FTL not ready after settings change", "target", rt.Name, "error", err)
+					pool.Invalidate(rt.Name)
+					srv.MarkTargetUnreachable(rt.Name)
+					continue
+				}
 				postDiff, err := reconcile.DiffSettings(&rt.Settings, client)
 				if err != nil {
 					slog.Error("settings post-apply diff error", "target", rt.Name, "error", err)
@@ -430,6 +438,7 @@ func reconcileAll(cfg *config.Config, resolved []config.ResolvedTarget, srv *met
 				Duration: duration,
 				Success:  false,
 			})
+			pool.Invalidate(rt.Name)
 			srv.MarkTargetUnreachable(rt.Name)
 			continue
 		}

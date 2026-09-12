@@ -526,6 +526,32 @@ func (c *Client) PatchConfig(path string, value any) error {
 	return c.doJSON(http.MethodPatch, "/api/config", map[string]any{"config": body}, nil)
 }
 
+// Readiness
+
+func (c *Client) WaitForReady(maxWait time.Duration, interval time.Duration) error {
+	deadline := time.Now().Add(maxWait)
+	for {
+		req, err := http.NewRequest(http.MethodGet, c.baseURL+"/api/info", nil)
+		if err != nil {
+			return fmt.Errorf("wait ready: %w", err)
+		}
+		resp, err := c.httpClient.Do(req)
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode >= 200 && resp.StatusCode < 500 {
+				return nil
+			}
+		}
+		if time.Now().After(deadline) {
+			if err != nil {
+				return fmt.Errorf("wait ready: timeout after %s: %w", maxWait, err)
+			}
+			return fmt.Errorf("wait ready: timeout after %s: status %d", maxWait, resp.StatusCode)
+		}
+		time.Sleep(interval)
+	}
+}
+
 // Actions
 
 func (c *Client) TriggerGravity() error {

@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func newTestServer(t *testing.T, handler http.HandlerFunc) (*httptest.Server, *Client) {
@@ -401,6 +403,58 @@ func TestAPIError(t *testing.T) {
 		if apiErr.StatusCode != 401 {
 			t.Errorf("StatusCode = %d, want 401", apiErr.StatusCode)
 		}
+	}
+}
+
+func TestWaitForReadyImmediate(t *testing.T) {
+	_, client := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/info" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+	})
+
+	err := client.WaitForReady(2*time.Second, 100*time.Millisecond)
+	if err != nil {
+		t.Fatalf("WaitForReady() error: %v", err)
+	}
+}
+
+func TestWaitForReadyAfterRetries(t *testing.T) {
+	var calls atomic.Int32
+
+	_, client := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/info" {
+			n := calls.Add(1)
+			if n < 3 {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+	})
+
+	err := client.WaitForReady(5*time.Second, 50*time.Millisecond)
+	if err != nil {
+		t.Fatalf("WaitForReady() error: %v", err)
+	}
+	if calls.Load() < 3 {
+		t.Errorf("expected at least 3 calls, got %d", calls.Load())
+	}
+}
+
+func TestWaitForReadyTimeout(t *testing.T) {
+	_, client := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/info" {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+	})
+
+	err := client.WaitForReady(300*time.Millisecond, 50*time.Millisecond)
+	if err == nil {
+		t.Fatal("expected timeout error")
 	}
 }
 
