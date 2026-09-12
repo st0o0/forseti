@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.3](https://github.com/st0o0/forseti/compare/v0.1.2...v0.1.3) (2026-09-12)
+
+
+### Bug Fixes
+
+* invalidate stale sessions on target failure to allow recovery ([4c3d24b](https://github.com/st0o0/forseti/commit/4c3d24b552f95ea4c96804e58e3fff10c4569eae))
+* wait for FTL ready after settings changes to prevent connection refused ([d4ce9ba](https://github.com/st0o0/forseti/commit/d4ce9bade5afa0b73ddf376e16c00fb3d244ac92))
+
 ## [0.1.2](https://github.com/st0o0/forseti/compare/v0.1.1...v0.1.2) (2026-09-12)
 
 
