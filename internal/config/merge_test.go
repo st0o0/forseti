@@ -76,8 +76,12 @@ deny:
   - domain: extra.example.com
 `
 	targetsDir := filepath.Join(dir, "targets")
-	os.Mkdir(targetsDir, 0o755)
-	os.WriteFile(filepath.Join(targetsDir, "kids.yaml"), []byte(overrideContent), 0o644)
+	if err := os.Mkdir(targetsDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(targetsDir, "kids.yaml"), []byte(overrideContent), 0o644); err != nil {
+		t.Fatalf("write override: %v", err)
+	}
 
 	mainConfig := `
 targets:
@@ -99,7 +103,9 @@ settings:
 deny:
   - domain: ads.example.com
 `
-	os.WriteFile(filepath.Join(dir, "forseti.yaml"), []byte(mainConfig), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "forseti.yaml"), []byte(mainConfig), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
 
 	_, resolved, err := Load(filepath.Join(dir, "forseti.yaml"))
 	if err != nil {
@@ -140,8 +146,12 @@ exclude:
     - domain: gaming.example.com
 `
 	targetsDir := filepath.Join(dir, "targets")
-	os.Mkdir(targetsDir, 0o755)
-	os.WriteFile(filepath.Join(targetsDir, "kids.yaml"), []byte(overrideContent), 0o644)
+	if err := os.Mkdir(targetsDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(targetsDir, "kids.yaml"), []byte(overrideContent), 0o644); err != nil {
+		t.Fatalf("write override: %v", err)
+	}
 
 	mainConfig := `
 targets:
@@ -154,7 +164,9 @@ allow:
   - domain: safe.example.com
   - domain: gaming.example.com
 `
-	os.WriteFile(filepath.Join(dir, "forseti.yaml"), []byte(mainConfig), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "forseti.yaml"), []byte(mainConfig), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
 
 	_, resolved, err := Load(filepath.Join(dir, "forseti.yaml"))
 	if err != nil {
@@ -179,7 +191,9 @@ targets:
     password: test
     file: nonexistent.yaml
 `
-	os.WriteFile(filepath.Join(dir, "forseti.yaml"), []byte(mainConfig), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "forseti.yaml"), []byte(mainConfig), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
 
 	_, _, err := Load(filepath.Join(dir, "forseti.yaml"))
 	if err == nil {
@@ -205,7 +219,9 @@ targets:
     password: test
     file: override.yaml
 `
-	os.WriteFile(filepath.Join(dir, "forseti.yaml"), []byte(mainConfig), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "forseti.yaml"), []byte(mainConfig), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
 
 	_, _, err := Load(filepath.Join(dir, "forseti.yaml"))
 	if err == nil {
@@ -234,7 +250,9 @@ targets:
 deny:
   - domain: ads.example.com
 `
-	os.WriteFile(filepath.Join(dir, "forseti.yaml"), []byte(mainConfig), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "forseti.yaml"), []byte(mainConfig), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
 
 	_, _, err := Load(filepath.Join(dir, "forseti.yaml"))
 	if err == nil {
@@ -256,7 +274,9 @@ targets:
 deny:
   - domain: ads.example.com
 `
-	os.WriteFile(filepath.Join(dir, "forseti.yaml"), []byte(mainConfig), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "forseti.yaml"), []byte(mainConfig), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
 
 	_, resolved, err := Load(filepath.Join(dir, "forseti.yaml"))
 	if err != nil {
