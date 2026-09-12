@@ -22,6 +22,7 @@ import (
 	"github.com/st0o0/forseti/internal/reconcile"
 	"github.com/st0o0/forseti/internal/session"
 	forsetisync "github.com/st0o0/forseti/internal/sync"
+	"github.com/st0o0/forseti/internal/worker"
 )
 
 var version = "dev"
@@ -87,6 +88,11 @@ func runPlan(args []string) int {
 			slog.Error("login failed", "target", rt.Name, "error", err)
 			continue
 		}
+		if err := client.CheckReadiness(); err != nil {
+			client.Close()
+			slog.Error("target not ready", "target", rt.Name, "error", err)
+			continue
+		}
 		report, err := reconcile.Plan(&rt, client, reconcile.ReconcileOptions{
 			Marker:        cfg.Reconcile.Marker,
 			LocalDNSPurge: cfg.Reconcile.LocalDNSPurge,
@@ -135,6 +141,12 @@ func runApply(args []string) int {
 		client := pihole.NewClient(rt.URL, rt.Password)
 		if err := client.Login(); err != nil {
 			slog.Error("login failed", "target", rt.Name, "error", err)
+			exitCode = 1
+			continue
+		}
+		if err := client.CheckReadiness(); err != nil {
+			client.Close()
+			slog.Error("target not ready", "target", rt.Name, "error", err)
 			exitCode = 1
 			continue
 		}
@@ -291,7 +303,23 @@ func runWatch(args []string) int {
 	switch cfg.Mode {
 	case config.ModeConfig:
 		srv.SetConfigMetrics(cfg)
-		reconcileAll(cfg, resolved, srv, pool, gravSched)
+
+		gravityOnChange := cfg.Reconcile.GravityOnChange != nil && *cfg.Reconcile.GravityOnChange
+		deps := worker.Dependencies{
+			Sessions:        pool,
+			Settings:        reconcile.Settings{},
+			Content:         reconcile.Content{},
+			Gravity:         gravSched,
+			Recorder:        srv,
+			Interval:        cfg.Reconcile.Interval.Duration,
+			Marker:          cfg.Reconcile.Marker,
+			LocalDNSPurge:   cfg.Reconcile.LocalDNSPurge,
+			CNAMEPurge:      cfg.Reconcile.CNAMEPurge,
+			GravityOnChange: gravityOnChange,
+		}
+
+		workers := worker.SyncWorkers(nil, resolved, deps)
+		worker.ReconcileWorkers(workers)
 
 		ticker := time.NewTicker(cfg.Reconcile.Interval.Duration)
 		defer ticker.Stop()
@@ -308,13 +336,20 @@ func runWatch(args []string) int {
 					setupLogger(newCfg.LogLevel, newCfg.LogFormat)
 					if newCfg.Reconcile.Interval.Duration != cfg.Reconcile.Interval.Duration {
 						ticker.Reset(newCfg.Reconcile.Interval.Duration)
+						deps.Interval = newCfg.Reconcile.Interval.Duration
 						slog.Info("reconcile interval updated", "interval", newCfg.Reconcile.Interval.Duration)
 					}
 					cfg = newCfg
 					resolved = newResolved
+					deps.Marker = cfg.Reconcile.Marker
+					deps.LocalDNSPurge = cfg.Reconcile.LocalDNSPurge
+					deps.CNAMEPurge = cfg.Reconcile.CNAMEPurge
+					deps.GravityOnChange = cfg.Reconcile.GravityOnChange != nil && *cfg.Reconcile.GravityOnChange
 					srv.SetConfigMetrics(cfg)
+					coll.UpdateTargets(resolvedToTargets(resolved))
+					workers = worker.SyncWorkers(workers, resolved, deps)
 				}
-				reconcileAll(cfg, resolved, srv, pool, gravSched)
+				worker.ReconcileWorkers(workers)
 			case <-ctx.Done():
 				slog.Info("shutting down")
 				pool.Close()
@@ -372,104 +407,6 @@ func resolvedToTargets(resolved []config.ResolvedTarget) []config.Target {
 	return targets
 }
 
-func reconcileAll(cfg *config.Config, resolved []config.ResolvedTarget, srv *metrics.Server, pool *session.Pool, gravSched *gravity.Scheduler) {
-	for _, rt := range resolved {
-		start := time.Now()
-		client, err := pool.Get(rt.Target)
-		if err != nil {
-			slog.Error("session error", "target", rt.Name, "error", err)
-			pool.Invalidate(rt.Name)
-			srv.MarkTargetUnreachable(rt.Name)
-			continue
-		}
-
-		if !rt.Settings.IsEmpty() {
-			settingsDiff, err := reconcile.DiffSettings(&rt.Settings, client)
-			if err != nil {
-				slog.Error("settings diff error", "target", rt.Name, "error", err)
-			} else {
-				drifted := make(map[string]bool)
-				for _, m := range reconcile.BuildDesiredSettingsList(&rt.Settings) {
-					drifted[m.ForsetiPath] = false
-				}
-				for _, c := range settingsDiff.Changes {
-					drifted[c.Name] = true
-				}
-				srv.UpdateSettingsDrift(rt.Name, drifted)
-			}
-
-			if _, err := reconcile.ApplySettings(rt.Name, &rt.Settings, client); err != nil {
-				slog.Error("settings reconcile error", "target", rt.Name, "error", err)
-			} else if settingsDiff.HasChanges() {
-				slog.Info("waiting for FTL ready after settings change", "target", rt.Name)
-				if err := client.WaitForReady(30*time.Second, 500*time.Millisecond); err != nil {
-					slog.Error("FTL not ready after settings change", "target", rt.Name, "error", err)
-					pool.Invalidate(rt.Name)
-					srv.MarkTargetUnreachable(rt.Name)
-					continue
-				}
-				postDiff, err := reconcile.DiffSettings(&rt.Settings, client)
-				if err != nil {
-					slog.Error("settings post-apply diff error", "target", rt.Name, "error", err)
-				} else {
-					postDrifted := make(map[string]bool)
-					for _, m := range reconcile.BuildDesiredSettingsList(&rt.Settings) {
-						postDrifted[m.ForsetiPath] = false
-					}
-					for _, c := range postDiff.Changes {
-						postDrifted[c.Name] = true
-					}
-					srv.UpdateSettingsDrift(rt.Name, postDrifted)
-				}
-			}
-		}
-
-		report, err := reconcile.Apply(&rt, client, reconcile.ReconcileOptions{
-			Marker:        cfg.Reconcile.Marker,
-			LocalDNSPurge: cfg.Reconcile.LocalDNSPurge,
-			CNAMEPurge:    cfg.Reconcile.CNAMEPurge,
-		})
-		duration := time.Since(start)
-
-		if err != nil {
-			slog.Error("reconcile error", "target", rt.Name, "error", err)
-			srv.RecordReconcile(metrics.ReconcileResult{
-				Target:   rt.Name,
-				Duration: duration,
-				Success:  false,
-			})
-			pool.Invalidate(rt.Name)
-			srv.MarkTargetUnreachable(rt.Name)
-			continue
-		}
-
-		changes := buildChangesMap(&report.Diff)
-		drift := buildDriftMap(&report.Diff)
-
-		srv.RecordReconcile(metrics.ReconcileResult{
-			Target:   rt.Name,
-			Duration: duration,
-			Success:  len(report.Errors) == 0,
-			Changes:  changes,
-			Drift:    drift,
-		})
-
-		for _, e := range report.Errors {
-			slog.Warn("reconcile warning", "target", rt.Name, "error", e)
-		}
-
-		if report.Diff.NeedsGravity && cfg.Reconcile.GravityOnChange != nil && *cfg.Reconcile.GravityOnChange {
-			if err := gravSched.TriggerNow(rt.Name, gravity.ReasonAdlistChange); err != nil {
-				slog.Error("gravity trigger error", "target", rt.Name, "error", err)
-			}
-		}
-
-		if hasDiff(&report.Diff) {
-			slog.Info("reconciled", "target", rt.Name, "duration", duration.Round(time.Millisecond))
-		}
-	}
-}
-
 func printDiffReport(r *reconcile.DiffReport) {
 	fmt.Printf("\n--- %s ---\n", r.Target)
 	printResourceLine("groups", r.Groups)
@@ -502,39 +439,4 @@ func hasDiff(r *reconcile.DiffReport) bool {
 	return r.Groups.HasChanges() || r.Adlists.HasChanges() ||
 		r.Deny.HasChanges() || r.Allow.HasChanges() ||
 		r.LocalDNS.HasChanges() || r.CNAME.HasChanges() || r.Clients.HasChanges()
-}
-
-func buildChangesMap(r *reconcile.DiffReport) map[string]map[string]int {
-	m := make(map[string]map[string]int)
-	addResourceChanges(m, "group", r.Groups)
-	addResourceChanges(m, "adlist", r.Adlists)
-	addResourceChanges(m, "deny", r.Deny)
-	addResourceChanges(m, "allow", r.Allow)
-	addResourceChanges(m, "dns", r.LocalDNS)
-	addResourceChanges(m, "cname", r.CNAME)
-	addResourceChanges(m, "client", r.Clients)
-	return m
-}
-
-func addResourceChanges(m map[string]map[string]int, name string, d reconcile.ResourceDiff) {
-	if !d.HasChanges() {
-		return
-	}
-	m[name] = map[string]int{
-		"add":    len(d.Adds),
-		"update": len(d.Updates),
-		"delete": len(d.Deletes),
-	}
-}
-
-func buildDriftMap(r *reconcile.DiffReport) map[string]int {
-	m := make(map[string]int)
-	m["group"] = len(r.Groups.Adds) + len(r.Groups.Deletes) + len(r.Groups.Updates)
-	m["adlist"] = len(r.Adlists.Adds) + len(r.Adlists.Deletes) + len(r.Adlists.Updates)
-	m["deny"] = len(r.Deny.Adds) + len(r.Deny.Deletes) + len(r.Deny.Updates)
-	m["allow"] = len(r.Allow.Adds) + len(r.Allow.Deletes) + len(r.Allow.Updates)
-	m["dns"] = len(r.LocalDNS.Adds) + len(r.LocalDNS.Deletes) + len(r.LocalDNS.Updates)
-	m["cname"] = len(r.CNAME.Adds) + len(r.CNAME.Deletes) + len(r.CNAME.Updates)
-	m["client"] = len(r.Clients.Adds) + len(r.Clients.Deletes) + len(r.Clients.Updates)
-	return m
 }

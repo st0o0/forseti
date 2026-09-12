@@ -18,6 +18,7 @@ import (
 	"github.com/st0o0/forseti/internal/metrics"
 	"github.com/st0o0/forseti/internal/reconcile"
 	"github.com/st0o0/forseti/internal/session"
+	"github.com/st0o0/forseti/internal/worker"
 )
 
 func TestHasDiff_NoChanges(t *testing.T) {
@@ -99,103 +100,22 @@ func TestHasDiff_WithClientChanges(t *testing.T) {
 	}
 }
 
-func TestBuildChangesMap_Empty(t *testing.T) {
-	r := &reconcile.DiffReport{Target: "test"}
-	m := buildChangesMap(r)
-	if len(m) != 0 {
-		t.Errorf("buildChangesMap should be empty for no changes, got %d entries", len(m))
+func reconcileWithWorkers(cfg *config.Config, resolved []config.ResolvedTarget, srv *metrics.Server, pool *session.Pool, gravSched *gravity.Scheduler) {
+	gravityOnChange := cfg.Reconcile.GravityOnChange != nil && *cfg.Reconcile.GravityOnChange
+	deps := worker.Dependencies{
+		Sessions:        pool,
+		Settings:        reconcile.Settings{},
+		Content:         reconcile.Content{},
+		Gravity:         gravSched,
+		Recorder:        srv,
+		Interval:        cfg.Reconcile.Interval.Duration,
+		Marker:          cfg.Reconcile.Marker,
+		LocalDNSPurge:   cfg.Reconcile.LocalDNSPurge,
+		CNAMEPurge:      cfg.Reconcile.CNAMEPurge,
+		GravityOnChange: gravityOnChange,
 	}
-}
-
-func TestBuildChangesMap_WithChanges(t *testing.T) {
-	r := &reconcile.DiffReport{
-		Target: "test",
-		Groups: reconcile.ResourceDiff{
-			Adds:    []reconcile.DiffEntry{{Key: "g1"}, {Key: "g2"}},
-			Deletes: []reconcile.DiffEntry{{Key: "g3"}},
-		},
-		Adlists: reconcile.ResourceDiff{
-			Adds: []reconcile.DiffEntry{{Key: "a1"}},
-		},
-	}
-	m := buildChangesMap(r)
-	if m["group"]["add"] != 2 {
-		t.Errorf("group add = %d, want 2", m["group"]["add"])
-	}
-	if m["group"]["delete"] != 1 {
-		t.Errorf("group delete = %d, want 1", m["group"]["delete"])
-	}
-	if m["adlist"]["add"] != 1 {
-		t.Errorf("adlist add = %d, want 1", m["adlist"]["add"])
-	}
-	if _, ok := m["deny"]; ok {
-		t.Error("deny should not be in map with no changes")
-	}
-}
-
-func TestBuildChangesMap_AllResources(t *testing.T) {
-	r := &reconcile.DiffReport{
-		Target: "test",
-		Deny:     reconcile.ResourceDiff{Adds: []reconcile.DiffEntry{{Key: "d1"}}},
-		Allow:    reconcile.ResourceDiff{Adds: []reconcile.DiffEntry{{Key: "a1"}}},
-		LocalDNS: reconcile.ResourceDiff{Adds: []reconcile.DiffEntry{{Key: "l1"}}},
-		Clients:  reconcile.ResourceDiff{Adds: []reconcile.DiffEntry{{Key: "c1"}}},
-	}
-	m := buildChangesMap(r)
-	for _, name := range []string{"deny", "allow", "dns", "client"} {
-		if _, ok := m[name]; !ok {
-			t.Errorf("expected %s in changes map", name)
-		}
-	}
-}
-
-func TestAddResourceChanges_NoChanges(t *testing.T) {
-	m := make(map[string]map[string]int)
-	addResourceChanges(m, "test", reconcile.ResourceDiff{})
-	if len(m) != 0 {
-		t.Error("addResourceChanges should not add entry for no changes")
-	}
-}
-
-func TestAddResourceChanges_WithChanges(t *testing.T) {
-	m := make(map[string]map[string]int)
-	addResourceChanges(m, "test", reconcile.ResourceDiff{
-		Adds:    []reconcile.DiffEntry{{Key: "a"}, {Key: "b"}},
-		Deletes: []reconcile.DiffEntry{{Key: "c"}},
-	})
-	if m["test"]["add"] != 2 {
-		t.Errorf("add = %d, want 2", m["test"]["add"])
-	}
-	if m["test"]["delete"] != 1 {
-		t.Errorf("delete = %d, want 1", m["test"]["delete"])
-	}
-}
-
-func TestBuildDriftMap(t *testing.T) {
-	r := &reconcile.DiffReport{
-		Target: "test",
-		Groups:  reconcile.ResourceDiff{Adds: []reconcile.DiffEntry{{Key: "g1"}}, Deletes: []reconcile.DiffEntry{{Key: "g2"}, {Key: "g3"}}},
-		Adlists: reconcile.ResourceDiff{Adds: []reconcile.DiffEntry{{Key: "a1"}}},
-	}
-	m := buildDriftMap(r)
-	if m["group"] != 3 {
-		t.Errorf("group drift = %d, want 3", m["group"])
-	}
-	if m["adlist"] != 1 {
-		t.Errorf("adlist drift = %d, want 1", m["adlist"])
-	}
-	if m["deny"] != 0 {
-		t.Errorf("deny drift = %d, want 0", m["deny"])
-	}
-	if m["allow"] != 0 {
-		t.Errorf("allow drift = %d, want 0", m["allow"])
-	}
-	if m["dns"] != 0 {
-		t.Errorf("dns drift = %d, want 0", m["dns"])
-	}
-	if m["client"] != 0 {
-		t.Errorf("client drift = %d, want 0", m["client"])
-	}
+	workers := worker.SyncWorkers(nil, resolved, deps)
+	worker.ReconcileWorkers(workers)
 }
 
 func TestPrintDiffReport(t *testing.T) {
@@ -337,6 +257,8 @@ func newFullPiholeTestServer() *httptest.Server {
 			_ = json.NewEncoder(w).Encode(map[string]any{"config": map[string]any{"dns": map[string]any{"cnameRecords": []any{}}}})
 		case r.URL.Path == "/api/clients":
 			_ = json.NewEncoder(w).Encode(map[string]any{"clients": []any{}})
+		case r.URL.Path == "/api/info/ftl":
+			_ = json.NewEncoder(w).Encode(map[string]any{"ftl": map[string]any{"database": map[string]any{"gravity": 100, "groups": 2}, "pid": 1, "uptime": 100.0}})
 		default:
 			w.WriteHeader(http.StatusOK)
 		}
@@ -416,6 +338,8 @@ func TestRunPlan_ReconcileError(t *testing.T) {
 			w.WriteHeader(http.StatusNoContent)
 		case r.URL.Path == "/api/groups":
 			w.WriteHeader(http.StatusInternalServerError)
+		case r.URL.Path == "/api/info/ftl":
+			_ = json.NewEncoder(w).Encode(map[string]any{"ftl": map[string]any{"database": map[string]any{"gravity": 100, "groups": 2}, "pid": 1, "uptime": 100.0}})
 		default:
 			w.WriteHeader(http.StatusOK)
 		}
@@ -478,6 +402,8 @@ func TestRunApply_ReconcileError(t *testing.T) {
 			w.WriteHeader(http.StatusNoContent)
 		case r.URL.Path == "/api/groups":
 			w.WriteHeader(http.StatusInternalServerError)
+		case r.URL.Path == "/api/info/ftl":
+			_ = json.NewEncoder(w).Encode(map[string]any{"ftl": map[string]any{"database": map[string]any{"gravity": 100, "groups": 2}, "pid": 1, "uptime": 100.0}})
 		default:
 			w.WriteHeader(http.StatusOK)
 		}
@@ -518,6 +444,8 @@ func TestRunApply_WithWarnings(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"config": map[string]any{"dns": map[string]any{"cnameRecords": []any{}}}})
 		case r.URL.Path == "/api/clients":
 			_ = json.NewEncoder(w).Encode(map[string]any{"clients": []any{}})
+		case r.URL.Path == "/api/info/ftl":
+			_ = json.NewEncoder(w).Encode(map[string]any{"ftl": map[string]any{"database": map[string]any{"gravity": 100, "groups": 2}, "pid": 1, "uptime": 100.0}})
 		default:
 			w.WriteHeader(http.StatusOK)
 		}
@@ -571,7 +499,7 @@ func TestReconcileAll_SessionError(t *testing.T) {
 	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	gravSched, _ := gravity.NewScheduler(pool, nil, m)
 
-	reconcileAll(cfg, resolved, m, pool, gravSched)
+	reconcileWithWorkers(cfg, resolved, m, pool, gravSched)
 }
 
 func TestReconcileAll_ReconcileError(t *testing.T) {
@@ -585,6 +513,8 @@ func TestReconcileAll_ReconcileError(t *testing.T) {
 			w.WriteHeader(http.StatusNoContent)
 		case r.URL.Path == "/api/groups":
 			w.WriteHeader(http.StatusInternalServerError)
+		case r.URL.Path == "/api/info/ftl":
+			_ = json.NewEncoder(w).Encode(map[string]any{"ftl": map[string]any{"database": map[string]any{"gravity": 100, "groups": 2}, "pid": 1, "uptime": 100.0}})
 		default:
 			w.WriteHeader(http.StatusOK)
 		}
@@ -603,7 +533,7 @@ func TestReconcileAll_ReconcileError(t *testing.T) {
 	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	gravSched, _ := gravity.NewScheduler(pool, resolvedToTargets(resolved), m)
 
-	reconcileAll(cfg, resolved, m, pool, gravSched)
+	reconcileWithWorkers(cfg, resolved, m, pool, gravSched)
 }
 
 func TestReconcileAll_Success(t *testing.T) {
@@ -622,7 +552,7 @@ func TestReconcileAll_Success(t *testing.T) {
 	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	gravSched, _ := gravity.NewScheduler(pool, resolvedToTargets(resolved), m)
 
-	reconcileAll(cfg, resolved, m, pool, gravSched)
+	reconcileWithWorkers(cfg, resolved, m, pool, gravSched)
 }
 
 func TestReconcileAll_WithGravityTrigger(t *testing.T) {
@@ -654,6 +584,8 @@ func TestReconcileAll_WithGravityTrigger(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"clients": []any{}})
 		case r.URL.Path == "/api/action/gravity":
 			w.WriteHeader(http.StatusOK)
+		case r.URL.Path == "/api/info/ftl":
+			_ = json.NewEncoder(w).Encode(map[string]any{"ftl": map[string]any{"database": map[string]any{"gravity": 100, "groups": 2}, "pid": 1, "uptime": 100.0}})
 		default:
 			w.WriteHeader(http.StatusOK)
 		}
@@ -697,7 +629,7 @@ adlists:
 	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	gravSched, _ := gravity.NewScheduler(pool, resolvedToTargets(resolved), m)
 
-	reconcileAll(loadedCfg, resolved, m, pool, gravSched)
+	reconcileWithWorkers(loadedCfg, resolved, m, pool, gravSched)
 }
 
 func TestReconcileAll_GravityTriggerError(t *testing.T) {
@@ -729,6 +661,8 @@ func TestReconcileAll_GravityTriggerError(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"clients": []any{}})
 		case r.URL.Path == "/api/action/gravity":
 			w.WriteHeader(http.StatusInternalServerError)
+		case r.URL.Path == "/api/info/ftl":
+			_ = json.NewEncoder(w).Encode(map[string]any{"ftl": map[string]any{"database": map[string]any{"gravity": 100, "groups": 2}, "pid": 1, "uptime": 100.0}})
 		default:
 			w.WriteHeader(http.StatusOK)
 		}
@@ -772,7 +706,7 @@ adlists:
 	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 	gravSched, _ := gravity.NewScheduler(pool, resolvedToTargets(resolved), m)
 
-	reconcileAll(loadedCfg, resolved, m, pool, gravSched)
+	reconcileWithWorkers(loadedCfg, resolved, m, pool, gravSched)
 }
 
 func TestRunPlan_WithChanges(t *testing.T) {
@@ -800,6 +734,8 @@ func TestRunPlan_WithChanges(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"config": map[string]any{"dns": map[string]any{"cnameRecords": []any{}}}})
 		case r.URL.Path == "/api/clients":
 			_ = json.NewEncoder(w).Encode(map[string]any{"clients": []any{}})
+		case r.URL.Path == "/api/info/ftl":
+			_ = json.NewEncoder(w).Encode(map[string]any{"ftl": map[string]any{"database": map[string]any{"gravity": 100, "groups": 2}, "pid": 1, "uptime": 100.0}})
 		default:
 			w.WriteHeader(http.StatusOK)
 		}

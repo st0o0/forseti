@@ -9,6 +9,13 @@ services:
     environment:
       FTLCONF_webserver_api_password: ${PIHOLE_ALPHA_PASSWORD}
       TZ: Europe/Berlin
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 384M
+        reservations:
+          memory: 128M
     networks:
       - forseti-dev
     healthcheck:
@@ -28,6 +35,13 @@ services:
     environment:
       FTLCONF_webserver_api_password: ${PIHOLE_BETA_PASSWORD}
       TZ: Europe/Berlin
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 384M
+        reservations:
+          memory: 128M
     networks:
       - forseti-dev
     healthcheck:

@@ -41,6 +41,24 @@ func NewCollector(pool *session.Pool, targets []config.Target, ttl time.Duration
 	}
 }
 
+func (c *Collector) UpdateTargets(targets []config.Target) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.targets = targets
+	for name := range c.cache {
+		found := false
+		for _, t := range targets {
+			if t.Name == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			delete(c.cache, name)
+		}
+	}
+}
+
 func (c *Collector) Collect(ctx context.Context) {
 	start := time.Now()
 	defer func() {

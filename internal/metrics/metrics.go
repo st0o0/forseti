@@ -76,8 +76,9 @@ type Server struct {
 	sessionActive prometheus.Gauge
 
 	// always registered
-	buildInfo    *prometheus.GaugeVec
-	configReload *prometheus.CounterVec
+	buildInfo     *prometheus.GaugeVec
+	configReload  *prometheus.CounterVec
+	targetHealth  *prometheus.GaugeVec
 
 	// settings_drift (toggle: settings_drift)
 	settingsDrift *prometheus.GaugeVec
@@ -146,11 +147,16 @@ func NewServer(port int, path string, toggles config.CollectorToggles) *Server {
 		Help: "Total config reload attempts",
 	}, []string{"result"})
 
+	s.targetHealth = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "forseti_target_health",
+		Help: "Target health state (0=healthy, 1=degraded, 2=down)",
+	}, []string{"target"})
+
 	reg.MustRegister(
 		s.targetReachable,
 		s.configAdlists, s.configDenyDomains, s.configAllowDomains,
 		s.collectorDuration, s.collectorFetches, s.collectorCacheHits,
-		s.buildInfo, s.configReload,
+		s.buildInfo, s.configReload, s.targetHealth,
 	)
 
 	// Reconcile
@@ -475,6 +481,29 @@ func (s *Server) RecordGravityRun(target string, trigger string, duration time.D
 
 func (s *Server) MarkTargetUnreachable(target string) {
 	s.targetReachable.WithLabelValues(target).Set(0)
+}
+
+func (s *Server) RecordTargetHealth(target string, state string) {
+	var val float64
+	switch state {
+	case "healthy":
+		val = 0
+	case "degraded":
+		val = 1
+	case "down":
+		val = 2
+	}
+	s.targetHealth.WithLabelValues(target).Set(val)
+}
+
+func (s *Server) RecordReconcileResult(target string, duration time.Duration, success bool, changes map[string]map[string]int, drift map[string]int) {
+	s.RecordReconcile(ReconcileResult{
+		Target:   target,
+		Duration: duration,
+		Success:  success,
+		Changes:  changes,
+		Drift:    drift,
+	})
 }
 
 func (s *Server) ObserveCollectorDuration(d time.Duration) {

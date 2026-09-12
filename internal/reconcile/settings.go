@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/st0o0/forseti/internal/config"
+	"github.com/st0o0/forseti/internal/pihole"
 )
 
 type SettingsAPI interface {
@@ -417,6 +418,20 @@ func DiffSettings(settings *config.Settings, api SettingsAPI) (*SettingsDiff, er
 	}
 
 	return diff, nil
+}
+
+type Settings struct{}
+
+func (Settings) Diff(settings *config.Settings, client *pihole.Client) (*SettingsDiff, error) {
+	return DiffSettings(settings, client)
+}
+
+func (Settings) Apply(name string, settings *config.Settings, client *pihole.Client) (*SettingsDiff, error) {
+	return ApplySettings(name, settings, client)
+}
+
+func (Settings) BuildDesiredList(settings *config.Settings) []SettingMapping {
+	return BuildDesiredSettingsList(settings)
 }
 
 func ApplySettings(target string, settings *config.Settings, api SettingsAPI) (*SettingsDiff, error) {
