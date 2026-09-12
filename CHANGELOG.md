@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.1](https://github.com/st0o0/forseti/compare/v0.1.0...v0.1.1) (2026-09-12)
+
+
+### Features
+
+* decouple release-please from build workflow ([be61b96](https://github.com/st0o0/forseti/commit/be61b9687a79ffbd91640c2f55b1c621e6e205ed))
+
+
+### Bug Fixes
+
+* bool-to-int coercion and collect-and-continue in settings reconciliation ([3764321](https://github.com/st0o0/forseti/commit/376432153577a6041d1966623353479145c14cc6))
+
 ## 0.1.0 (2026-09-11)
 
 
