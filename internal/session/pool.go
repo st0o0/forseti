@@ -61,6 +61,17 @@ func (p *Pool) Get(target config.Target) (*pihole.Client, error) {
 	return c, nil
 }
 
+func (p *Pool) Invalidate(name string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if c, ok := p.clients[name]; ok {
+		slog.Debug("invalidating session", "target", name)
+		c.Close()
+		delete(p.clients, name)
+	}
+}
+
 func (p *Pool) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()

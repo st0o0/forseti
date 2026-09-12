@@ -113,6 +113,7 @@ func (s *Scheduler) TriggerNow(targetName string, reason TriggerReason) error {
 
 	client, err := s.pool.Get(target)
 	if err != nil {
+		s.pool.Invalidate(targetName)
 		return fmt.Errorf("gravity trigger %s: session error: %w", targetName, err)
 	}
 
@@ -134,6 +135,7 @@ func (s *Scheduler) trigger(e *entry, reason TriggerReason) {
 	client, err := s.pool.Get(e.target)
 	if err != nil {
 		slog.Error("gravity session error", "target", e.target.Name, "error", err)
+		s.pool.Invalidate(e.target.Name)
 		if s.recorder != nil {
 			s.recorder.RecordGravityRun(e.target.Name, string(reason), 0, err)
 		}

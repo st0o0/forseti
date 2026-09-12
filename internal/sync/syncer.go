@@ -40,6 +40,7 @@ func (s *Syncer) SyncAll() {
 	primary, err := s.getPrimary()
 	if err != nil {
 		slog.Error("primary session error", "error", err)
+		s.pool.Invalidate(s.cfg.Sync.Primary)
 		return
 	}
 
@@ -69,6 +70,7 @@ func (s *Syncer) syncReplica(target config.Target, primary *state, resources map
 	replica, err := s.pool.Get(target)
 	if err != nil {
 		log.Error("sync session error", "error", err)
+		s.pool.Invalidate(target.Name)
 		s.metrics.MarkTargetUnreachable(target.Name)
 		return
 	}

@@ -218,6 +218,41 @@ func TestPoolGetLoginError(t *testing.T) {
 	}
 }
 
+func TestPoolInvalidateForcesRelogin(t *testing.T) {
+	var loginCount atomic.Int32
+	srv := newTestServer(&loginCount)
+	defer srv.Close()
+
+	pool := NewPool()
+	defer pool.Close()
+
+	target := config.Target{Name: "test", URL: srv.URL, Password: "pw"}
+
+	c1, err := pool.Get(target)
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+
+	pool.Invalidate("test")
+
+	c2, err := pool.Get(target)
+	if err != nil {
+		t.Fatalf("Get() after invalidate error: %v", err)
+	}
+
+	if c1 == c2 {
+		t.Error("Get() after Invalidate should return a new client")
+	}
+	if loginCount.Load() != 2 {
+		t.Errorf("login count = %d, want 2", loginCount.Load())
+	}
+}
+
+func TestPoolInvalidateUnknownTarget(t *testing.T) {
+	pool := NewPool()
+	pool.Invalidate("nonexistent")
+}
+
 func TestPoolCloseWithError(t *testing.T) {
 	var loginCount atomic.Int32
 	srv := newTestServer(&loginCount)

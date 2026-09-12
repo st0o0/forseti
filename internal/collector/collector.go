@@ -80,6 +80,7 @@ func (c *Collector) collectTarget(ctx context.Context, target config.Target) {
 	client, err := c.pool.Get(target)
 	if err != nil {
 		slog.Error("collector session error", "target", target.Name, "error", err)
+		c.pool.Invalidate(target.Name)
 		c.metrics.MarkTargetUnreachable(target.Name)
 		c.metrics.RecordCollectorFetch(target.Name, "error")
 		return
@@ -152,6 +153,8 @@ func (c *Collector) collectTarget(ctx context.Context, target config.Target) {
 		if c.toggles.IsEnabled("stats") {
 			if sr.err != nil {
 				slog.Error("stats error", "target", target.Name, "error", sr.err)
+				c.pool.Invalidate(target.Name)
+				c.metrics.MarkTargetUnreachable(target.Name)
 				c.metrics.RecordCollectorFetch(target.Name, "error")
 				return
 			}
