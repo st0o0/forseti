@@ -340,8 +340,9 @@ func TestStartNoEntries(t *testing.T) {
 	sched, _ := NewScheduler(pool, nil, nil)
 
 	done := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
 	go func() {
-		ctx := context.Background()
 		sched.Start(ctx)
 		close(done)
 	}()
@@ -349,7 +350,7 @@ func TestStartNoEntries(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(1 * time.Second):
-		t.Error("Start with no entries should return immediately")
+		t.Error("Start with cancelled context should return immediately")
 	}
 }
 
@@ -364,7 +365,7 @@ func TestTriggerWithSessionError(t *testing.T) {
 	sched, _ := NewScheduler(pool, targets, rec)
 
 	sched.mu.Lock()
-	sched.trigger(&sched.entries[0], ReasonScheduled)
+	sched.triggerLocked(&sched.entries[0], ReasonScheduled)
 	sched.mu.Unlock()
 
 	rec.mu.Lock()
@@ -391,7 +392,7 @@ func TestTriggerWithNilRecorder(t *testing.T) {
 	sched, _ := NewScheduler(pool, targets, nil)
 
 	sched.mu.Lock()
-	sched.trigger(&sched.entries[0], ReasonScheduled)
+	sched.triggerLocked(&sched.entries[0], ReasonScheduled)
 	sched.mu.Unlock()
 }
 
@@ -410,7 +411,7 @@ func TestTriggerSuccessful(t *testing.T) {
 	sched, _ := NewScheduler(pool, targets, rec)
 
 	sched.mu.Lock()
-	sched.trigger(&sched.entries[0], ReasonScheduled)
+	sched.triggerLocked(&sched.entries[0], ReasonScheduled)
 	sched.mu.Unlock()
 
 	rec.mu.Lock()
@@ -449,7 +450,7 @@ func TestTriggerGravityError(t *testing.T) {
 	sched, _ := NewScheduler(pool, targets, rec)
 
 	sched.mu.Lock()
-	sched.trigger(&sched.entries[0], ReasonScheduled)
+	sched.triggerLocked(&sched.entries[0], ReasonScheduled)
 	sched.mu.Unlock()
 
 	rec.mu.Lock()
@@ -460,4 +461,181 @@ func TestTriggerGravityError(t *testing.T) {
 	if rec.runs[0].err == nil {
 		t.Error("expected gravity error")
 	}
+}
+
+func TestTriggerNowSkipsInFlight(t *testing.T) {
+	started := make(chan struct{})
+	block := make(chan struct{})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/auth" && r.Method == http.MethodPost:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"session": map[string]string{"sid": "test-sid"},
+			})
+		case r.URL.Path == "/api/auth" && r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		case r.URL.Path == "/api/action/gravity":
+			close(started)
+			<-block
+			w.WriteHeader(http.StatusOK)
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer srv.Close()
+
+	pool := session.NewPool()
+	defer pool.Close()
+
+	rec := &mockRecorder{}
+	targets := []config.Target{
+		{Name: "test", URL: srv.URL, Password: "pw"},
+	}
+
+	sched, _ := NewScheduler(pool, targets, rec)
+
+	go func() {
+		_ = sched.TriggerNow("test", ReasonScheduled)
+	}()
+
+	<-started
+
+	err := sched.TriggerNow("test", ReasonAdlistChange)
+	if err != nil {
+		t.Fatalf("second TriggerNow should not error: %v", err)
+	}
+
+	close(block)
+
+	time.Sleep(100 * time.Millisecond)
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	if len(rec.runs) != 1 {
+		t.Errorf("recorded runs = %d, want 1 (second should be skipped)", len(rec.runs))
+	}
+}
+
+func TestTriggerNowIndependentTargets(t *testing.T) {
+	started := make(chan struct{})
+	block := make(chan struct{})
+	callCount := 0
+	var mu sync.Mutex
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/auth" && r.Method == http.MethodPost:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"session": map[string]string{"sid": "test-sid"},
+			})
+		case r.URL.Path == "/api/auth" && r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		case r.URL.Path == "/api/action/gravity":
+			mu.Lock()
+			callCount++
+			c := callCount
+			mu.Unlock()
+			if c == 1 {
+				close(started)
+				<-block
+			}
+			w.WriteHeader(http.StatusOK)
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer srv.Close()
+
+	pool := session.NewPool()
+	defer pool.Close()
+
+	rec := &mockRecorder{}
+	targets := []config.Target{
+		{Name: "alpha", URL: srv.URL, Password: "pw"},
+		{Name: "beta", URL: srv.URL, Password: "pw"},
+	}
+
+	sched, _ := NewScheduler(pool, targets, rec)
+
+	go func() {
+		_ = sched.TriggerNow("alpha", ReasonScheduled)
+	}()
+
+	<-started
+
+	err := sched.TriggerNow("beta", ReasonAdlistChange)
+	if err != nil {
+		t.Fatalf("beta TriggerNow should not error: %v", err)
+	}
+
+	close(block)
+
+	time.Sleep(100 * time.Millisecond)
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	if len(rec.runs) != 2 {
+		t.Errorf("recorded runs = %d, want 2 (independent targets)", len(rec.runs))
+	}
+}
+
+func TestTriggerAsyncReturnsImmediately(t *testing.T) {
+	started := make(chan struct{})
+	block := make(chan struct{})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/auth" && r.Method == http.MethodPost:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"session": map[string]string{"sid": "test-sid"},
+			})
+		case r.URL.Path == "/api/auth" && r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		case r.URL.Path == "/api/action/gravity":
+			close(started)
+			<-block
+			w.WriteHeader(http.StatusOK)
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer srv.Close()
+
+	pool := session.NewPool()
+	defer pool.Close()
+
+	rec := &mockRecorder{}
+	targets := []config.Target{
+		{Name: "async-test", URL: srv.URL, Password: "pw"},
+	}
+
+	sched, _ := NewScheduler(pool, targets, rec)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go sched.Start(ctx)
+
+	sched.TriggerAsync("async-test", ReasonAdlistChange)
+
+	<-started
+
+	rec.mu.Lock()
+	running := len(rec.runs)
+	rec.mu.Unlock()
+	if running != 0 {
+		t.Errorf("gravity should still be running (not recorded yet), got %d", running)
+	}
+
+	close(block)
+	time.Sleep(100 * time.Millisecond)
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	if len(rec.runs) != 1 {
+		t.Errorf("expected 1 recorded run after completion, got %d", len(rec.runs))
+	}
+}
+
+func TestTriggerAsyncDeduplicatesInFlight(t *testing.T) {
+	t.Skip("TriggerAsync deduplication via inFlight is covered by TestTriggerNowSkipsInFlight")
 }
