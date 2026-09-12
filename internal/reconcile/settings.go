@@ -1,6 +1,7 @@
 package reconcile
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -33,6 +34,13 @@ func (d SettingsDiff) HasChanges() bool {
 	return len(d.Changes) > 0
 }
 
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 func BuildDesiredSettingsList(s *config.Settings) []SettingMapping {
 	var mappings []SettingMapping
 
@@ -54,7 +62,7 @@ func BuildDesiredSettingsList(s *config.Settings) []SettingMapping {
 		mappings = append(mappings, SettingMapping{
 			ForsetiPath: "dns.cache.force_on_disk",
 			PiholePath:  "dns/cache/optimizer",
-			Value:       *s.DNS.Cache.ForceOnDisk,
+			Value:       boolToInt(*s.DNS.Cache.ForceOnDisk),
 		})
 	}
 	if s.DNS.RateLimit.Count != nil {
@@ -98,21 +106,21 @@ func BuildDesiredSettingsList(s *config.Settings) []SettingMapping {
 		mappings = append(mappings, SettingMapping{
 			ForsetiPath: "dns.domain_needed",
 			PiholePath:  "dns/domainNeeded",
-			Value:       *s.DNS.DomainNeeded,
+			Value:       boolToInt(*s.DNS.DomainNeeded),
 		})
 	}
 	if s.DNS.BogusPriv != nil {
 		mappings = append(mappings, SettingMapping{
 			ForsetiPath: "dns.bogus_priv",
 			PiholePath:  "dns/bogusPriv",
-			Value:       *s.DNS.BogusPriv,
+			Value:       boolToInt(*s.DNS.BogusPriv),
 		})
 	}
 	if s.DNS.DNSSEC != nil {
 		mappings = append(mappings, SettingMapping{
 			ForsetiPath: "dns.dnssec",
 			PiholePath:  "dns/dnssec",
-			Value:       *s.DNS.DNSSEC,
+			Value:       boolToInt(*s.DNS.DNSSEC),
 		})
 	}
 	if s.DNS.ListeningMode != "" {
@@ -126,28 +134,28 @@ func BuildDesiredSettingsList(s *config.Settings) []SettingMapping {
 		mappings = append(mappings, SettingMapping{
 			ForsetiPath: "dns.query_logging",
 			PiholePath:  "dns/queryLogging",
-			Value:       *s.DNS.QueryLogging,
+			Value:       boolToInt(*s.DNS.QueryLogging),
 		})
 	}
 	if s.DNS.CNAMEDeepInspect != nil {
 		mappings = append(mappings, SettingMapping{
 			ForsetiPath: "dns.cname_deep_inspect",
 			PiholePath:  "dns/cnameDeepInspect",
-			Value:       *s.DNS.CNAMEDeepInspect,
+			Value:       boolToInt(*s.DNS.CNAMEDeepInspect),
 		})
 	}
 	if s.DNS.ResolveIPv4 != nil {
 		mappings = append(mappings, SettingMapping{
 			ForsetiPath: "dns.resolve_ipv4",
 			PiholePath:  "dns/resolveIPv4",
-			Value:       *s.DNS.ResolveIPv4,
+			Value:       boolToInt(*s.DNS.ResolveIPv4),
 		})
 	}
 	if s.DNS.ResolveIPv6 != nil {
 		mappings = append(mappings, SettingMapping{
 			ForsetiPath: "dns.resolve_ipv6",
 			PiholePath:  "dns/resolveIPv6",
-			Value:       *s.DNS.ResolveIPv6,
+			Value:       boolToInt(*s.DNS.ResolveIPv6),
 		})
 	}
 
@@ -156,7 +164,7 @@ func BuildDesiredSettingsList(s *config.Settings) []SettingMapping {
 		mappings = append(mappings, SettingMapping{
 			ForsetiPath: "dns.rev_server.enabled",
 			PiholePath:  "dns/revServer/active",
-			Value:       *s.DNS.RevServer.Enabled,
+			Value:       boolToInt(*s.DNS.RevServer.Enabled),
 		})
 	}
 	if s.DNS.RevServer.CIDR != "" {
@@ -186,7 +194,7 @@ func BuildDesiredSettingsList(s *config.Settings) []SettingMapping {
 		mappings = append(mappings, SettingMapping{
 			ForsetiPath: "blocking.active",
 			PiholePath:  "dns/blocking/active",
-			Value:       *s.Blocking.Active,
+			Value:       boolToInt(*s.Blocking.Active),
 		})
 	}
 	if s.Blocking.Timer != nil {
@@ -202,7 +210,7 @@ func BuildDesiredSettingsList(s *config.Settings) []SettingMapping {
 		mappings = append(mappings, SettingMapping{
 			ForsetiPath: "dhcp.active",
 			PiholePath:  "dhcp/active",
-			Value:       *s.DHCP.Active,
+			Value:       boolToInt(*s.DHCP.Active),
 		})
 	}
 	if s.DHCP.Start != "" {
@@ -244,14 +252,14 @@ func BuildDesiredSettingsList(s *config.Settings) []SettingMapping {
 		mappings = append(mappings, SettingMapping{
 			ForsetiPath: "dhcp.ipv6",
 			PiholePath:  "dhcp/ipv6",
-			Value:       *s.DHCP.IPv6,
+			Value:       boolToInt(*s.DHCP.IPv6),
 		})
 	}
 	if s.DHCP.RapidCommit != nil {
 		mappings = append(mappings, SettingMapping{
 			ForsetiPath: "dhcp.rapid_commit",
 			PiholePath:  "dhcp/rapidCommit",
-			Value:       *s.DHCP.RapidCommit,
+			Value:       boolToInt(*s.DHCP.RapidCommit),
 		})
 	}
 
@@ -283,7 +291,7 @@ func BuildDesiredSettingsList(s *config.Settings) []SettingMapping {
 		mappings = append(mappings, SettingMapping{
 			ForsetiPath: "misc.check.load",
 			PiholePath:  "misc/check/load",
-			Value:       *s.Misc.Check.Load,
+			Value:       boolToInt(*s.Misc.Check.Load),
 		})
 	}
 	if s.Misc.Check.Disk != nil {
@@ -337,8 +345,22 @@ func splitPath(path string) []string {
 	return parts
 }
 
+func normalizeValue(v any) any {
+	switch val := v.(type) {
+	case bool:
+		return boolToInt(val)
+	case float64:
+		if val == float64(int(val)) {
+			return int(val)
+		}
+		return val
+	default:
+		return v
+	}
+}
+
 func settingsNeedUpdate(current, desired any) bool {
-	return fmt.Sprintf("%v", current) != fmt.Sprintf("%v", desired)
+	return fmt.Sprintf("%v", normalizeValue(current)) != fmt.Sprintf("%v", normalizeValue(desired))
 }
 
 func DiffSettings(settings *config.Settings, api SettingsAPI) (*SettingsDiff, error) {
@@ -373,12 +395,13 @@ func ApplySettings(target string, settings *config.Settings, api SettingsAPI) (*
 		return nil, err
 	}
 
+	var errs []error
 	for _, change := range diff.Changes {
 		slog.Info("applying setting", "target", target, "name", change.Name, "current", change.Current, "desired", change.Desired)
 		if err := api.PatchConfig(change.Path, change.Desired); err != nil {
-			return diff, fmt.Errorf("set %s: %w", change.Name, err)
+			errs = append(errs, fmt.Errorf("set %s: %w", change.Name, err))
 		}
 	}
 
-	return diff, nil
+	return diff, errors.Join(errs...)
 }

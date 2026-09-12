@@ -1,17 +1,4 @@
-# Pi-hole Settings
-
-Forseti-native settings format, mapping to Pi-hole v6 config API, settings reconciliation (read/diff/apply).
-
-### Requirement: Settings configuration format
-The system SHALL accept a `settings` section at the top level of the config file. This section uses Forseti's own format — a curated subset of Pi-hole FTL configuration values, not a 1:1 mirror of pihole.toml.
-
-#### Scenario: Settings with DNS and blocking config
-- **WHEN** the config file contains a `settings:` section with `dns.upstream`, `dns.cache.size`, and `blocking.mode`
-- **THEN** the system SHALL parse these values and make them available for reconciliation
-
-#### Scenario: No settings section
-- **WHEN** the config file omits the `settings:` section
-- **THEN** the system SHALL skip settings reconciliation entirely — existing Pi-hole settings are not touched
+## MODIFIED Requirements
 
 ### Requirement: Settings field mapping
 Each Forseti setting SHALL map to a specific Pi-hole v6 config API path. The supported settings SHALL be:
@@ -80,51 +67,6 @@ Boolean settings SHALL be sent to the Pi-hole API as integers (`0` for `false`, 
 - **WHEN** the effective settings contain `dns.cache.size: 10000`
 - **THEN** the system SHALL send the value `10000` (integer) to Pi-hole config API path `dns/cache/size` without type conversion
 
-#### Scenario: Map rev_server block
-- **WHEN** the effective settings contain `dns.rev_server.enabled: true`, `dns.rev_server.cidr: "192.168.1.0/24"`, `dns.rev_server.target: "192.168.1.1"`, `dns.rev_server.domain: "lan"`
-- **THEN** the system SHALL map these to `dns/revServer/active`, `dns/revServer/cidr`, `dns/revServer/target`, `dns/revServer/domain`
-
-### Requirement: Settings validation
-The system SHALL validate settings values at config load time. Invalid values (wrong type, out of range) SHALL produce validation errors before any API calls.
-
-#### Scenario: Invalid blocking mode
-- **WHEN** settings contain `blocking.mode: INVALID`
-- **THEN** the system SHALL return a validation error listing valid modes (NULL, IP, NXDOMAIN)
-
-#### Scenario: Negative cache size
-- **WHEN** settings contain `dns.cache.size: -1`
-- **THEN** the system SHALL return a validation error
-
-#### Scenario: Invalid listening mode
-- **WHEN** settings contain `dns.listening_mode: "invalid"`
-- **THEN** the system SHALL return a validation error listing valid modes (local, all, bind)
-
-#### Scenario: DHCP range validation
-- **WHEN** settings contain `dhcp.start` but not `dhcp.end`
-- **THEN** the system SHALL return a validation error requiring both start and end when either is set
-
-#### Scenario: Invalid disk threshold
-- **WHEN** settings contain `misc.check.disk: 120`
-- **THEN** the system SHALL return a validation error (must be 0-100)
-
-#### Scenario: Negative DNS port
-- **WHEN** settings contain `dns.port: -1`
-- **THEN** the system SHALL return a validation error (must be 1-65535)
-
-### Requirement: Settings IsEmpty check
-The `IsEmpty()` method SHALL return true only when no settings field across any area is set. This determines whether settings reconciliation is skipped.
-
-#### Scenario: Only new fields set
-- **WHEN** settings contain only `dhcp.active: true` and no other fields
-- **THEN** `IsEmpty()` SHALL return false
-
-### Requirement: Settings reconciliation (read actual state)
-The system SHALL read the current Pi-hole configuration via `GET /api/config` and extract the values corresponding to declared Forseti settings. Only settings declared in the effective config are compared.
-
-#### Scenario: Read current settings
-- **WHEN** the system reconciles settings for a target
-- **THEN** the system SHALL fetch the current config from the Pi-hole API and compare each declared setting against the actual value
-
 ### Requirement: Settings reconciliation (apply changes)
 The system SHALL apply only changed settings to the Pi-hole via the config API. Unchanged settings SHALL not be written. Settings not declared in Forseti config SHALL not be touched.
 
@@ -140,12 +82,7 @@ The system SHALL apply only changed settings to the Pi-hole via the config API. 
 - **WHEN** the Pi-hole has `misc/privacylevel = 3` but the Forseti config does not declare `privacy.level`
 - **THEN** the system SHALL not modify `misc/privacylevel`
 
-### Requirement: Settings plan output
-In plan mode, the system SHALL display a diff of settings changes per target, showing the setting name, current value, and desired value.
-
-#### Scenario: Plan with settings changes
-- **WHEN** the user runs `forseti plan` and one target has settings differences
-- **THEN** the output SHALL show each changed setting with its current and desired values
+## ADDED Requirements
 
 ### Requirement: Type-aware settings comparison
 The system SHALL compare desired and actual settings values using type-aware normalization. Boolean values (`true`/`false`) SHALL be treated as equivalent to their integer counterparts (`1`/`0`). Floating-point numbers without fractional parts SHALL be treated as equivalent to their integer counterparts.

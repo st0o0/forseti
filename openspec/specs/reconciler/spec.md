@@ -16,9 +16,15 @@ The reconciler SHALL only manage entries tagged with the configured marker (defa
 ### Requirement: Reconcile ordering
 The reconciler SHALL process resource types in this fixed order: settings → groups → adlists → deny domains → allow domains → local DNS → CNAME → clients. Settings MUST be reconciled first because some settings (e.g., force_on_disk) affect how the Pi-hole processes subsequent content changes. Groups MUST be reconciled before content types that reference groups.
 
+A failure to apply one or more settings SHALL NOT prevent reconciliation of remaining settings or subsequent resource types. The reconciler SHALL collect all settings errors and log them, then proceed with group reconciliation.
+
 #### Scenario: Settings applied before content
 - **WHEN** the effective config for a target has both settings changes and adlist changes
 - **THEN** the reconciler SHALL apply settings changes first, then proceed with content reconciliation in the established order
+
+#### Scenario: Partial settings failure
+- **WHEN** applying setting `dns/cache/optimizer` fails with an API error but `dns/listeningMode` and `dns/cnameDeepInspect` also need updating
+- **THEN** the reconciler SHALL continue applying `dns/listeningMode` and `dns/cnameDeepInspect`, collect all errors, and proceed with group reconciliation
 
 #### Scenario: No settings declared
 - **WHEN** the effective config for a target has no settings section

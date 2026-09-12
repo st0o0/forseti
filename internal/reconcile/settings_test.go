@@ -2,6 +2,7 @@ package reconcile
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/st0o0/forseti/internal/config"
@@ -52,7 +53,7 @@ func TestDiffSettings_OneChange(t *testing.T) {
 		config: map[string]any{
 			"dns": map[string]any{
 				"cache": map[string]any{
-					"optimizer": false,
+					"optimizer": float64(0),
 					"size":      float64(10000),
 				},
 			},
@@ -84,7 +85,7 @@ func TestDiffSettings_AllMatch(t *testing.T) {
 		config: map[string]any{
 			"dns": map[string]any{
 				"cache": map[string]any{
-					"optimizer": true,
+					"optimizer": float64(1),
 				},
 			},
 		},
@@ -111,7 +112,7 @@ func TestDiffSettings_MultipleChanges(t *testing.T) {
 		config: map[string]any{
 			"dns": map[string]any{
 				"cache": map[string]any{
-					"optimizer": false,
+					"optimizer": float64(0),
 					"size":      float64(5000),
 				},
 			},
@@ -146,7 +147,7 @@ func TestApplySettings_AppliesChanges(t *testing.T) {
 		config: map[string]any{
 			"dns": map[string]any{
 				"cache": map[string]any{
-					"optimizer": false,
+					"optimizer": float64(0),
 				},
 			},
 		},
@@ -179,7 +180,7 @@ func TestApplySettings_NoChanges(t *testing.T) {
 		config: map[string]any{
 			"dns": map[string]any{
 				"cache": map[string]any{
-					"optimizer": true,
+					"optimizer": float64(1),
 				},
 			},
 		},
@@ -361,5 +362,220 @@ func TestBuildDesiredSettingsList_BlockingNewFields(t *testing.T) {
 	}
 	if !found["blocking.timer"] {
 		t.Error("missing mapping for blocking.timer")
+	}
+}
+
+func TestBuildDesiredSettingsList_BoolFieldsProduceIntegers(t *testing.T) {
+	s := &config.Settings{
+		DNS: config.DNSSettings{
+			Cache: config.CacheSettings{
+				ForceOnDisk: boolPtr(true),
+			},
+			DomainNeeded:    boolPtr(false),
+			BogusPriv:       boolPtr(true),
+			DNSSEC:          boolPtr(false),
+			QueryLogging:    boolPtr(true),
+			CNAMEDeepInspect: boolPtr(false),
+			ResolveIPv4:     boolPtr(true),
+			ResolveIPv6:     boolPtr(false),
+			RevServer: config.RevServerSettings{
+				Enabled: boolPtr(true),
+			},
+		},
+		Blocking: config.BlockingSettings{
+			Active: boolPtr(false),
+		},
+		DHCP: config.DHCPSettings{
+			Active:      boolPtr(true),
+			IPv6:        boolPtr(false),
+			RapidCommit: boolPtr(true),
+		},
+		Misc: config.MiscSettings{
+			Check: config.CheckSettings{
+				Load: boolPtr(false),
+			},
+		},
+	}
+
+	mappings := BuildDesiredSettingsList(s)
+	boolFields := map[string]int{
+		"dns.cache.force_on_disk": 1,
+		"dns.domain_needed":      0,
+		"dns.bogus_priv":         1,
+		"dns.dnssec":             0,
+		"dns.query_logging":      1,
+		"dns.cname_deep_inspect": 0,
+		"dns.resolve_ipv4":       1,
+		"dns.resolve_ipv6":       0,
+		"dns.rev_server.enabled": 1,
+		"blocking.active":        0,
+		"dhcp.active":            1,
+		"dhcp.ipv6":              0,
+		"dhcp.rapid_commit":      1,
+		"misc.check.load":        0,
+	}
+
+	for _, m := range mappings {
+		expected, isBool := boolFields[m.ForsetiPath]
+		if !isBool {
+			continue
+		}
+		intVal, ok := m.Value.(int)
+		if !ok {
+			t.Errorf("%s: Value type = %T, want int", m.ForsetiPath, m.Value)
+			continue
+		}
+		if intVal != expected {
+			t.Errorf("%s: Value = %d, want %d", m.ForsetiPath, intVal, expected)
+		}
+		delete(boolFields, m.ForsetiPath)
+	}
+	for k := range boolFields {
+		t.Errorf("missing mapping for bool field %s", k)
+	}
+}
+
+func TestNormalizeValue(t *testing.T) {
+	tests := []struct {
+		name     string
+		a, b     any
+		wantSame bool
+	}{
+		{"bool false vs float64 0", false, float64(0), true},
+		{"bool true vs float64 1", true, float64(1), true},
+		{"int 10000 vs float64 10000", 10000, float64(10000), true},
+		{"int 500 vs float64 1500", 500, float64(1500), false},
+		{"int 1 vs int 1", 1, 1, true},
+		{"string vs string", "all", "all", true},
+		{"string vs different string", "all", "local", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := !settingsNeedUpdate(tt.a, tt.b)
+			if got != tt.wantSame {
+				t.Errorf("settingsNeedUpdate(%v, %v) equal=%v, want equal=%v", tt.a, tt.b, got, tt.wantSame)
+			}
+		})
+	}
+}
+
+func TestDiffSettings_Float64MatchesCoercedInt(t *testing.T) {
+	api := &mockSettingsAPI{
+		config: map[string]any{
+			"dns": map[string]any{
+				"cache": map[string]any{
+					"optimizer": float64(0),
+				},
+			},
+		},
+	}
+	s := config.Settings{
+		DNS: config.DNSSettings{
+			Cache: config.CacheSettings{
+				ForceOnDisk: boolPtr(false),
+			},
+		},
+	}
+
+	diff, err := DiffSettings(&s, api)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if diff.HasChanges() {
+		t.Errorf("expected no changes when float64(0) matches coerced false→0, got %d changes", len(diff.Changes))
+	}
+}
+
+type mockSettingsAPIPerCall struct {
+	config   map[string]any
+	patchErr map[string]error
+	patches  []patchCall
+}
+
+func (m *mockSettingsAPIPerCall) GetConfig() (map[string]any, error) {
+	return m.config, nil
+}
+
+func (m *mockSettingsAPIPerCall) PatchConfig(path string, value any) error {
+	m.patches = append(m.patches, patchCall{Path: path, Value: value})
+	if err, ok := m.patchErr[path]; ok {
+		return err
+	}
+	return nil
+}
+
+func TestApplySettings_PartialFailureContinues(t *testing.T) {
+	api := &mockSettingsAPIPerCall{
+		config: map[string]any{
+			"dns": map[string]any{
+				"cache": map[string]any{
+					"optimizer": float64(0),
+					"size":      float64(5000),
+				},
+			},
+			"misc": map[string]any{
+				"privacylevel": float64(0),
+			},
+		},
+		patchErr: map[string]error{
+			"dns/cache/size": fmt.Errorf("api error"),
+		},
+	}
+	s := config.Settings{
+		DNS: config.DNSSettings{
+			Cache: config.CacheSettings{
+				ForceOnDisk: boolPtr(true),
+				Size:        intPtr(10000),
+			},
+		},
+		Privacy: config.PrivacySettings{
+			Level: intPtr(3),
+		},
+	}
+
+	diff, err := ApplySettings("test", &s, api)
+	if err == nil {
+		t.Fatal("expected error from partial failure")
+	}
+	if !strings.Contains(err.Error(), "dns.cache.size") {
+		t.Errorf("error should mention failing setting, got: %v", err)
+	}
+	if len(diff.Changes) != 3 {
+		t.Fatalf("expected 3 changes in diff, got %d", len(diff.Changes))
+	}
+	if len(api.patches) != 3 {
+		t.Fatalf("expected 3 patch calls (all attempted), got %d", len(api.patches))
+	}
+}
+
+func TestApplySettings_PatchError(t *testing.T) {
+	api := &mockSettingsAPI{
+		config: map[string]any{
+			"dns": map[string]any{
+				"cache": map[string]any{
+					"optimizer": float64(0),
+				},
+			},
+		},
+		patchErr: fmt.Errorf("connection refused"),
+	}
+	s := config.Settings{
+		DNS: config.DNSSettings{
+			Cache: config.CacheSettings{
+				ForceOnDisk: boolPtr(true),
+			},
+		},
+	}
+
+	diff, err := ApplySettings("test", &s, api)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if diff == nil {
+		t.Fatal("expected diff to be returned even on error")
+	}
+	if len(diff.Changes) != 1 {
+		t.Errorf("expected 1 change in diff, got %d", len(diff.Changes))
 	}
 }
