@@ -39,14 +39,18 @@ A failure to apply one or more settings SHALL NOT prevent reconciliation of rema
 - **THEN** client deletions SHALL complete before group deletions to avoid referential integrity errors
 
 ### Requirement: Gravity trigger on adlist changes only
-The reconciler SHALL trigger a gravity update (`POST /api/action/gravity`) only when adlists have been added or removed. Changes to domains, DNS records, groups, or clients SHALL NOT trigger gravity.
+The reconciler SHALL trigger a gravity update (`POST /api/action/gravity`) only when adlists have been actually added, updated, or successfully deleted (non-404). Changes to domains, DNS records, groups, or clients SHALL NOT trigger gravity. Phantom deletes (item already gone, 404) SHALL NOT trigger gravity.
 
 #### Scenario: Adlists changed
-- **WHEN** the reconciler adds 2 adlists and removes 1
+- **WHEN** the reconciler adds 2 adlists and removes 1 successfully
 - **THEN** the reconciler SHALL trigger a gravity update after adlist reconciliation
 
 #### Scenario: Only deny domains changed
 - **WHEN** the reconciler adds deny domains but no adlists changed
+- **THEN** the reconciler SHALL NOT trigger a gravity update
+
+#### Scenario: Only phantom deletes
+- **WHEN** the reconciler's diff includes adlist deletes but all return 404
 - **THEN** the reconciler SHALL NOT trigger a gravity update
 
 ### Requirement: Plan mode (dry-run)
@@ -70,8 +74,22 @@ The `watch` command SHALL run as a long-lived daemon that periodically executes 
 - **WHEN** the reconcile interval is `5m`
 - **THEN** the system SHALL reconcile every 5 minutes and keep the metrics server running between cycles
 
+### Requirement: Idempotent delete handling
+The reconciler SHALL treat a 404 response on any delete operation (adlists, domains, groups, clients, DNS records) as a successful deletion. The reconciler SHALL use `pihole.IsNotFound(err)` to detect this condition.
+
+#### Scenario: Batch delete returns 404 for absent item
+- **WHEN** the reconciler calls batch delete for adlists and Pi-hole returns 404
+- **THEN** the reconciler SHALL NOT append an error to the reconcile report
+
+### Requirement: Retry transient list errors
+The reconciler SHALL retry list operations with exponential backoff (1s, 2s, 4s, max 3 attempts) when the error is transient as determined by `pihole.IsTransient(err)`. Each retry attempt SHALL be logged at WARN level with the target name and operation.
+
+#### Scenario: Database temporarily unavailable
+- **WHEN** `ListDomains("deny","exact")` returns 400 "Database not available" during FTL restart
+- **THEN** the reconciler SHALL retry up to 3 times before failing the target
+
 ### Requirement: Multi-target reconciliation
-The reconciler SHALL apply each target's effective config independently. A failure against one target SHALL NOT prevent reconciliation of other targets. Each target's effective config MAY differ due to per-target overrides.
+The reconciler SHALL apply each target's effective config independently. A failure against one target SHALL NOT prevent reconciliation of other targets. Each target's effective config MAY differ due to per-target overrides. Transient errors on list operations SHALL be retried before declaring a target as failed.
 
 #### Scenario: One target unreachable
 - **WHEN** target pihole-router is unreachable but pihole-pi is healthy
@@ -80,3 +98,18 @@ The reconciler SHALL apply each target's effective config independently. A failu
 #### Scenario: Targets with different effective configs
 - **WHEN** pihole-kids has extra deny entries from its override file and pihole-office uses pure global defaults
 - **THEN** the reconciler SHALL apply the extended deny list to pihole-kids and the base deny list to pihole-office
+
+#### Scenario: Target recovers on retry
+- **WHEN** a target's list operation fails with a transient error but succeeds on retry
+- **THEN** the reconciler SHALL proceed with reconciliation for that target
+
+### Requirement: Reconciler exposed through interface
+The reconciler SHALL expose its settings and content operations through interfaces (`SettingsReconciler` and `ContentReconciler`) that can be consumed by the TargetWorker and mocked in tests.
+
+#### Scenario: Worker calls content reconciler
+- **WHEN** the worker needs to reconcile content for a target
+- **THEN** it SHALL call the ContentReconciler interface, not the reconcile package directly
+
+#### Scenario: Test mocks reconciler
+- **WHEN** a test creates a worker with a mock ContentReconciler
+- **THEN** the worker SHALL use the mock and the test SHALL verify the interaction
