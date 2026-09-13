@@ -13,11 +13,12 @@ Named after [Forseti](https://en.wikipedia.org/wiki/Forseti), the Norse god of j
 - **Declarative config** -- adlists, allow/deny lists, local DNS, CNAME records, groups, clients, and Pi-hole settings defined in one YAML file
 - **Sync mode** -- replicate a primary Pi-hole to any number of replicas (NebulaSync replacement)
 - **Multi-instance** -- manage any number of Pi-hole v6 targets from one config
+- **Per-target API control** -- configurable timeouts and concurrency limits per target, preventing overload on resource-constrained hardware
 - **Managed-marker safety** -- only touches entries it created (`[forseti]` / `[forseti-sync]` tag), manual UI changes are left alone
 - **Diff-based** -- compares desired vs actual state and applies the minimum set of changes
 - **Settings reconciliation** -- manage DNS cache, rate limits, blocking mode, privacy level, and more
 - **Gravity scheduling** -- per-target cron schedules and automatic gravity updates on adlist changes
-- **Built-in Prometheus metrics** -- `/metrics` endpoint with Pi-hole stats, reconciliation telemetry, settings drift, and session health
+- **Built-in Prometheus metrics** -- `/metrics` endpoint with Pi-hole stats, reconciliation telemetry, settings drift, session health, and collector stale-serve tracking
 - **Plan/Apply workflow** -- dry-run before committing changes
 - **Watch mode** -- daemon with periodic reconcile loop, config hot-reload, and metrics server
 - **Environment variable expansion** -- `${VAR}` syntax in YAML values for secrets management
@@ -69,6 +70,9 @@ targets:
     password: ${PIHOLE_PASSWORD}
     gravity:
       schedule: "0 3 * * 0"
+    api:
+      timeout: 30s
+      max_concurrent: 4
 
 reconcile:
   interval: 5m
@@ -189,6 +193,8 @@ All toggles are `*bool`, default enabled (omit = true). Set `false` to disable a
 | `password` | string | -- | **required** Pi-hole API password |
 | `role` | string | -- | Sync mode only: `primary` or `replica` |
 | `gravity.schedule` | string | -- | 5-field cron expression for periodic gravity updates |
+| `api.timeout` | duration | `30s` | HTTP timeout for API requests to this target |
+| `api.max_concurrent` | int | `4` | Max concurrent API calls to this target (all subsystems combined) |
 | `file` | string | -- | Path to per-target override YAML (see below) |
 
 #### `reconcile` (config mode)
@@ -433,6 +439,9 @@ Individual metric families can be disabled via `metrics.collectors.*` toggles in
 | `forseti_target_reachable` | `target` |
 | `forseti_config_reload_total` | `result` |
 | `forseti_collector_fetches_total` | `target`, `status` |
+| `forseti_collector_cache_hits_total` | `target` |
+| `forseti_collector_cache_stale_total` | `target` |
+| `forseti_target_health` | `target` |
 
 ## Critical invariants
 
@@ -441,6 +450,7 @@ Individual metric families can be disabled via `metrics.collectors.*` toggles in
 - **Gravity trigger**: automatic on adlist changes (if `gravity_on_change: true`) and on cron schedule per target. Never for domain/client/DNS changes alone.
 - **CNAME restart**: adding or removing CNAME records triggers an FTL restart (brief DNS outage).
 - **Session pool**: 1 persistent session per target with auto-reauth on 401. Pi-hole allows max 16 concurrent sessions.
+- **API concurrency gate**: all subsystems (reconciler, collector, gravity) share a per-target semaphore. The collector serves stale cached data when the target is busy instead of timing out. Configure `api.max_concurrent: 1` for resource-constrained targets to serialize all API access.
 - **Modes are exclusive**: config and sync cannot run simultaneously.
 
 ## Building
