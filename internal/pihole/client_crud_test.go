@@ -25,7 +25,7 @@ func authedServer(t *testing.T, handler http.HandlerFunc) *Client {
 		handler(w, r)
 	}))
 	t.Cleanup(srv.Close)
-	c := NewClient(srv.URL, "pw")
+	c := NewClient(srv.URL, "pw", 0)
 	_ = c.Login()
 	return c
 }
@@ -57,7 +57,7 @@ func TestCloseServerError(t *testing.T) {
 			return
 		}
 	}))
-	c := NewClient(srv.URL, "pw")
+	c := NewClient(srv.URL, "pw", 0)
 	_ = c.Login()
 	srv.Close()
 
@@ -792,7 +792,7 @@ func TestDoRequestNoSIDWithoutSession(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "pw")
+	c := NewClient(srv.URL, "pw", 0)
 	_, _ = c.doRequest(http.MethodGet, "/api/test", nil)
 	if gotSID != "" {
 		t.Errorf("SID = %q, want empty when no session", gotSID)
@@ -802,7 +802,7 @@ func TestDoRequestNoSIDWithoutSession(t *testing.T) {
 // doRequest: network error
 
 func TestDoRequestNetworkError(t *testing.T) {
-	c := NewClient("http://127.0.0.1:1", "pw")
+	c := NewClient("http://127.0.0.1:1", "pw", 0)
 	_, err := c.doRequest(http.MethodGet, "/api/test", nil)
 	if err == nil {
 		t.Fatal("should error on unreachable server")
@@ -812,7 +812,7 @@ func TestDoRequestNetworkError(t *testing.T) {
 // doJSON: network error propagation
 
 func TestDoJSONNetworkError(t *testing.T) {
-	c := NewClient("http://127.0.0.1:1", "pw")
+	c := NewClient("http://127.0.0.1:1", "pw", 0)
 	err := c.doJSON(http.MethodGet, "/api/test", nil, nil)
 	if err == nil {
 		t.Fatal("should error on unreachable server")
@@ -945,7 +945,7 @@ func TestDoJSONOnceReadBodyError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "pw")
+	c := NewClient(srv.URL, "pw", 0)
 	_ = c.Login()
 
 	var result map[string]any
@@ -987,7 +987,7 @@ func TestDoJSONErrorAfterReauth(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "pw")
+	c := NewClient(srv.URL, "pw", 0)
 	c.sid = "expired"
 
 	err := c.doJSON(http.MethodGet, "/api/test", nil, nil)
@@ -1014,7 +1014,7 @@ func TestDoJSON401AfterReauth(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "pw")
+	c := NewClient(srv.URL, "pw", 0)
 	c.sid = "expired"
 
 	err := c.doJSON(http.MethodGet, "/api/test", nil, nil)

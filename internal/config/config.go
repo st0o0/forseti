@@ -210,12 +210,32 @@ func (ct CollectorToggles) IsEnabled(name string) bool {
 	return p == nil || *p
 }
 
+type APIConfig struct {
+	Timeout       Duration `yaml:"timeout"`
+	MaxConcurrent int      `yaml:"max_concurrent"`
+}
+
+func (a APIConfig) TimeoutOrDefault() time.Duration {
+	if a.Timeout.Duration > 0 {
+		return a.Timeout.Duration
+	}
+	return 30 * time.Second
+}
+
+func (a APIConfig) MaxConcurrentOrDefault() int {
+	if a.MaxConcurrent > 0 {
+		return a.MaxConcurrent
+	}
+	return 4
+}
+
 type Target struct {
 	Name     string        `yaml:"name"`
 	URL      string        `yaml:"url"`
 	Password string        `yaml:"password"`
 	Role     string        `yaml:"role"`
 	Gravity  GravityConfig `yaml:"gravity"`
+	API      APIConfig     `yaml:"api"`
 	File     string        `yaml:"file"`
 }
 
@@ -472,6 +492,12 @@ func validate(cfg *Config) error {
 			if fields := strings.Fields(t.Gravity.Schedule); len(fields) != 5 {
 				errs = append(errs, fmt.Errorf("target[%d]: gravity schedule must have 5 fields (min hour dom mon dow), got %d", i, len(fields)))
 			}
+		}
+		if t.API.Timeout.Duration < 0 {
+			errs = append(errs, fmt.Errorf("target[%d]: api.timeout must be a positive duration", i))
+		}
+		if t.API.MaxConcurrent < 0 {
+			errs = append(errs, fmt.Errorf("target[%d]: api.max_concurrent must be >= 1", i))
 		}
 		if cfg.Mode == ModeSync {
 			if t.Role == "" {

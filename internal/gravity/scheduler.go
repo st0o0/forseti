@@ -143,6 +143,9 @@ func (s *Scheduler) processAsync(req triggerRequest) {
 		delete(s.inFlight, req.target)
 	}()
 
+	s.pool.Acquire(req.target)
+	defer s.pool.Release(req.target)
+
 	client, err := s.pool.Get(target)
 	if err != nil {
 		s.pool.Invalidate(req.target)
@@ -198,6 +201,9 @@ func (s *Scheduler) TriggerNow(targetName string, reason string) error {
 		s.mu.Unlock()
 	}()
 
+	s.pool.Acquire(targetName)
+	defer s.pool.Release(targetName)
+
 	client, err := s.pool.Get(target)
 	if err != nil {
 		s.pool.Invalidate(targetName)
@@ -229,12 +235,15 @@ func (s *Scheduler) triggerLocked(e *entry, reason string) {
 		delete(s.inFlight, e.target.Name)
 	}()
 
+	s.pool.Acquire(e.target.Name)
+	defer s.pool.Release(e.target.Name)
+
 	client, err := s.pool.Get(e.target)
 	if err != nil {
 		slog.Error("gravity session error", "target", e.target.Name, "error", err)
 		s.pool.Invalidate(e.target.Name)
 		if s.recorder != nil {
-			s.recorder.RecordGravityRun(e.target.Name, string(reason), 0, err)
+			s.recorder.RecordGravityRun(e.target.Name, reason, 0, err)
 		}
 		return
 	}
@@ -250,6 +259,6 @@ func (s *Scheduler) triggerLocked(e *entry, reason string) {
 	}
 
 	if s.recorder != nil {
-		s.recorder.RecordGravityRun(e.target.Name, string(reason), duration, err)
+		s.recorder.RecordGravityRun(e.target.Name, reason, duration, err)
 	}
 }

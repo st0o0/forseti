@@ -140,20 +140,22 @@ func TestCollectTimeout(t *testing.T) {
 	pool := session.NewPool()
 	defer pool.Close()
 
-	target := config.Target{Name: "slow", URL: srv.URL, Password: "pw"}
+	target := config.Target{
+		Name:     "slow",
+		URL:      srv.URL,
+		Password: "pw",
+		API:      config.APIConfig{Timeout: config.Duration{Duration: 50 * time.Millisecond}},
+	}
 	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
 
 	coll := NewCollector(pool, []config.Target{target}, 30*time.Second, m, config.CollectorToggles{})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-
 	start := time.Now()
-	coll.Collect(ctx)
+	coll.Collect(context.Background())
 	elapsed := time.Since(start)
 
 	if elapsed > 2*time.Second {
-		t.Errorf("Collect should respect context timeout, took %s", elapsed)
+		t.Errorf("Collect should respect per-target timeout, took %s", elapsed)
 	}
 }
 
@@ -431,4 +433,75 @@ func getCounterValue(t *testing.T, m *metrics.Server, name string, labels map[st
 		}
 	}
 	return 0
+}
+
+func TestCollectStaleOnBusy(t *testing.T) {
+	var callCount atomic.Int32
+	srv := newPiholeTestServer(&callCount)
+	defer srv.Close()
+
+	pool := session.NewPool()
+	defer pool.Close()
+
+	target := config.Target{
+		Name:     "busy",
+		URL:      srv.URL,
+		Password: "pw",
+		API:      config.APIConfig{MaxConcurrent: 1},
+	}
+	pool.SetAPIConfig(map[string]config.APIConfig{
+		"busy": target.API,
+	})
+
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
+	coll := NewCollector(pool, []config.Target{target}, 30*time.Second, m, config.CollectorToggles{})
+
+	pool.Acquire("busy")
+
+	coll.Collect(context.Background())
+
+	staleVal := getCounterValue(t, m, "forseti_collector_cache_stale_total", map[string]string{"target": "busy"})
+	if staleVal != 1 {
+		t.Errorf("cache stale = %f, want 1", staleVal)
+	}
+
+	fetchVal := getCounterValue(t, m, "forseti_collector_fetches_total", map[string]string{"target": "busy", "status": "success"})
+	if fetchVal != 0 {
+		t.Errorf("fetch success = %f, want 0 (should not have fetched)", fetchVal)
+	}
+
+	pool.Release("busy")
+}
+
+func TestCollectAfterBusy(t *testing.T) {
+	var callCount atomic.Int32
+	srv := newPiholeTestServer(&callCount)
+	defer srv.Close()
+
+	pool := session.NewPool()
+	defer pool.Close()
+
+	target := config.Target{
+		Name:     "recover",
+		URL:      srv.URL,
+		Password: "pw",
+		API:      config.APIConfig{MaxConcurrent: 1},
+	}
+	pool.SetAPIConfig(map[string]config.APIConfig{
+		"recover": target.API,
+	})
+
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
+	coll := NewCollector(pool, []config.Target{target}, 30*time.Second, m, config.CollectorToggles{})
+
+	pool.Acquire("recover")
+	coll.Collect(context.Background())
+	pool.Release("recover")
+
+	coll.Collect(context.Background())
+
+	fetchVal := getCounterValue(t, m, "forseti_collector_fetches_total", map[string]string{"target": "recover", "status": "success"})
+	if fetchVal != 1 {
+		t.Errorf("fetch success = %f, want 1 (should fetch after gate released)", fetchVal)
+	}
 }

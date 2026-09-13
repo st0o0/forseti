@@ -9,6 +9,8 @@ import (
 	"github.com/st0o0/forseti/internal/pihole"
 )
 
+const defaultMaxConcurrent = 4
+
 type PoolCallbacks struct {
 	OnNewSession func(target string)
 	OnReauth     func(target string)
@@ -18,12 +20,16 @@ type PoolCallbacks struct {
 type Pool struct {
 	mu        sync.Mutex
 	clients   map[string]*pihole.Client
+	gates     map[string]chan struct{}
+	apiConfig map[string]config.APIConfig
 	callbacks PoolCallbacks
 }
 
 func NewPool() *Pool {
 	return &Pool{
-		clients: make(map[string]*pihole.Client),
+		clients:   make(map[string]*pihole.Client),
+		gates:     make(map[string]chan struct{}),
+		apiConfig: make(map[string]config.APIConfig),
 	}
 }
 
@@ -31,6 +37,64 @@ func (p *Pool) SetCallbacks(cb PoolCallbacks) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.callbacks = cb
+}
+
+func (p *Pool) SetAPIConfig(configs map[string]config.APIConfig) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.apiConfig = configs
+	for name, cfg := range configs {
+		needed := cfg.MaxConcurrentOrDefault()
+		if existing, ok := p.gates[name]; ok && cap(existing) == needed {
+			continue
+		}
+		p.gates[name] = make(chan struct{}, needed)
+	}
+}
+
+func (p *Pool) gate(name string) chan struct{} {
+	if g, ok := p.gates[name]; ok {
+		return g
+	}
+	maxC := defaultMaxConcurrent
+	if cfg, ok := p.apiConfig[name]; ok {
+		maxC = cfg.MaxConcurrentOrDefault()
+	}
+	g := make(chan struct{}, maxC)
+	p.gates[name] = g
+	return g
+}
+
+func (p *Pool) Acquire(name string) {
+	p.mu.Lock()
+	g := p.gate(name)
+	p.mu.Unlock()
+	g <- struct{}{}
+}
+
+func (p *Pool) TryAcquire(name string) bool {
+	p.mu.Lock()
+	g := p.gate(name)
+	p.mu.Unlock()
+	select {
+	case g <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+func (p *Pool) Release(name string) {
+	p.mu.Lock()
+	g, ok := p.gates[name]
+	p.mu.Unlock()
+	if !ok {
+		return
+	}
+	select {
+	case <-g:
+	default:
+	}
 }
 
 func (p *Pool) Get(target config.Target) (*pihole.Client, error) {
@@ -43,7 +107,7 @@ func (p *Pool) Get(target config.Target) (*pihole.Client, error) {
 	}
 
 	slog.Debug("creating session", "target", target.Name)
-	c := pihole.NewClient(target.URL, target.Password)
+	c := pihole.NewClient(target.URL, target.Password, target.API.TimeoutOrDefault())
 	if p.callbacks.OnReauth != nil {
 		name := target.Name
 		c.OnReauth = func() {

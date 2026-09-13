@@ -83,7 +83,7 @@ func runPlan(args []string) int {
 
 	hasChanges := false
 	for _, rt := range resolved {
-		client := pihole.NewClient(rt.URL, rt.Password)
+		client := pihole.NewClient(rt.URL, rt.Password, rt.API.TimeoutOrDefault())
 		if err := client.Login(); err != nil {
 			slog.Error("login failed", "target", rt.Name, "error", err)
 			continue
@@ -138,7 +138,7 @@ func runApply(args []string) int {
 
 	exitCode := 0
 	for _, rt := range resolved {
-		client := pihole.NewClient(rt.URL, rt.Password)
+		client := pihole.NewClient(rt.URL, rt.Password, rt.API.TimeoutOrDefault())
 		if err := client.Login(); err != nil {
 			slog.Error("login failed", "target", rt.Name, "error", err)
 			exitCode = 1
@@ -182,7 +182,7 @@ func runHealthcheck(args []string) int {
 
 	exitCode := 0
 	for _, target := range resolved {
-		client := pihole.NewClient(target.URL, target.Password)
+		client := pihole.NewClient(target.URL, target.Password, target.API.TimeoutOrDefault())
 
 		done := make(chan error, 1)
 		go func() {
@@ -277,6 +277,8 @@ func runWatch(args []string) int {
 	})
 
 	targets := resolvedToTargets(resolved)
+	pool.SetAPIConfig(buildAPIConfigs(targets))
+	srv.SetScrapeTimeout(targets)
 	coll := collector.NewCollector(pool, targets, cfg.Metrics.ScrapeInterval.Duration, srv, cfg.Metrics.Collectors)
 	srv.SetCollectFunc(coll.Collect)
 
@@ -346,7 +348,10 @@ func runWatch(args []string) int {
 					deps.CNAMEPurge = cfg.Reconcile.CNAMEPurge
 					deps.GravityOnChange = cfg.Reconcile.GravityOnChange != nil && *cfg.Reconcile.GravityOnChange
 					srv.SetConfigMetrics(cfg)
-					coll.UpdateTargets(resolvedToTargets(resolved))
+					newTargets := resolvedToTargets(resolved)
+					pool.SetAPIConfig(buildAPIConfigs(newTargets))
+					srv.SetScrapeTimeout(newTargets)
+					coll.UpdateTargets(newTargets)
 					workers = worker.SyncWorkers(workers, resolved, deps)
 				}
 				worker.ReconcileWorkers(workers)
@@ -397,6 +402,14 @@ func runWatch(args []string) int {
 	}
 
 	return 0
+}
+
+func buildAPIConfigs(targets []config.Target) map[string]config.APIConfig {
+	m := make(map[string]config.APIConfig, len(targets))
+	for _, t := range targets {
+		m[t.Name] = t.API
+	}
+	return m
 }
 
 func resolvedToTargets(resolved []config.ResolvedTarget) []config.Target {

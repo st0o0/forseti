@@ -24,12 +24,15 @@ type Client struct {
 	GravityTimeout time.Duration
 }
 
-func NewClient(baseURL, password string) *Client {
+func NewClient(baseURL, password string, timeout time.Duration) *Client {
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
 	return &Client{
 		baseURL:  strings.TrimRight(baseURL, "/"),
 		password: password,
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: timeout,
 		},
 	}
 }
@@ -683,11 +686,43 @@ func (c *Client) TriggerGravity() error {
 		timeout = 5 * time.Minute
 	}
 
-	origClient := c.httpClient
-	c.httpClient = &http.Client{Timeout: timeout}
-	defer func() { c.httpClient = origClient }()
+	gravityClient := &http.Client{Timeout: timeout}
 
-	return c.doJSON(http.MethodPost, "/api/action/gravity", nil, nil)
+	doGravity := func() (int, error) {
+		req, err := http.NewRequest(http.MethodPost, c.baseURL+"/api/action/gravity", nil)
+		if err != nil {
+			return 0, fmt.Errorf("gravity request: %w", err)
+		}
+		if c.sid != "" {
+			req.Header.Set("X-FTL-SID", c.sid)
+		}
+		resp, err := gravityClient.Do(req)
+		if err != nil {
+			return 0, fmt.Errorf("gravity: %w", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			body, _ := io.ReadAll(resp.Body)
+			return resp.StatusCode, parseAPIError(resp.StatusCode, body)
+		}
+		return resp.StatusCode, nil
+	}
+
+	status, err := doGravity()
+	if err != nil && status == http.StatusUnauthorized {
+		if c.password == "" {
+			return err
+		}
+		slog.Debug("session expired during gravity, re-authenticating", "url", c.baseURL)
+		if loginErr := c.Login(); loginErr != nil {
+			return fmt.Errorf("gravity re-auth failed: %w", loginErr)
+		}
+		if c.OnReauth != nil {
+			c.OnReauth()
+		}
+		_, err = doGravity()
+	}
+	return err
 }
 
 // Internal helpers

@@ -94,7 +94,18 @@ func (c *Collector) Collect(ctx context.Context) {
 	wg.Wait()
 }
 
-func (c *Collector) collectTarget(ctx context.Context, target config.Target) {
+func (c *Collector) collectTarget(_ context.Context, target config.Target) {
+	if !c.pool.TryAcquire(target.Name) {
+		slog.Debug("target busy, serving stale", "target", target.Name)
+		c.metrics.RecordCollectorCacheStale(target.Name)
+		return
+	}
+	defer c.pool.Release(target.Name)
+
+	timeout := target.API.TimeoutOrDefault()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
 	client, err := c.pool.Get(target)
 	if err != nil {
 		slog.Error("collector session error", "target", target.Name, "error", err)

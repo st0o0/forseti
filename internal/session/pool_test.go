@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/st0o0/forseti/internal/config"
 )
@@ -308,4 +309,96 @@ func TestPoolCloseAllSessions(t *testing.T) {
 	if got := loginCount.Load(); got != 4 {
 		t.Errorf("login count = %d, want 4 (2 initial + 2 after close)", got)
 	}
+}
+
+func TestPoolAcquireRelease(t *testing.T) {
+	pool := NewPool()
+	pool.SetAPIConfig(map[string]config.APIConfig{
+		"test": {MaxConcurrent: 2},
+	})
+
+	pool.Acquire("test")
+	pool.Acquire("test")
+
+	if pool.TryAcquire("test") {
+		t.Error("TryAcquire should fail when gate is full")
+	}
+
+	pool.Release("test")
+
+	if !pool.TryAcquire("test") {
+		t.Error("TryAcquire should succeed after Release")
+	}
+
+	pool.Release("test")
+	pool.Release("test")
+}
+
+func TestPoolTryAcquireAvailable(t *testing.T) {
+	pool := NewPool()
+	pool.SetAPIConfig(map[string]config.APIConfig{
+		"test": {MaxConcurrent: 1},
+	})
+
+	if !pool.TryAcquire("test") {
+		t.Error("TryAcquire should succeed when gate is empty")
+	}
+	pool.Release("test")
+}
+
+func TestPoolReleaseUnknownTarget(t *testing.T) {
+	pool := NewPool()
+	pool.Release("nonexistent")
+}
+
+func TestPoolGateLazyCreation(t *testing.T) {
+	pool := NewPool()
+
+	if !pool.TryAcquire("lazy") {
+		t.Error("TryAcquire should create gate lazily with default capacity")
+	}
+
+	for i := 0; i < 3; i++ {
+		pool.TryAcquire("lazy")
+	}
+
+	if pool.TryAcquire("lazy") {
+		t.Error("TryAcquire should fail at default capacity (4)")
+	}
+
+	pool.Release("lazy")
+	pool.Release("lazy")
+	pool.Release("lazy")
+	pool.Release("lazy")
+}
+
+func TestPoolConcurrentAcquire(t *testing.T) {
+	pool := NewPool()
+	pool.SetAPIConfig(map[string]config.APIConfig{
+		"test": {MaxConcurrent: 1},
+	})
+
+	pool.Acquire("test")
+
+	acquired := make(chan struct{})
+	go func() {
+		pool.Acquire("test")
+		close(acquired)
+	}()
+
+	select {
+	case <-acquired:
+		t.Fatal("Acquire should block when gate is full")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	pool.Release("test")
+
+	select {
+	case <-acquired:
+	case <-time.After(1 * time.Second):
+		t.Fatal("Acquire should unblock after Release")
+	}
+
+	pool.Release("test")
 }

@@ -18,9 +18,11 @@ import (
 type CollectFunc func(ctx context.Context)
 
 type Server struct {
-	httpServer  *http.Server
-	registry    *prometheus.Registry
-	collectFunc CollectFunc
+	httpServer    *http.Server
+	registry      *prometheus.Registry
+	collectFunc   CollectFunc
+	scrapeTimeout time.Duration
+	scrapeTimeMu  sync.RWMutex
 
 	// reconcile (toggle: reconcile)
 	reconcileRuns     *prometheus.CounterVec
@@ -67,9 +69,10 @@ type Server struct {
 	gravityErrors   *prometheus.CounterVec
 
 	// always registered
-	collectorDuration  prometheus.Histogram
-	collectorFetches   *prometheus.CounterVec
-	collectorCacheHits *prometheus.CounterVec
+	collectorDuration   prometheus.Histogram
+	collectorFetches    *prometheus.CounterVec
+	collectorCacheHits  *prometheus.CounterVec
+	collectorCacheStale *prometheus.CounterVec
 
 	// sessions (toggle: sessions)
 	sessionReauth *prometheus.CounterVec
@@ -137,6 +140,10 @@ func NewServer(port int, path string, toggles config.CollectorToggles) *Server {
 		Name: "forseti_collector_cache_hits_total",
 		Help: "Total stats cache hits",
 	}, []string{"target"})
+	s.collectorCacheStale = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "forseti_collector_cache_stale_total",
+		Help: "Total times stale cache was served because target was busy",
+	}, []string{"target"})
 
 	s.buildInfo = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "forseti_build_info",
@@ -155,7 +162,7 @@ func NewServer(port int, path string, toggles config.CollectorToggles) *Server {
 	reg.MustRegister(
 		s.targetReachable,
 		s.configAdlists, s.configDenyDomains, s.configAllowDomains,
-		s.collectorDuration, s.collectorFetches, s.collectorCacheHits,
+		s.collectorDuration, s.collectorFetches, s.collectorCacheHits, s.collectorCacheStale,
 		s.buildInfo, s.configReload, s.targetHealth,
 	)
 
@@ -335,9 +342,14 @@ func NewServer(port int, path string, toggles config.CollectorToggles) *Server {
 	promHandler := promhttp.HandlerFor(reg, promhttp.HandlerOpts{})
 
 	mux := http.NewServeMux()
+	s.scrapeTimeout = 15 * time.Second
+
 	mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 		if s.collectFunc != nil {
-			ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+			s.scrapeTimeMu.RLock()
+			timeout := s.scrapeTimeout
+			s.scrapeTimeMu.RUnlock()
+			ctx, cancel := context.WithTimeout(r.Context(), timeout)
 			defer cancel()
 			s.collectFunc(ctx)
 		}
@@ -516,6 +528,23 @@ func (s *Server) RecordCollectorFetch(target, status string) {
 
 func (s *Server) RecordCollectorCacheHit(target string) {
 	s.collectorCacheHits.WithLabelValues(target).Inc()
+}
+
+func (s *Server) RecordCollectorCacheStale(target string) {
+	s.collectorCacheStale.WithLabelValues(target).Inc()
+}
+
+func (s *Server) SetScrapeTimeout(targets []config.Target) {
+	var maxTimeout time.Duration
+	for _, t := range targets {
+		if to := t.API.TimeoutOrDefault(); to > maxTimeout {
+			maxTimeout = to
+		}
+	}
+	timeout := maxTimeout + 5*time.Second
+	s.scrapeTimeMu.Lock()
+	s.scrapeTimeout = timeout
+	s.scrapeTimeMu.Unlock()
 }
 
 func (s *Server) RecordSessionReauth(target string) {

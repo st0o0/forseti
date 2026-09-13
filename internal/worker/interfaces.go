@@ -11,6 +11,9 @@ import (
 type SessionManager interface {
 	Get(target config.Target) (*pihole.Client, error)
 	Invalidate(name string)
+	Acquire(name string)
+	TryAcquire(name string) bool
+	Release(name string)
 }
 
 type SettingsReconciler interface {

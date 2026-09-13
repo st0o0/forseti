@@ -33,10 +33,12 @@ func newReadyServer(t *testing.T) *httptest.Server {
 
 
 type mockSessions struct {
-	client   *pihole.Client
-	err      error
-	calls    int
-	invalids []string
+	client       *pihole.Client
+	err          error
+	calls        int
+	invalids     []string
+	acquireCalls int
+	releaseCalls int
 }
 
 func (m *mockSessions) Get(target config.Target) (*pihole.Client, error) {
@@ -47,6 +49,10 @@ func (m *mockSessions) Get(target config.Target) (*pihole.Client, error) {
 func (m *mockSessions) Invalidate(name string) {
 	m.invalids = append(m.invalids, name)
 }
+
+func (m *mockSessions) Acquire(name string)        { m.acquireCalls++ }
+func (m *mockSessions) TryAcquire(name string) bool { return true }
+func (m *mockSessions) Release(name string)         { m.releaseCalls++ }
 
 type mockSettings struct {
 	diffResult  *reconcile.SettingsDiff
@@ -140,7 +146,7 @@ func newTestWorker() (*TargetWorker, *mockSessions, *mockSettings, *mockContent,
 		}
 		w.WriteHeader(http.StatusOK)
 	}))
-	sess := &mockSessions{client: pihole.NewClient(readySrv.URL, "pw")}
+	sess := &mockSessions{client: pihole.NewClient(readySrv.URL, "pw", 0)}
 	sett := &mockSettings{
 		diffResult: &reconcile.SettingsDiff{},
 	}
@@ -295,8 +301,8 @@ func TestSettingsChangeFTLRestart(t *testing.T) {
 	w, _, sett, cont, _, _ := newTestWorker()
 	w.rt.Settings = config.Settings{DNS: config.DNSSettings{ListeningMode: "all"}}
 
-	firstClient := pihole.NewClient(srv.URL, "pw")
-	secondClient := pihole.NewClient(srv.URL, "pw")
+	firstClient := pihole.NewClient(srv.URL, "pw", 0)
+	secondClient := pihole.NewClient(srv.URL, "pw", 0)
 
 	customSess := &countingSessions{
 		clients:  []*pihole.Client{firstClient, secondClient},
@@ -344,6 +350,10 @@ func (c *countingSessions) Get(target config.Target) (*pihole.Client, error) {
 func (c *countingSessions) Invalidate(name string) {
 	c.invalids = append(c.invalids, name)
 }
+
+func (c *countingSessions) Acquire(name string)        {}
+func (c *countingSessions) TryAcquire(name string) bool { return true }
+func (c *countingSessions) Release(name string)         {}
 
 func TestSessionFailureSkipsEverything(t *testing.T) {
 	w, sess, sett, cont, grav, rec := newTestWorker()
@@ -454,6 +464,33 @@ func TestUpdateConfigPreservesHealth(t *testing.T) {
 	}
 	if w.rt.URL != "http://new:1000" {
 		t.Errorf("URL should be updated, got %q", w.rt.URL)
+	}
+}
+
+func TestReconcileAcquiresAndReleasesGate(t *testing.T) {
+	w, sess, _, _, _, _ := newTestWorker()
+
+	_ = w.Reconcile()
+
+	if sess.acquireCalls != 1 {
+		t.Errorf("Acquire calls = %d, want 1", sess.acquireCalls)
+	}
+	if sess.releaseCalls != 1 {
+		t.Errorf("Release calls = %d, want 1", sess.releaseCalls)
+	}
+}
+
+func TestReconcileReleasesGateOnSessionError(t *testing.T) {
+	w, sess, _, _, _, _ := newTestWorker()
+	sess.err = errors.New("connection refused")
+
+	_ = w.Reconcile()
+
+	if sess.acquireCalls != 1 {
+		t.Errorf("Acquire calls = %d, want 1", sess.acquireCalls)
+	}
+	if sess.releaseCalls != 1 {
+		t.Errorf("Release calls = %d, want 1 (gate must be released on error)", sess.releaseCalls)
 	}
 }
 

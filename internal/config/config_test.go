@@ -1348,3 +1348,86 @@ log_format: xml
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+func TestAPIConfigDefaults(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost
+    password: pw
+`
+	path := writeTestConfig(t, cfg)
+	c, _, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	api := c.Targets[0].API
+	if got := api.TimeoutOrDefault(); got != 30*time.Second {
+		t.Errorf("TimeoutOrDefault() = %v, want 30s", got)
+	}
+	if got := api.MaxConcurrentOrDefault(); got != 4 {
+		t.Errorf("MaxConcurrentOrDefault() = %d, want 4", got)
+	}
+}
+
+func TestAPIConfigExplicit(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost
+    password: pw
+    api:
+      timeout: 45s
+      max_concurrent: 1
+`
+	path := writeTestConfig(t, cfg)
+	c, _, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	api := c.Targets[0].API
+	if got := api.TimeoutOrDefault(); got != 45*time.Second {
+		t.Errorf("TimeoutOrDefault() = %v, want 45s", got)
+	}
+	if got := api.MaxConcurrentOrDefault(); got != 1 {
+		t.Errorf("MaxConcurrentOrDefault() = %d, want 1", got)
+	}
+}
+
+func TestAPIConfigNegativeTimeout(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost
+    password: pw
+    api:
+      timeout: -5s
+`
+	path := writeTestConfig(t, cfg)
+	_, _, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for negative timeout")
+	}
+	if !strings.Contains(err.Error(), "api.timeout") {
+		t.Errorf("error should mention api.timeout, got: %v", err)
+	}
+}
+
+func TestAPIConfigNegativeMaxConcurrent(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost
+    password: pw
+    api:
+      max_concurrent: -1
+`
+	path := writeTestConfig(t, cfg)
+	_, _, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for negative max_concurrent")
+	}
+	if !strings.Contains(err.Error(), "api.max_concurrent") {
+		t.Errorf("error should mention api.max_concurrent, got: %v", err)
+	}
+}

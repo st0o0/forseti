@@ -150,7 +150,7 @@ func gravityServer(t *testing.T, delay time.Duration) *Client {
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	t.Cleanup(srv.Close)
-	c := NewClient(srv.URL, "pw")
+	c := NewClient(srv.URL, "pw", 0)
 	_ = c.Login()
 	return c
 }
@@ -176,6 +176,52 @@ func TestGravityTimeoutExpired(t *testing.T) {
 	err := c.TriggerGravity()
 	if err == nil {
 		t.Fatal("TriggerGravity() should timeout")
+	}
+}
+
+func TestGravityConcurrentSafety(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/api/auth" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"session": map[string]any{"sid": "s"},
+			})
+			return
+		}
+		if r.URL.Path == "/api/action/gravity" {
+			time.Sleep(200 * time.Millisecond)
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{}`))
+			return
+		}
+		if r.URL.Path == "/api/stats/summary" {
+			_, _ = w.Write([]byte(`{"queries":{},"clients":{}}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := NewClient(srv.URL, "pw", 1*time.Second)
+	_ = c.Login()
+	c.GravityTimeout = 5 * time.Second
+
+	errs := make(chan error, 2)
+	go func() {
+		errs <- c.TriggerGravity()
+	}()
+	go func() {
+		_, err := c.GetStats()
+		errs <- err
+	}()
+
+	for i := 0; i < 2; i++ {
+		if err := <-errs; err != nil {
+			t.Errorf("concurrent call %d failed: %v", i, err)
+		}
+	}
+
+	if c.httpClient.Timeout != 1*time.Second {
+		t.Errorf("httpClient.Timeout changed to %v, want 1s", c.httpClient.Timeout)
 	}
 }
 
@@ -205,7 +251,7 @@ func readinessServer(t *testing.T, ftlResponse string, ftlStatus int) *Client {
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	t.Cleanup(srv.Close)
-	c := NewClient(srv.URL, "pw")
+	c := NewClient(srv.URL, "pw", 0)
 	_ = c.Login()
 	return c
 }
@@ -228,7 +274,7 @@ func TestCheckReadinessPidZero(t *testing.T) {
 }
 
 func TestCheckReadinessConnectionRefused(t *testing.T) {
-	c := NewClient("http://127.0.0.1:1", "pw")
+	c := NewClient("http://127.0.0.1:1", "pw", 0)
 
 	err := c.CheckReadiness()
 	if err == nil {
@@ -245,7 +291,7 @@ func TestCheckAliveSuccess(t *testing.T) {
 }
 
 func TestCheckAliveUnreachable(t *testing.T) {
-	c := NewClient("http://127.0.0.1:1", "pw")
+	c := NewClient("http://127.0.0.1:1", "pw", 0)
 
 	err := c.CheckAlive()
 	if err == nil {

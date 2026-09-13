@@ -13,7 +13,7 @@ func newTestServer(t *testing.T, handler http.HandlerFunc) (*httptest.Server, *C
 	t.Helper()
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
-	client := NewClient(srv.URL, "testpass")
+	client := NewClient(srv.URL, "testpass", 0)
 	return srv, client
 }
 

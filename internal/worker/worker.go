@@ -71,6 +71,9 @@ func NewTargetWorker(rt config.ResolvedTarget, deps Dependencies) *TargetWorker 
 }
 
 func (w *TargetWorker) Reconcile() error {
+	w.deps.Sessions.Acquire(w.rt.Name)
+	defer w.deps.Sessions.Release(w.rt.Name)
+
 	start := time.Now()
 
 	client, err := w.deps.Sessions.Get(w.rt.Target)

@@ -42,7 +42,7 @@ func skipIfNoPihole(t *testing.T) {
 func TestIntegration_FullReconcileCycle(t *testing.T) {
 	skipIfNoPihole(t)
 
-	client := pihole.NewClient(piholeURL(), piholePassword())
+	client := pihole.NewClient(piholeURL(), piholePassword(), 0)
 	if err := client.Login(); err != nil {
 		t.Fatalf("Login failed: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestIntegration_FullReconcileCycle(t *testing.T) {
 func TestIntegration_ReadinessGate(t *testing.T) {
 	skipIfNoPihole(t)
 
-	client := pihole.NewClient(piholeURL(), piholePassword())
+	client := pihole.NewClient(piholeURL(), piholePassword(), 0)
 	if err := client.Login(); err != nil {
 		t.Fatalf("Login failed: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestIntegration_WorkerReconcile(t *testing.T) {
 func TestIntegration_SettingsChange(t *testing.T) {
 	skipIfNoPihole(t)
 
-	client := pihole.NewClient(piholeURL(), piholePassword())
+	client := pihole.NewClient(piholeURL(), piholePassword(), 0)
 	if err := client.Login(); err != nil {
 		t.Fatalf("Login failed: %v", err)
 	}

@@ -41,7 +41,7 @@ func TestAutoReauthOn401(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "test-password")
+	c := NewClient(srv.URL, "test-password", 0)
 	c.sid = "expired-sid"
 
 	stats, err := c.GetStats()
@@ -89,7 +89,7 @@ func TestOnReauthCallbackCalled(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "test-password")
+	c := NewClient(srv.URL, "test-password", 0)
 	c.sid = "expired-sid"
 	c.OnReauth = func() { reauthCount.Add(1) }
 
@@ -111,7 +111,7 @@ func TestOnReauthNotCalledOnFailure(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "wrong")
+	c := NewClient(srv.URL, "wrong", 0)
 	c.sid = "expired-sid"
 	c.OnReauth = func() { reauthCount.Add(1) }
 
@@ -131,7 +131,7 @@ func TestNoReauthOnLoginPath(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "wrong-password")
+	c := NewClient(srv.URL, "wrong-password", 0)
 	err := c.Login()
 	if err == nil {
 		t.Fatal("Login() should have failed")
@@ -150,7 +150,7 @@ func TestNoReauthWithoutPassword(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "")
+	c := NewClient(srv.URL, "", 0)
 	c.sid = "some-sid"
 
 	_, err := c.GetStats()
