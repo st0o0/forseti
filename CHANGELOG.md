@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.5](https://github.com/st0o0/forseti/compare/v0.1.4...v0.1.5) (2026-09-13)
+
+
+### Features
+
+* add per-target API concurrency gate and configurable timeouts ([5e4da90](https://github.com/st0o0/forseti/commit/5e4da90a51b6537de6a2c8db4b9ede0571adee88))
+* **pihole:** Add API settings to targets ([269a11d](https://github.com/st0o0/forseti/commit/269a11d75d21302d9d50d696fa93489ba252a772))
+
 ## [0.1.4](https://github.com/st0o0/forseti/compare/v0.1.3...v0.1.4) (2026-09-12)
 
 
