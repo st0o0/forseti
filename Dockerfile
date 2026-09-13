@@ -1,6 +1,18 @@
-FROM scratch
+# syntax=docker/dockerfile:1
 
-COPY forseti /forseti
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
+ARG TARGETARCH
+ARG VERSION=dev
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build \
+    -ldflags="-s -w -X main.version=${VERSION}" \
+    -o /forseti ./cmd/forseti
+
+FROM scratch
+COPY --from=build /forseti /forseti
 COPY LICENSE.md /LICENSE.md
 
 EXPOSE 9099
