@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.6](https://github.com/st0o0/forseti/compare/v0.1.5...v0.1.6) (2026-09-13)
+
+
+### Documentation
+
+* add per-target API concurrency gate to README ([c1a2690](https://github.com/st0o0/forseti/commit/c1a2690ce607934d772ddc11430f0730e55ac8f7))
+
 ## [0.1.5](https://github.com/st0o0/forseti/compare/v0.1.4...v0.1.5) (2026-09-13)
 
 
