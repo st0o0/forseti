@@ -505,3 +505,221 @@ func TestCollectAfterBusy(t *testing.T) {
 		t.Errorf("fetch success = %f, want 1 (should fetch after gate released)", fetchVal)
 	}
 }
+
+func TestCollectMultiTargetOneBusy(t *testing.T) {
+	var callCount atomic.Int32
+	srv := newPiholeTestServer(&callCount)
+	defer srv.Close()
+
+	pool := session.NewPool()
+	defer pool.Close()
+
+	fast := config.Target{Name: "fast", URL: srv.URL, Password: "pw", API: config.APIConfig{MaxConcurrent: 4}}
+	slow := config.Target{Name: "slow", URL: srv.URL, Password: "pw", API: config.APIConfig{MaxConcurrent: 1}}
+	pool.SetAPIConfig(map[string]config.APIConfig{
+		"fast": fast.API,
+		"slow": slow.API,
+	})
+
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
+	coll := NewCollector(pool, []config.Target{fast, slow}, 30*time.Second, m, config.CollectorToggles{})
+
+	pool.Acquire("slow")
+
+	coll.Collect(context.Background())
+
+	fastFetch := getCounterValue(t, m, "forseti_collector_fetches_total", map[string]string{"target": "fast", "status": "success"})
+	if fastFetch != 1 {
+		t.Errorf("fast fetch = %f, want 1 (should succeed despite slow being busy)", fastFetch)
+	}
+
+	slowStale := getCounterValue(t, m, "forseti_collector_cache_stale_total", map[string]string{"target": "slow"})
+	if slowStale != 1 {
+		t.Errorf("slow stale = %f, want 1 (should serve stale while busy)", slowStale)
+	}
+
+	slowFetch := getCounterValue(t, m, "forseti_collector_fetches_total", map[string]string{"target": "slow", "status": "success"})
+	if slowFetch != 0 {
+		t.Errorf("slow fetch = %f, want 0 (should not fetch while busy)", slowFetch)
+	}
+
+	pool.Release("slow")
+}
+
+func TestCollectConcurrentReconcileAndScrape(t *testing.T) {
+	var callCount atomic.Int32
+	srv := newPiholeTestServer(&callCount)
+	defer srv.Close()
+
+	pool := session.NewPool()
+	defer pool.Close()
+
+	target := config.Target{
+		Name:     "contend",
+		URL:      srv.URL,
+		Password: "pw",
+		API:      config.APIConfig{MaxConcurrent: 1},
+	}
+	pool.SetAPIConfig(map[string]config.APIConfig{
+		"contend": target.API,
+	})
+
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
+	coll := NewCollector(pool, []config.Target{target}, 10*time.Millisecond, m, config.CollectorToggles{})
+
+	coll.Collect(context.Background())
+	time.Sleep(15 * time.Millisecond)
+
+	pool.Acquire("contend")
+
+	coll.Collect(context.Background())
+
+	staleVal := getCounterValue(t, m, "forseti_collector_cache_stale_total", map[string]string{"target": "contend"})
+	if staleVal != 1 {
+		t.Errorf("stale = %f, want 1 (cache expired + gate held = stale serve)", staleVal)
+	}
+
+	pool.Release("contend")
+
+	coll.Collect(context.Background())
+
+	fetchVal := getCounterValue(t, m, "forseti_collector_fetches_total", map[string]string{"target": "contend", "status": "success"})
+	if fetchVal != 2 {
+		t.Errorf("fetch = %f, want 2 (initial + after release)", fetchVal)
+	}
+}
+
+func TestCollectPerTargetTimeout(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/auth" && r.Method == http.MethodPost {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"session": map[string]string{"sid": "test-sid"},
+			})
+			return
+		}
+		if r.URL.Path == "/api/auth" && r.Method == http.MethodDelete {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	pool := session.NewPool()
+	defer pool.Close()
+
+	shortTimeout := config.Target{
+		Name:     "short",
+		URL:      srv.URL,
+		Password: "pw",
+		API:      config.APIConfig{Timeout: config.Duration{Duration: 50 * time.Millisecond}},
+	}
+	longTimeout := config.Target{
+		Name:     "long",
+		URL:      srv.URL,
+		Password: "pw",
+		API:      config.APIConfig{Timeout: config.Duration{Duration: 5 * time.Second}},
+	}
+	pool.SetAPIConfig(map[string]config.APIConfig{
+		"short": shortTimeout.API,
+		"long":  longTimeout.API,
+	})
+
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
+	coll := NewCollector(pool, []config.Target{shortTimeout, longTimeout}, 30*time.Second, m, config.CollectorToggles{})
+
+	coll.Collect(context.Background())
+
+	shortErr := getCounterValue(t, m, "forseti_collector_fetches_total", map[string]string{"target": "short", "status": "error"})
+	if shortErr == 0 {
+		shortOk := getCounterValue(t, m, "forseti_collector_fetches_total", map[string]string{"target": "short", "status": "success"})
+		if shortOk > 0 {
+			t.Errorf("short target should timeout with 50ms budget against 200ms server, but got success=%f", shortOk)
+		}
+	}
+
+	longOk := getCounterValue(t, m, "forseti_collector_fetches_total", map[string]string{"target": "long", "status": "success"})
+	if longOk != 1 {
+		t.Errorf("long fetch = %f, want 1 (5s budget for 200ms server should succeed)", longOk)
+	}
+}
+
+func TestCollectGateHighConcurrency(t *testing.T) {
+	var callCount atomic.Int32
+	srv := newPiholeTestServer(&callCount)
+	defer srv.Close()
+
+	pool := session.NewPool()
+	defer pool.Close()
+
+	target := config.Target{
+		Name:     "high",
+		URL:      srv.URL,
+		Password: "pw",
+		API:      config.APIConfig{MaxConcurrent: 4},
+	}
+	pool.SetAPIConfig(map[string]config.APIConfig{
+		"high": target.API,
+	})
+
+	if !pool.TryAcquire("high") {
+		t.Fatal("slot 1 should succeed")
+	}
+	if !pool.TryAcquire("high") {
+		t.Fatal("slot 2 should succeed")
+	}
+	if !pool.TryAcquire("high") {
+		t.Fatal("slot 3 should succeed")
+	}
+
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
+	coll := NewCollector(pool, []config.Target{target}, 30*time.Second, m, config.CollectorToggles{})
+
+	coll.Collect(context.Background())
+
+	fetchVal := getCounterValue(t, m, "forseti_collector_fetches_total", map[string]string{"target": "high", "status": "success"})
+	if fetchVal != 1 {
+		t.Errorf("fetch = %f, want 1 (3 of 4 slots used, 1 still available for collector)", fetchVal)
+	}
+
+	pool.Release("high")
+	pool.Release("high")
+	pool.Release("high")
+}
+
+func TestCollectGateFullHighConcurrency(t *testing.T) {
+	var callCount atomic.Int32
+	srv := newPiholeTestServer(&callCount)
+	defer srv.Close()
+
+	pool := session.NewPool()
+	defer pool.Close()
+
+	target := config.Target{
+		Name:     "full",
+		URL:      srv.URL,
+		Password: "pw",
+		API:      config.APIConfig{MaxConcurrent: 2},
+	}
+	pool.SetAPIConfig(map[string]config.APIConfig{
+		"full": target.API,
+	})
+
+	pool.Acquire("full")
+	pool.Acquire("full")
+
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
+	coll := NewCollector(pool, []config.Target{target}, 30*time.Second, m, config.CollectorToggles{})
+
+	coll.Collect(context.Background())
+
+	staleVal := getCounterValue(t, m, "forseti_collector_cache_stale_total", map[string]string{"target": "full"})
+	if staleVal != 1 {
+		t.Errorf("stale = %f, want 1 (all slots held)", staleVal)
+	}
+
+	pool.Release("full")
+	pool.Release("full")
+}
