@@ -723,3 +723,260 @@ func TestCollectGateFullHighConcurrency(t *testing.T) {
 	pool.Release("full")
 	pool.Release("full")
 }
+
+func TestCollectRepeatedStaleWhileBusy(t *testing.T) {
+	var callCount atomic.Int32
+	srv := newPiholeTestServer(&callCount)
+	defer srv.Close()
+
+	pool := session.NewPool()
+	defer pool.Close()
+
+	target := config.Target{
+		Name:     "held",
+		URL:      srv.URL,
+		Password: "pw",
+		API:      config.APIConfig{MaxConcurrent: 1},
+	}
+	pool.SetAPIConfig(map[string]config.APIConfig{"held": target.API})
+
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
+	coll := NewCollector(pool, []config.Target{target}, 5*time.Millisecond, m, config.CollectorToggles{})
+
+	coll.Collect(context.Background())
+	time.Sleep(10 * time.Millisecond)
+
+	pool.Acquire("held")
+
+	coll.Collect(context.Background())
+	coll.Collect(context.Background())
+	coll.Collect(context.Background())
+
+	staleVal := getCounterValue(t, m, "forseti_collector_cache_stale_total", map[string]string{"target": "held"})
+	if staleVal != 3 {
+		t.Errorf("stale = %f, want 3 (three scrapes while gate held)", staleVal)
+	}
+
+	pool.Release("held")
+
+	coll.Collect(context.Background())
+
+	fetchVal := getCounterValue(t, m, "forseti_collector_fetches_total", map[string]string{"target": "held", "status": "success"})
+	if fetchVal != 2 {
+		t.Errorf("fetch = %f, want 2 (initial + recovery after release)", fetchVal)
+	}
+}
+
+func TestCollectDefaultConfigNoAPIBlock(t *testing.T) {
+	var callCount atomic.Int32
+	srv := newPiholeTestServer(&callCount)
+	defer srv.Close()
+
+	pool := session.NewPool()
+	defer pool.Close()
+
+	target := config.Target{
+		Name:     "noapi",
+		URL:      srv.URL,
+		Password: "pw",
+	}
+
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
+	coll := NewCollector(pool, []config.Target{target}, 30*time.Second, m, config.CollectorToggles{})
+
+	coll.Collect(context.Background())
+
+	fetchVal := getCounterValue(t, m, "forseti_collector_fetches_total", map[string]string{"target": "noapi", "status": "success"})
+	if fetchVal != 1 {
+		t.Errorf("fetch = %f, want 1 (default config should work)", fetchVal)
+	}
+}
+
+func TestCollectGateReleasedOnSessionError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	pool := session.NewPool()
+	defer pool.Close()
+
+	target := config.Target{
+		Name:     "autherr",
+		URL:      srv.URL,
+		Password: "pw",
+		API:      config.APIConfig{MaxConcurrent: 1},
+	}
+	pool.SetAPIConfig(map[string]config.APIConfig{"autherr": target.API})
+
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
+	coll := NewCollector(pool, []config.Target{target}, 30*time.Second, m, config.CollectorToggles{})
+
+	coll.Collect(context.Background())
+
+	if !pool.TryAcquire("autherr") {
+		t.Error("gate should be released after session error")
+	}
+	pool.Release("autherr")
+
+	errVal := getCounterValue(t, m, "forseti_collector_fetches_total", map[string]string{"target": "autherr", "status": "error"})
+	if errVal != 1 {
+		t.Errorf("error fetch = %f, want 1", errVal)
+	}
+}
+
+func TestCollectThreeTargetsMixedState(t *testing.T) {
+	var callCount atomic.Int32
+	srv := newPiholeTestServer(&callCount)
+	defer srv.Close()
+
+	pool := session.NewPool()
+	defer pool.Close()
+
+	healthy := config.Target{Name: "healthy", URL: srv.URL, Password: "pw", API: config.APIConfig{MaxConcurrent: 4}}
+	busy := config.Target{Name: "busy3", URL: srv.URL, Password: "pw", API: config.APIConfig{MaxConcurrent: 1}}
+	cached := config.Target{Name: "cached", URL: srv.URL, Password: "pw", API: config.APIConfig{MaxConcurrent: 4}}
+
+	pool.SetAPIConfig(map[string]config.APIConfig{
+		"healthy": healthy.API,
+		"busy3":   busy.API,
+		"cached":  cached.API,
+	})
+
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
+	coll := NewCollector(pool, []config.Target{healthy, busy, cached}, 30*time.Second, m, config.CollectorToggles{})
+
+	coll.Collect(context.Background())
+
+	pool.Acquire("busy3")
+
+	coll.Collect(context.Background())
+
+	healthyHit := getCounterValue(t, m, "forseti_collector_cache_hits_total", map[string]string{"target": "healthy"})
+	if healthyHit != 1 {
+		t.Errorf("healthy cache hit = %f, want 1 (within TTL)", healthyHit)
+	}
+
+	busyStale := getCounterValue(t, m, "forseti_collector_cache_stale_total", map[string]string{"target": "busy3"})
+	if busyStale != 0 {
+		t.Errorf("busy stale = %f, want 0 (within TTL, should be cache hit not stale)", busyStale)
+	}
+
+	cachedHit := getCounterValue(t, m, "forseti_collector_cache_hits_total", map[string]string{"target": "cached"})
+	if cachedHit != 1 {
+		t.Errorf("cached hit = %f, want 1", cachedHit)
+	}
+
+	pool.Release("busy3")
+}
+
+func TestCollectBusyTargetCacheExpiredServeStale(t *testing.T) {
+	var callCount atomic.Int32
+	srv := newPiholeTestServer(&callCount)
+	defer srv.Close()
+
+	pool := session.NewPool()
+	defer pool.Close()
+
+	target := config.Target{
+		Name:     "staleexp",
+		URL:      srv.URL,
+		Password: "pw",
+		API:      config.APIConfig{MaxConcurrent: 1},
+	}
+	pool.SetAPIConfig(map[string]config.APIConfig{"staleexp": target.API})
+
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
+	coll := NewCollector(pool, []config.Target{target}, 5*time.Millisecond, m, config.CollectorToggles{})
+
+	coll.Collect(context.Background())
+
+	fetch1 := getCounterValue(t, m, "forseti_collector_fetches_total", map[string]string{"target": "staleexp", "status": "success"})
+	if fetch1 != 1 {
+		t.Fatalf("initial fetch = %f, want 1", fetch1)
+	}
+
+	time.Sleep(10 * time.Millisecond)
+	pool.Acquire("staleexp")
+
+	coll.Collect(context.Background())
+
+	staleVal := getCounterValue(t, m, "forseti_collector_cache_stale_total", map[string]string{"target": "staleexp"})
+	if staleVal != 1 {
+		t.Errorf("stale = %f, want 1 (cache expired + gate held = stale)", staleVal)
+	}
+
+	fetch2 := getCounterValue(t, m, "forseti_collector_fetches_total", map[string]string{"target": "staleexp", "status": "success"})
+	if fetch2 != 1 {
+		t.Errorf("fetch after stale = %f, want 1 (no new fetch while busy)", fetch2)
+	}
+
+	pool.Release("staleexp")
+}
+
+func TestCollectSlowServerDifferentTimeouts(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/auth" && r.Method == http.MethodPost {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"session": map[string]string{"sid": "test-sid"},
+			})
+			return
+		}
+		if r.URL.Path == "/api/auth" && r.Method == http.MethodDelete {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		time.Sleep(150 * time.Millisecond)
+		_, _ = w.Write([]byte(`{"queries":{},"clients":{}}`))
+	}))
+	defer srv.Close()
+
+	pool := session.NewPool()
+	defer pool.Close()
+
+	fast := config.Target{
+		Name:     "fast-to",
+		URL:      srv.URL,
+		Password: "pw",
+		API:      config.APIConfig{Timeout: config.Duration{Duration: 50 * time.Millisecond}},
+	}
+	medium := config.Target{
+		Name:     "medium-to",
+		URL:      srv.URL,
+		Password: "pw",
+		API:      config.APIConfig{Timeout: config.Duration{Duration: 300 * time.Millisecond}},
+	}
+	slow := config.Target{
+		Name:     "slow-to",
+		URL:      srv.URL,
+		Password: "pw",
+		API:      config.APIConfig{Timeout: config.Duration{Duration: 5 * time.Second}},
+	}
+
+	pool.SetAPIConfig(map[string]config.APIConfig{
+		"fast-to":   fast.API,
+		"medium-to": medium.API,
+		"slow-to":   slow.API,
+	})
+
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
+	coll := NewCollector(pool, []config.Target{fast, medium, slow}, 30*time.Second, m, config.CollectorToggles{})
+
+	coll.Collect(context.Background())
+
+	fastErr := getCounterValue(t, m, "forseti_collector_fetches_total", map[string]string{"target": "fast-to", "status": "error"})
+	fastOk := getCounterValue(t, m, "forseti_collector_fetches_total", map[string]string{"target": "fast-to", "status": "success"})
+	if fastErr == 0 && fastOk > 0 {
+		t.Errorf("fast-to should timeout (50ms budget, 150ms server), got success=%f error=%f", fastOk, fastErr)
+	}
+
+	mediumOk := getCounterValue(t, m, "forseti_collector_fetches_total", map[string]string{"target": "medium-to", "status": "success"})
+	if mediumOk != 1 {
+		t.Errorf("medium-to fetch = %f, want 1 (300ms budget for 150ms server)", mediumOk)
+	}
+
+	slowOk := getCounterValue(t, m, "forseti_collector_fetches_total", map[string]string{"target": "slow-to", "status": "success"})
+	if slowOk != 1 {
+		t.Errorf("slow-to fetch = %f, want 1 (5s budget for 150ms server)", slowOk)
+	}
+}

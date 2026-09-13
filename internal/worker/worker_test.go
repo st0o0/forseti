@@ -494,3 +494,33 @@ func TestReconcileReleasesGateOnSessionError(t *testing.T) {
 	}
 }
 
+func TestReconcileReleasesGateOnContentError(t *testing.T) {
+	w, sess, _, cont, _, _ := newTestWorker()
+	cont.report = nil
+	cont.err = errors.New("list deny: connection reset")
+
+	_ = w.Reconcile()
+
+	if sess.acquireCalls != 1 {
+		t.Errorf("Acquire calls = %d, want 1", sess.acquireCalls)
+	}
+	if sess.releaseCalls != 1 {
+		t.Errorf("Release calls = %d, want 1 (gate must be released on content error)", sess.releaseCalls)
+	}
+}
+
+func TestReconcileGateSequentialCycles(t *testing.T) {
+	w, sess, _, _, _, _ := newTestWorker()
+
+	_ = w.Reconcile()
+	_ = w.Reconcile()
+	_ = w.Reconcile()
+
+	if sess.acquireCalls != 3 {
+		t.Errorf("Acquire calls = %d, want 3 (one per cycle)", sess.acquireCalls)
+	}
+	if sess.releaseCalls != 3 {
+		t.Errorf("Release calls = %d, want 3 (one per cycle)", sess.releaseCalls)
+	}
+}
+

@@ -402,3 +402,76 @@ func TestPoolConcurrentAcquire(t *testing.T) {
 
 	pool.Release("test")
 }
+
+func TestPoolSetAPIConfigUpdatesGate(t *testing.T) {
+	pool := NewPool()
+	pool.SetAPIConfig(map[string]config.APIConfig{
+		"target": {MaxConcurrent: 2},
+	})
+
+	pool.Acquire("target")
+	pool.Acquire("target")
+
+	if pool.TryAcquire("target") {
+		t.Error("should fail at capacity 2")
+	}
+
+	pool.Release("target")
+	pool.Release("target")
+
+	pool.SetAPIConfig(map[string]config.APIConfig{
+		"target": {MaxConcurrent: 4},
+	})
+
+	for i := 0; i < 4; i++ {
+		if !pool.TryAcquire("target") {
+			t.Errorf("slot %d should succeed with new capacity 4", i+1)
+		}
+	}
+
+	if pool.TryAcquire("target") {
+		t.Error("should fail at new capacity 4")
+	}
+
+	for i := 0; i < 4; i++ {
+		pool.Release("target")
+	}
+}
+
+func TestPoolGateIndependentTargets(t *testing.T) {
+	pool := NewPool()
+	pool.SetAPIConfig(map[string]config.APIConfig{
+		"alpha": {MaxConcurrent: 1},
+		"beta":  {MaxConcurrent: 1},
+	})
+
+	pool.Acquire("alpha")
+
+	if !pool.TryAcquire("beta") {
+		t.Error("beta should be independent of alpha")
+	}
+
+	if pool.TryAcquire("alpha") {
+		t.Error("alpha should be full")
+	}
+
+	pool.Release("alpha")
+	pool.Release("beta")
+}
+
+func TestPoolMultipleReleaseSafe(t *testing.T) {
+	pool := NewPool()
+	pool.SetAPIConfig(map[string]config.APIConfig{
+		"test": {MaxConcurrent: 1},
+	})
+
+	pool.Acquire("test")
+	pool.Release("test")
+	pool.Release("test")
+	pool.Release("test")
+
+	if !pool.TryAcquire("test") {
+		t.Error("gate should work after multiple releases")
+	}
+	pool.Release("test")
+}
