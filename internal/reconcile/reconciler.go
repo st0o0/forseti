@@ -172,7 +172,7 @@ func Apply(rt *config.ResolvedTarget, api PiholeAPI, opts ReconcileOptions) (*Ap
 		var g *pihole.APIGroup
 		if err := retryWrite(rt.Name, "create group", func() error {
 			var createErr error
-			g, createErr = api.CreateGroup(entry.Key, marker, true)
+			g, createErr = api.CreateGroup(entry.Key, buildComment(marker, findGroupByName(rt.Groups, entry.Key).Comment), true)
 			return createErr
 		}); err != nil {
 			report.Errors = append(report.Errors, fmt.Errorf("create group %q: %w", entry.Key, err))
@@ -198,7 +198,7 @@ func Apply(rt *config.ResolvedTarget, api PiholeAPI, opts ReconcileOptions) (*Ap
 		adlist := findAdlistByURL(rt.Adlists, entry.Key)
 		groupIDs := resolveGroupIDs(adlist.Groups, groupNameToID)
 		if err := retryWrite(rt.Name, "create adlist", func() error {
-			_, err := api.CreateAdlist(entry.Key, marker, true, groupIDs)
+			_, err := api.CreateAdlist(entry.Key, buildComment(marker, adlist.Comment), true, groupIDs)
 			return err
 		}); err != nil {
 			report.Errors = append(report.Errors, fmt.Errorf("create adlist %q: %w", entry.Key, err))
@@ -210,7 +210,7 @@ func Apply(rt *config.ResolvedTarget, api PiholeAPI, opts ReconcileOptions) (*Ap
 		adlist := findAdlistByURL(rt.Adlists, entry.Key)
 		groupIDs := resolveGroupIDs(adlist.Groups, groupNameToID)
 		if err := retryWrite(rt.Name, "update adlist", func() error {
-			return api.UpdateAdlist(entry.Key, marker, groupIDs)
+			return api.UpdateAdlist(entry.Key, buildComment(marker, adlist.Comment), groupIDs)
 		}); err != nil {
 			report.Errors = append(report.Errors, fmt.Errorf("update adlist %q: %w", entry.Key, err))
 		} else {
@@ -339,7 +339,7 @@ func Apply(rt *config.ResolvedTarget, api PiholeAPI, opts ReconcileOptions) (*Ap
 		client := findClientByMatch(rt.Clients, entry.Key)
 		groupIDs := resolveGroupIDs(client.Groups, groupNameToID)
 		if err := retryWrite(rt.Name, "create client", func() error {
-			_, err := api.CreateClient(entry.Key, marker, groupIDs)
+			_, err := api.CreateClient(entry.Key, buildComment(marker, client.Comment), groupIDs)
 			return err
 		}); err != nil {
 			report.Errors = append(report.Errors, fmt.Errorf("create client %q: %w", entry.Key, err))
@@ -349,7 +349,7 @@ func Apply(rt *config.ResolvedTarget, api PiholeAPI, opts ReconcileOptions) (*Ap
 		client := findClientByMatch(rt.Clients, entry.Key)
 		groupIDs := resolveGroupIDs(client.Groups, groupNameToID)
 		if err := retryWrite(rt.Name, "update client", func() error {
-			return api.UpdateClient(entry.Key, marker, groupIDs)
+			return api.UpdateClient(entry.Key, buildComment(marker, client.Comment), groupIDs)
 		}); err != nil {
 			report.Errors = append(report.Errors, fmt.Errorf("update client %q: %w", entry.Key, err))
 		}
@@ -608,6 +608,13 @@ func collectKeys(entries []DiffEntry) []string {
 	return keys
 }
 
+func buildComment(marker, userComment string) string {
+	if userComment == "" {
+		return marker
+	}
+	return marker + " " + userComment
+}
+
 func findAdlistByURL(adlists []config.Adlist, url string) config.Adlist {
 	for _, a := range adlists {
 		if a.URL == url {
@@ -615,6 +622,16 @@ func findAdlistByURL(adlists []config.Adlist, url string) config.Adlist {
 		}
 	}
 	return config.Adlist{}
+}
+
+func findGroupByName(groups []config.Group, name string) config.Group {
+	lower := strings.ToLower(name)
+	for _, g := range groups {
+		if strings.ToLower(g.Name) == lower {
+			return g
+		}
+	}
+	return config.Group{}
 }
 
 func findClientByMatch(clients []config.ClientEntry, match string) config.ClientEntry {

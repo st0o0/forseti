@@ -39,6 +39,7 @@ type mockAPI struct {
 	createdAdlists  []string
 	createdDomains  []string
 	createdClients  []string
+	createdComments map[string]string // key -> comment passed to Create/Update
 	deletedGroups   []string
 	deletedAdlists2 []string
 	deletedDomains2 []string
@@ -79,9 +80,10 @@ type mockAPI struct {
 
 func newMockAPI() *mockAPI {
 	return &mockAPI{
-		domains:        make(map[string][]pihole.APIDomain),
-		listDomainsErr: make(map[string]error),
-		nextGroupID:    100,
+		domains:         make(map[string][]pihole.APIDomain),
+		listDomainsErr:  make(map[string]error),
+		nextGroupID:     100,
+		createdComments: make(map[string]string),
 	}
 }
 
@@ -93,6 +95,7 @@ func (m *mockAPI) ListGroups() ([]pihole.APIGroup, error) {
 }
 func (m *mockAPI) CreateGroup(name, comment string, enabled bool) (*pihole.APIGroup, error) {
 	m.createdGroups = append(m.createdGroups, name)
+	m.createdComments["group:"+name] = comment
 	if m.createGroupErr != nil {
 		return nil, m.createGroupErr
 	}
@@ -113,6 +116,7 @@ func (m *mockAPI) ListAdlists() ([]pihole.APIList, error) {
 }
 func (m *mockAPI) CreateAdlist(address, comment string, enabled bool, groups []int) (*pihole.APIList, error) {
 	m.createdAdlists = append(m.createdAdlists, address)
+	m.createdComments["adlist:"+address] = comment
 	if m.createAdlistErr != nil {
 		return nil, m.createAdlistErr
 	}
@@ -165,6 +169,7 @@ func (m *mockAPI) ListClients() ([]pihole.APIClient, error) {
 }
 func (m *mockAPI) CreateClient(ip, comment string, groups []int) (*pihole.APIClient, error) {
 	m.createdClients = append(m.createdClients, ip)
+	m.createdComments["client:"+ip] = comment
 	if m.createClientErr != nil {
 		return nil, m.createClientErr
 	}
@@ -177,10 +182,12 @@ func (m *mockAPI) DeleteClients(ips []string) error {
 
 func (m *mockAPI) UpdateAdlist(address string, comment string, groups []int) error {
 	m.updatedAdlists = append(m.updatedAdlists, address)
+	m.createdComments["adlist:"+address] = comment
 	return m.updateAdlistErr
 }
 func (m *mockAPI) UpdateClient(ip string, comment string, groups []int) error {
 	m.updatedClients = append(m.updatedClients, ip)
+	m.createdComments["client:"+ip] = comment
 	return m.updateClientErr
 }
 func (m *mockAPI) UpdateDomain(domain string, comment string, groups []int) error {
@@ -1604,6 +1611,63 @@ func TestApplyFullReconcile(t *testing.T) {
 	}
 	if len(mock.createdClients) != 1 {
 		t.Errorf("created clients = %v, want 1", mock.createdClients)
+	}
+}
+
+func TestApplyPassesUserComment(t *testing.T) {
+	mock := newMockAPI()
+	marker := "[forseti]"
+
+	cfg := &config.Config{
+		Groups:  []config.Group{{Name: "kids", Comment: "Children devices"}},
+		Adlists: []config.Adlist{{URL: "http://big.com/l.txt", Comment: "OISD Big"}},
+		Clients: []config.ClientEntry{{Match: "192.168.1.50", Comment: "Living room TV"}},
+	}
+
+	target := config.Target{Name: "test"}
+	report, err := Apply(makeRT(cfg, target), mock, makeOpts(marker))
+	if err != nil {
+		t.Fatalf("Apply() error: %v", err)
+	}
+	if len(report.Errors) > 0 {
+		t.Errorf("unexpected errors: %v", report.Errors)
+	}
+
+	tests := []struct {
+		key  string
+		want string
+	}{
+		{"group:kids", "[forseti] Children devices"},
+		{"adlist:http://big.com/l.txt", "[forseti] OISD Big"},
+		{"client:192.168.1.50", "[forseti] Living room TV"},
+	}
+	for _, tt := range tests {
+		if got := mock.createdComments[tt.key]; got != tt.want {
+			t.Errorf("comment for %s = %q, want %q", tt.key, got, tt.want)
+		}
+	}
+}
+
+func TestApplyPassesUserCommentEmpty(t *testing.T) {
+	mock := newMockAPI()
+	marker := "[forseti]"
+
+	cfg := &config.Config{
+		Groups:  []config.Group{{Name: "kids"}},
+		Adlists: []config.Adlist{{URL: "http://big.com/l.txt"}},
+		Clients: []config.ClientEntry{{Match: "192.168.1.50"}},
+	}
+
+	target := config.Target{Name: "test"}
+	_, err := Apply(makeRT(cfg, target), mock, makeOpts(marker))
+	if err != nil {
+		t.Fatalf("Apply() error: %v", err)
+	}
+
+	for key, got := range mock.createdComments {
+		if got != marker {
+			t.Errorf("comment for %s = %q, want %q (no user comment)", key, got, marker)
+		}
 	}
 }
 
