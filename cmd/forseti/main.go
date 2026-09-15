@@ -272,6 +272,7 @@ func runWatch(args []string) int {
 	srv.SetBuildInfo(version, string(cfg.Mode))
 	pool.SetCallbacks(session.PoolCallbacks{
 		OnNewSession: func(_ string) { srv.IncSessionActive() },
+		OnInvalidate: func(_ string) { srv.DecSessionActive() },
 		OnReauth:     func(target string) { srv.RecordSessionReauth(target) },
 		OnClose:      func() { srv.ResetSessionActive() },
 	})

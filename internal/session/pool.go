@@ -12,9 +12,10 @@ import (
 const defaultMaxConcurrent = 4
 
 type PoolCallbacks struct {
-	OnNewSession func(target string)
-	OnReauth     func(target string)
-	OnClose      func()
+	OnNewSession  func(target string)
+	OnInvalidate  func(target string)
+	OnReauth      func(target string)
+	OnClose       func()
 }
 
 type Pool struct {
@@ -133,6 +134,9 @@ func (p *Pool) Invalidate(name string) {
 		slog.Debug("invalidating session", "target", name)
 		c.Close()
 		delete(p.clients, name)
+		if p.callbacks.OnInvalidate != nil {
+			p.callbacks.OnInvalidate(name)
+		}
 	}
 }
 

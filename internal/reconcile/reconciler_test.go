@@ -945,8 +945,8 @@ func TestPlanListErrors(t *testing.T) {
 func TestThreeWayDiff(t *testing.T) {
 	mock := newMockAPI()
 	mock.adlists = []pihole.APIList{
-		{ID: 1, Address: "A", Comment: ""},
-		{ID: 3, Address: "C", Comment: ""},
+		{ID: 1, Address: "A", Comment: "[forseti]"},
+		{ID: 3, Address: "C", Comment: "[forseti]"},
 		{ID: 4, Address: "D", Comment: "[forseti] managed"},
 		{ID: 5, Address: "E", Comment: "manual entry"},
 	}
@@ -1017,7 +1017,7 @@ func TestGravityOnlyOnAdlistChanges(t *testing.T) {
 	t.Run("no adlist changes NeedsGravity false", func(t *testing.T) {
 		mock := newMockAPI()
 		mock.adlists = []pihole.APIList{
-			{ID: 1, Address: "https://example.com/list.txt"},
+			{ID: 1, Address: "https://example.com/list.txt", Comment: "[forseti]"},
 		}
 		cfg := &config.Config{
 			Adlists: []config.Adlist{{URL: "https://example.com/list.txt"}},
@@ -1923,5 +1923,53 @@ func TestApplyCNAMEPurge(t *testing.T) {
 	}
 	if !report.Diff.CNAME.HasChanges() {
 		t.Error("expected CNAME changes")
+	}
+}
+
+func TestDiffAdlistsCommentMismatch(t *testing.T) {
+	nameToID := map[string]int{"default": 0}
+	diff := diffAdlists(
+		[]config.Adlist{{URL: "https://example.com/list.txt", Groups: []string{"default"}}},
+		[]pihole.APIList{{ID: 1, Address: "https://example.com/list.txt", Comment: "Migrated from old config", Groups: []int{0}}},
+		"[forseti]",
+		nameToID,
+	)
+	if len(diff.Updates) != 1 {
+		t.Fatalf("expected 1 update for missing marker, got %d updates, %d unchanged", len(diff.Updates), diff.Unchanged)
+	}
+}
+
+func TestDiffDomainsCommentMismatch(t *testing.T) {
+	diff := diffDomains(
+		[]config.DenyEntry{{Domain: "ads.com"}},
+		[]pihole.APIDomain{{ID: 1, Domain: "ads.com", Comment: "old comment"}},
+		"[forseti]",
+	)
+	if len(diff.Updates) != 1 {
+		t.Fatalf("expected 1 update for missing marker, got %d updates, %d unchanged", len(diff.Updates), diff.Unchanged)
+	}
+}
+
+func TestDiffAllowDomainsCommentMismatch(t *testing.T) {
+	diff := diffAllowDomains(
+		[]config.AllowEntry{{Domain: "safe.com"}},
+		[]pihole.APIDomain{{ID: 1, Domain: "safe.com", Comment: "manually added"}},
+		"[forseti]",
+	)
+	if len(diff.Updates) != 1 {
+		t.Fatalf("expected 1 update for missing marker, got %d updates, %d unchanged", len(diff.Updates), diff.Unchanged)
+	}
+}
+
+func TestDiffClientsCommentMismatch(t *testing.T) {
+	nameToID := map[string]int{"default": 0}
+	diff := diffClients(
+		[]config.ClientEntry{{Match: "192.168.1.0/24", Groups: []string{"default"}}},
+		[]pihole.APIClient{{ID: 1, Client: "192.168.1.0/24", Comment: "old", Groups: []int{0}}},
+		"[forseti]",
+		nameToID,
+	)
+	if len(diff.Updates) != 1 {
+		t.Fatalf("expected 1 update for missing marker, got %d updates, %d unchanged", len(diff.Updates), diff.Unchanged)
 	}
 }

@@ -405,7 +405,7 @@ func diffAdlists(desired []config.Adlist, actual []pihole.APIList, marker string
 		desiredURLs[a.URL] = true
 		if existing, exists := actualByURL[a.URL]; exists {
 			desiredGroups := resolveGroupIDs(a.Groups, groupNameToID)
-			if !groupsEqual(desiredGroups, existing.Groups) {
+			if !groupsEqual(desiredGroups, existing.Groups) || !strings.Contains(existing.Comment, marker) {
 				diff.Updates = append(diff.Updates, DiffEntry{Action: ActionUpdate, Key: a.URL, ID: existing.ID})
 			} else {
 				diff.Unchanged++
@@ -434,8 +434,12 @@ func diffDomains(desired []config.DenyEntry, actual []pihole.APIDomain, marker s
 	desiredDomains := make(map[string]bool)
 	for _, d := range desired {
 		desiredDomains[d.Domain] = true
-		if _, exists := actualByDomain[d.Domain]; exists {
-			diff.Unchanged++
+		if existing, exists := actualByDomain[d.Domain]; exists {
+			if !strings.Contains(existing.Comment, marker) {
+				diff.Updates = append(diff.Updates, DiffEntry{Action: ActionUpdate, Key: d.Domain, ID: existing.ID})
+			} else {
+				diff.Unchanged++
+			}
 		} else {
 			diff.Adds = append(diff.Adds, DiffEntry{Action: ActionAdd, Key: d.Domain})
 		}
@@ -459,8 +463,12 @@ func diffAllowDomains(desired []config.AllowEntry, actual []pihole.APIDomain, ma
 	desiredDomains := make(map[string]bool)
 	for _, d := range desired {
 		desiredDomains[d.Domain] = true
-		if _, exists := actualByDomain[d.Domain]; exists {
-			diff.Unchanged++
+		if existing, exists := actualByDomain[d.Domain]; exists {
+			if !strings.Contains(existing.Comment, marker) {
+				diff.Updates = append(diff.Updates, DiffEntry{Action: ActionUpdate, Key: d.Domain, ID: existing.ID})
+			} else {
+				diff.Unchanged++
+			}
 		} else {
 			diff.Adds = append(diff.Adds, DiffEntry{Action: ActionAdd, Key: d.Domain})
 		}
@@ -544,7 +552,7 @@ func diffClients(desired []config.ClientEntry, actual []pihole.APIClient, marker
 		desiredMatches[c.Match] = true
 		if existing, exists := actualByIP[c.Match]; exists {
 			desiredGroups := resolveGroupIDs(c.Groups, groupNameToID)
-			if !groupsEqual(desiredGroups, existing.Groups) {
+			if !groupsEqual(desiredGroups, existing.Groups) || !strings.Contains(existing.Comment, marker) {
 				diff.Updates = append(diff.Updates, DiffEntry{Action: ActionUpdate, Key: c.Match, ID: existing.ID})
 			} else {
 				diff.Unchanged++

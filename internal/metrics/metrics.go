@@ -561,6 +561,13 @@ func (s *Server) IncSessionActive() {
 	s.sessionActive.Inc()
 }
 
+func (s *Server) DecSessionActive() {
+	if s.sessionActive == nil {
+		return
+	}
+	s.sessionActive.Dec()
+}
+
 func (s *Server) ResetSessionActive() {
 	if s.sessionActive == nil {
 		return

@@ -475,3 +475,33 @@ func TestPoolMultipleReleaseSafe(t *testing.T) {
 	}
 	pool.Release("test")
 }
+
+func TestInvalidateCallsOnInvalidate(t *testing.T) {
+	var loginCount atomic.Int32
+	srv := newTestServer(&loginCount)
+	defer srv.Close()
+
+	pool := NewPool()
+	defer pool.Close()
+
+	var invalidated []string
+	pool.SetCallbacks(PoolCallbacks{
+		OnInvalidate: func(target string) { invalidated = append(invalidated, target) },
+	})
+
+	target := config.Target{Name: "alpha", URL: srv.URL, Password: "pw"}
+	_, err := pool.Get(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pool.Invalidate("alpha")
+	if len(invalidated) != 1 || invalidated[0] != "alpha" {
+		t.Errorf("OnInvalidate calls = %v, want [alpha]", invalidated)
+	}
+
+	pool.Invalidate("nonexistent")
+	if len(invalidated) != 1 {
+		t.Errorf("OnInvalidate should not fire for unknown target, got %d calls", len(invalidated))
+	}
+}
