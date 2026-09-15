@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.7](https://github.com/st0o0/forseti/compare/v0.1.6...v0.1.7) (2026-09-15)
+
+
+### Features
+
+* migrate to modular build and docker workflows ([afbec78](https://github.com/st0o0/forseti/commit/afbec78a697142074c5bee1b9c55ed545c4a3507))
+* migrate to multi-stage Dockerfile ([a773e77](https://github.com/st0o0/forseti/commit/a773e77fb4e0fcba95aff9eb08037704f431918d))
+
+
+### Bug Fixes
+
+* add id-token permission for cosign signing in dev builds ([c9087cb](https://github.com/st0o0/forseti/commit/c9087cbb4f2c6bc2a8837e381020ec5260f8e783))
+* include user comment in API calls instead of bare marker ([b5733b8](https://github.com/st0o0/forseti/commit/b5733b8f0a1edd5250b6cfcfdf086d8d2b797d36))
+
 ## [0.1.6](https://github.com/st0o0/forseti/compare/v0.1.5...v0.1.6) (2026-09-13)
 
 
