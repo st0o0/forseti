@@ -365,8 +365,9 @@ func TestTriggerWithSessionError(t *testing.T) {
 	sched, _ := NewScheduler(pool, targets, rec)
 
 	sched.mu.Lock()
-	sched.triggerLocked(&sched.entries[0], ReasonScheduled)
+	sched.triggerLocked(sched.entries[0].target, ReasonScheduled)
 	sched.mu.Unlock()
+	sched.wg.Wait()
 
 	rec.mu.Lock()
 	defer rec.mu.Unlock()
@@ -392,8 +393,9 @@ func TestTriggerWithNilRecorder(t *testing.T) {
 	sched, _ := NewScheduler(pool, targets, nil)
 
 	sched.mu.Lock()
-	sched.triggerLocked(&sched.entries[0], ReasonScheduled)
+	sched.triggerLocked(sched.entries[0].target, ReasonScheduled)
 	sched.mu.Unlock()
+	sched.wg.Wait()
 }
 
 func TestTriggerSuccessful(t *testing.T) {
@@ -411,8 +413,9 @@ func TestTriggerSuccessful(t *testing.T) {
 	sched, _ := NewScheduler(pool, targets, rec)
 
 	sched.mu.Lock()
-	sched.triggerLocked(&sched.entries[0], ReasonScheduled)
+	sched.triggerLocked(sched.entries[0].target, ReasonScheduled)
 	sched.mu.Unlock()
+	sched.wg.Wait()
 
 	rec.mu.Lock()
 	defer rec.mu.Unlock()
@@ -450,8 +453,9 @@ func TestTriggerGravityError(t *testing.T) {
 	sched, _ := NewScheduler(pool, targets, rec)
 
 	sched.mu.Lock()
-	sched.triggerLocked(&sched.entries[0], ReasonScheduled)
+	sched.triggerLocked(sched.entries[0].target, ReasonScheduled)
 	sched.mu.Unlock()
+	sched.wg.Wait()
 
 	rec.mu.Lock()
 	defer rec.mu.Unlock()
@@ -638,4 +642,169 @@ func TestTriggerAsyncReturnsImmediately(t *testing.T) {
 
 func TestTriggerAsyncDeduplicatesInFlight(t *testing.T) {
 	t.Skip("TriggerAsync deduplication via inFlight is covered by TestTriggerNowSkipsInFlight")
+}
+
+func TestEventLoopResponsiveDuringGravity(t *testing.T) {
+	alphaStarted := make(chan struct{})
+	alphaBlock := make(chan struct{})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/auth" && r.Method == http.MethodPost:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"session": map[string]string{"sid": "test-sid"},
+			})
+		case r.URL.Path == "/api/auth" && r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		case r.URL.Path == "/api/action/gravity":
+			select {
+			case <-alphaStarted:
+				w.WriteHeader(http.StatusOK)
+			default:
+				close(alphaStarted)
+				<-alphaBlock
+				w.WriteHeader(http.StatusOK)
+			}
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer srv.Close()
+
+	pool := session.NewPool()
+	defer pool.Close()
+
+	rec := &mockRecorder{}
+	targets := []config.Target{
+		{Name: "alpha", URL: srv.URL, Password: "pw"},
+		{Name: "beta", URL: srv.URL, Password: "pw"},
+	}
+
+	sched, err := NewScheduler(pool, targets, rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go sched.Start(ctx)
+
+	sched.TriggerAsync("alpha", ReasonScheduled)
+
+	select {
+	case <-alphaStarted:
+	case <-time.After(5 * time.Second):
+		close(alphaBlock)
+		cancel()
+		t.Fatal("alpha gravity did not start")
+	}
+
+	sched.TriggerAsync("beta", ReasonAdlistChange)
+
+	deadline := time.After(5 * time.Second)
+	for {
+		rec.mu.Lock()
+		n := len(rec.runs)
+		rec.mu.Unlock()
+		if n >= 1 {
+			break
+		}
+		select {
+		case <-deadline:
+			close(alphaBlock)
+			cancel()
+			t.Fatal("beta gravity did not fire while alpha was blocked — event loop is stuck")
+		default:
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+
+	close(alphaBlock)
+	cancel()
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	betaRan := false
+	for _, r := range rec.runs {
+		if r.target == "beta" {
+			betaRan = true
+		}
+	}
+	if !betaRan {
+		t.Error("beta gravity should have run while alpha was blocked")
+	}
+}
+
+func TestGracefulShutdownWaitsForInFlight(t *testing.T) {
+	started := make(chan struct{})
+	block := make(chan struct{})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/auth" && r.Method == http.MethodPost:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"session": map[string]string{"sid": "test-sid"},
+			})
+		case r.URL.Path == "/api/auth" && r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		case r.URL.Path == "/api/action/gravity":
+			close(started)
+			<-block
+			w.WriteHeader(http.StatusOK)
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer srv.Close()
+
+	pool := session.NewPool()
+	defer pool.Close()
+
+	rec := &mockRecorder{}
+	targets := []config.Target{
+		{Name: "slow", URL: srv.URL, Password: "pw"},
+	}
+
+	sched, err := NewScheduler(pool, targets, rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		sched.Start(ctx)
+		close(done)
+	}()
+
+	sched.TriggerAsync("slow", ReasonScheduled)
+
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		cancel()
+		t.Fatal("gravity did not start")
+	}
+
+	cancel()
+
+	select {
+	case <-done:
+		t.Fatal("Start returned before in-flight gravity completed")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(block)
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Start did not return after in-flight gravity completed")
+	}
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	if len(rec.runs) != 1 {
+		t.Errorf("recorded runs = %d, want 1", len(rec.runs))
+	}
 }

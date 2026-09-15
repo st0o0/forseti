@@ -32,13 +32,14 @@ type triggerRequest struct {
 }
 
 type Scheduler struct {
-	pool       *session.Pool
-	entries    []entry
-	recorder   Recorder
-	targetMap  map[string]config.Target
-	mu         sync.Mutex
-	inFlight   map[string]bool
-	asyncCh    chan triggerRequest
+	pool      *session.Pool
+	entries   []entry
+	recorder  Recorder
+	targetMap map[string]config.Target
+	mu        sync.Mutex
+	inFlight  map[string]bool
+	asyncCh   chan triggerRequest
+	wg        sync.WaitGroup
 }
 
 func NewScheduler(pool *session.Pool, targets []config.Target, recorder Recorder) (*Scheduler, error) {
@@ -87,6 +88,7 @@ func (s *Scheduler) Start(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			s.wg.Wait()
 			return
 		case now := <-tickerCh:
 			s.mu.Lock()
@@ -95,7 +97,7 @@ func (s *Scheduler) Start(ctx context.Context) {
 				if e.next.IsZero() || now.Before(e.next) {
 					continue
 				}
-				s.triggerLocked(e, ReasonScheduled)
+				s.triggerLocked(e.target, ReasonScheduled)
 				e.next = e.schedule.Next(now)
 			}
 			s.mu.Unlock()
@@ -117,56 +119,13 @@ func (s *Scheduler) processAsync(req triggerRequest) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.inFlight[req.target] {
-		slog.Warn("gravity already running, skipping", "target", req.target, "reason", req.reason)
-		return
-	}
-
-	for i := range s.entries {
-		if s.entries[i].target.Name == req.target {
-			s.triggerLocked(&s.entries[i], req.reason)
-			return
-		}
-	}
-
 	target, ok := s.targetMap[req.target]
 	if !ok {
 		slog.Error("gravity trigger: unknown target", "target", req.target)
 		return
 	}
 
-	s.inFlight[req.target] = true
-	s.mu.Unlock()
-
-	defer func() {
-		s.mu.Lock()
-		delete(s.inFlight, req.target)
-	}()
-
-	s.pool.Acquire(req.target)
-	defer s.pool.Release(req.target)
-
-	client, err := s.pool.Get(target)
-	if err != nil {
-		s.pool.Invalidate(req.target)
-		slog.Error("gravity session error", "target", req.target, "error", err)
-		return
-	}
-
-	slog.Info("triggering gravity", "target", req.target, "reason", req.reason)
-	start := time.Now()
-	err = client.TriggerGravity()
-	duration := time.Since(start)
-
-	if err != nil {
-		slog.Error("gravity error", "target", req.target, "error", err)
-	} else {
-		slog.Info("gravity completed", "target", req.target, "duration", duration.Round(time.Millisecond))
-	}
-
-	if s.recorder != nil {
-		s.recorder.RecordGravityRun(req.target, req.reason, duration, err)
-	}
+	s.triggerLocked(target, req.reason)
 }
 
 func (s *Scheduler) TriggerNow(targetName string, reason string) error {
@@ -176,14 +135,6 @@ func (s *Scheduler) TriggerNow(targetName string, reason string) error {
 		s.mu.Unlock()
 		slog.Warn("gravity already running, skipping", "target", targetName, "reason", reason)
 		return nil
-	}
-
-	for i := range s.entries {
-		if s.entries[i].target.Name == targetName {
-			s.triggerLocked(&s.entries[i], reason)
-			s.mu.Unlock()
-			return nil
-		}
 	}
 
 	target, ok := s.targetMap[targetName]
@@ -201,64 +152,62 @@ func (s *Scheduler) TriggerNow(targetName string, reason string) error {
 		s.mu.Unlock()
 	}()
 
-	s.pool.Acquire(targetName)
-	defer s.pool.Release(targetName)
+	return s.runGravity(target, reason)
+}
+
+// triggerLocked spawns an async gravity run. Caller must hold s.mu.
+func (s *Scheduler) triggerLocked(target config.Target, reason string) {
+	if s.inFlight[target.Name] {
+		slog.Warn("gravity already running, skipping", "target", target.Name, "reason", reason)
+		return
+	}
+
+	s.inFlight[target.Name] = true
+	s.wg.Add(1)
+
+	go func() {
+		defer s.wg.Done()
+		defer func() {
+			s.mu.Lock()
+			delete(s.inFlight, target.Name)
+			s.mu.Unlock()
+		}()
+
+		_ = s.runGravity(target, reason)
+	}()
+}
+
+func (s *Scheduler) runGravity(target config.Target, reason string) error {
+	s.pool.Acquire(target.Name)
+	defer s.pool.Release(target.Name)
 
 	client, err := s.pool.Get(target)
 	if err != nil {
-		s.pool.Invalidate(targetName)
-		return fmt.Errorf("gravity trigger %s: session error: %w", targetName, err)
+		s.pool.Invalidate(target.Name)
+		slog.Error("gravity session error", "target", target.Name, "error", err)
+		if s.recorder != nil {
+			s.recorder.RecordGravityRun(target.Name, reason, 0, err)
+		}
+		return fmt.Errorf("gravity trigger %s: session error: %w", target.Name, err)
 	}
 
+	slog.Info("triggering gravity", "target", target.Name, "reason", reason)
 	start := time.Now()
 	err = client.TriggerGravity()
 	duration := time.Since(start)
-	if s.recorder != nil {
-		s.recorder.RecordGravityRun(targetName, reason, duration, err)
-	}
+
 	if err != nil {
-		return fmt.Errorf("gravity trigger %s: %w", targetName, err)
+		slog.Error("gravity error", "target", target.Name, "error", err)
+	} else {
+		slog.Info("gravity completed", "target", target.Name, "duration", duration.Round(time.Millisecond))
+	}
+
+	if s.recorder != nil {
+		s.recorder.RecordGravityRun(target.Name, reason, duration, err)
+	}
+
+	if err != nil {
+		return fmt.Errorf("gravity trigger %s: %w", target.Name, err)
 	}
 	return nil
-}
-
-func (s *Scheduler) triggerLocked(e *entry, reason string) {
-	if s.inFlight[e.target.Name] {
-		slog.Warn("gravity already running, skipping", "target", e.target.Name, "reason", reason)
-		return
-	}
-
-	slog.Info("triggering gravity", "target", e.target.Name, "reason", reason)
-	s.inFlight[e.target.Name] = true
-
-	defer func() {
-		delete(s.inFlight, e.target.Name)
-	}()
-
-	s.pool.Acquire(e.target.Name)
-	defer s.pool.Release(e.target.Name)
-
-	client, err := s.pool.Get(e.target)
-	if err != nil {
-		slog.Error("gravity session error", "target", e.target.Name, "error", err)
-		s.pool.Invalidate(e.target.Name)
-		if s.recorder != nil {
-			s.recorder.RecordGravityRun(e.target.Name, reason, 0, err)
-		}
-		return
-	}
-
-	start := time.Now()
-	err = client.TriggerGravity()
-	duration := time.Since(start)
-
-	if err != nil {
-		slog.Error("gravity error", "target", e.target.Name, "error", err)
-	} else {
-		slog.Info("gravity completed", "target", e.target.Name, "duration", duration.Round(time.Millisecond))
-	}
-
-	if s.recorder != nil {
-		s.recorder.RecordGravityRun(e.target.Name, reason, duration, err)
-	}
 }
