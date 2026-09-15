@@ -108,17 +108,19 @@ func (m *mockGravity) TriggerAsync(target string, reason string) {
 }
 
 type mockRecorder struct {
-	reconcileCalls    int
+	reconcileCalls     int
 	settingsDriftCalls int
-	unreachableCalls  int
-	lastTarget        string
-	lastSuccess       bool
+	unreachableCalls   int
+	lastTarget         string
+	lastSuccess        bool
+	lastDrift          map[string]int
 }
 
 func (m *mockRecorder) RecordReconcileResult(target string, duration time.Duration, success bool, changes map[string]map[string]int, drift map[string]int) {
 	m.reconcileCalls++
 	m.lastTarget = target
 	m.lastSuccess = success
+	m.lastDrift = drift
 }
 
 func (m *mockRecorder) UpdateSettingsDrift(target string, drifted map[string]bool) {
@@ -521,6 +523,37 @@ func TestReconcileGateSequentialCycles(t *testing.T) {
 	}
 	if sess.releaseCalls != 3 {
 		t.Errorf("Release calls = %d, want 3 (one per cycle)", sess.releaseCalls)
+	}
+}
+
+func TestDriftGaugeResetsToZero(t *testing.T) {
+	w, _, _, cont, _, rec := newTestWorker()
+
+	cont.report = &reconcile.ApplyReport{
+		Diff: reconcile.DiffReport{
+			Adlists: reconcile.ResourceDiff{
+				Adds: []reconcile.DiffEntry{{Key: "http://list.txt"}},
+			},
+		},
+	}
+	_ = w.Reconcile()
+
+	if rec.lastDrift["adlists"] != 1 {
+		t.Fatalf("cycle 1: drift[adlists] = %d, want 1", rec.lastDrift["adlists"])
+	}
+
+	cont.report = &reconcile.ApplyReport{}
+	_ = w.Reconcile()
+
+	if rec.lastDrift["adlists"] != 0 {
+		t.Errorf("cycle 2: drift[adlists] = %d, want 0", rec.lastDrift["adlists"])
+	}
+
+	allTypes := []string{"groups", "adlists", "deny", "allow", "local_dns", "cname", "clients"}
+	for _, typ := range allTypes {
+		if _, ok := rec.lastDrift[typ]; !ok {
+			t.Errorf("drift map missing key %q", typ)
+		}
 	}
 }
 

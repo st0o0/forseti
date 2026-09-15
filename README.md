@@ -433,15 +433,15 @@ Individual metric families can be disabled via `metrics.collectors.*` toggles in
 
 ### Operational
 
-| Metric | Labels |
-|--------|--------|
-| `forseti_build_info` | `version`, `mode` |
-| `forseti_target_reachable` | `target` |
-| `forseti_config_reload_total` | `result` |
-| `forseti_collector_fetches_total` | `target`, `status` |
-| `forseti_collector_cache_hits_total` | `target` |
-| `forseti_collector_cache_stale_total` | `target` |
-| `forseti_target_health` | `target` |
+| Metric | Labels | Note |
+|--------|--------|------|
+| `forseti_build_info` | `version`, `mode` | |
+| `forseti_target_reachable` | `target` | `1` = reachable, `0` = unreachable |
+| `forseti_config_reload_total` | `result` | |
+| `forseti_collector_fetches_total` | `target`, `status` | |
+| `forseti_collector_cache_hits_total` | `target` | |
+| `forseti_collector_cache_stale_total` | `target` | |
+| `forseti_target_health` | `target` | `0` = healthy, `1` = degraded, `2` = down |
 
 ## Critical invariants
 

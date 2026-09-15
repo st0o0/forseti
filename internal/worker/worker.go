@@ -279,12 +279,9 @@ func buildChangesMap(diff *reconcile.DiffReport) map[string]map[string]int {
 }
 
 func buildDriftMap(diff *reconcile.DiffReport) map[string]int {
-	m := make(map[string]int)
+	m := make(map[string]int, 7)
 	count := func(name string, d reconcile.ResourceDiff) {
-		total := len(d.Adds) + len(d.Updates) + len(d.Deletes)
-		if total > 0 {
-			m[name] = total
-		}
+		m[name] = len(d.Adds) + len(d.Updates) + len(d.Deletes)
 	}
 	count("groups", diff.Groups)
 	count("adlists", diff.Adlists)
