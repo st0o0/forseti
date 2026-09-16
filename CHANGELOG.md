@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.8](https://github.com/st0o0/forseti/compare/v0.1.7...v0.1.8) (2026-09-16)
+
+
+### Bug Fixes
+
+* make gravity scheduler non-blocking with async goroutine execution ([0d29c58](https://github.com/st0o0/forseti/commit/0d29c58a34227ecc98aaf380be5fc447e8e22fb3))
+* reset drift gauge to zero when resource type returns to sync ([ff20e4e](https://github.com/st0o0/forseti/commit/ff20e4e4fe0f28e2bd53cecbec3d2ad98b235a6c))
+* sync managed marker on pre-existing entries and fix session_active counter leak ([e72dad6](https://github.com/st0o0/forseti/commit/e72dad64051500f13d20dacde0400222ba2ac0a9))
+
 ## [0.1.7](https://github.com/st0o0/forseti/compare/v0.1.6...v0.1.7) (2026-09-15)
 
 
