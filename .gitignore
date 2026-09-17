@@ -1,17 +1,34 @@
+# Go build output
+/forseti
+*.exe
+
 # Coverage
 *_cov.out
 coverage/
 
-# Go build
-/forseti
-*.exe
+# Design docs (local only)
+docs/
 
 # Claude Code
 .claude/
 
-# Editor
+# Worktrees
+.worktrees/
+
+# Editor / OS
 .idea/
 .vscode/
+.DS_Store
 *.swp
 *.swo
 *~
+
+# Test artifacts
+tests/tmp/
+*.log
+
+# Environment files
+**.env
+
+# Secrets
+.secrets/
