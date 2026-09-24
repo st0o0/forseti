@@ -1,6 +1,5 @@
 # Forseti
 
-[![CI](https://img.shields.io/github/actions/workflow/status/st0o0/forseti/ci.yml?style=flat-square&label=CI)](https://github.com/st0o0/forseti/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/st0o0/forseti?sort=semver&style=flat-square)](https://github.com/st0o0/forseti/releases)
 [![GHCR](https://img.shields.io/badge/ghcr.io-st0o0%2Fforseti-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/st0o0/forseti/pkgs/container/forseti)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE.md)
