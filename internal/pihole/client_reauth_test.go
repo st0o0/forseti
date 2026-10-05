@@ -60,6 +60,50 @@ func TestAutoReauthOn401(t *testing.T) {
 	}
 }
 
+func TestAutoReauthOn401ForGetQueries(t *testing.T) {
+	var loginCount atomic.Int32
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/auth" {
+			if r.Method == http.MethodPost {
+				loginCount.Add(1)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"session": map[string]string{"sid": "new-sid"},
+				})
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		if r.Header.Get("X-FTL-SID") != "new-sid" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"queries": []map[string]any{
+				{"time": 1767225600.0, "domain": "click.example.com", "status": "GRAVITY"},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "test-password", 0)
+	c.sid = "expired-sid"
+
+	records, err := c.GetQueries(QueryHistoryOptions{Statuses: BlockedQueryStatuses})
+	if err != nil {
+		t.Fatalf("GetQueries() error: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("len = %d, want 1", len(records))
+	}
+	if got := loginCount.Load(); got != 1 {
+		t.Errorf("login count = %d, want 1", got)
+	}
+}
+
 func TestOnReauthCallbackCalled(t *testing.T) {
 	var reauthCount atomic.Int32
 

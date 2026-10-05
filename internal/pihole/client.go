@@ -575,6 +575,76 @@ func (c *Client) GetUpstreams() ([]UpstreamStats, error) {
 	return out, nil
 }
 
+// BlockedQueryStatuses lists the Pi-hole v6 query status values that
+// represent a blocked query, mirroring the "Blocked" grouping used by
+// Pi-hole's own query log UI.
+var BlockedQueryStatuses = []string{
+	"GRAVITY",
+	"REGEX",
+	"DENYLIST",
+	"EXTERNAL_BLOCKED_IP",
+	"EXTERNAL_BLOCKED_NULL",
+	"EXTERNAL_BLOCKED_NXRA",
+	"GRAVITY_CNAME",
+	"REGEX_CNAME",
+	"DENYLIST_CNAME",
+}
+
+type QueryRecord struct {
+	Time   float64 `json:"time"`
+	Domain string  `json:"domain"`
+	Status string  `json:"status"`
+}
+
+type QueryHistoryOptions struct {
+	From     time.Time
+	Until    time.Time
+	Statuses []string
+	// Domain restricts results to an exact domain match. Pi-hole's /api/queries
+	// domain filter treats this as a pattern, so callers needing an exact match
+	// must still compare the returned records' Domain field themselves.
+	Domain string
+	// Length caps the number of returned records. Use a small value (e.g. 1)
+	// for cheap existence checks.
+	Length int
+}
+
+// GetQueries retrieves query history from Pi-hole v6's /api/queries endpoint,
+// optionally bounded by a time range and filtered by status or domain.
+func (c *Client) GetQueries(opts QueryHistoryOptions) ([]QueryRecord, error) {
+	query := url.Values{}
+	if !opts.From.IsZero() {
+		query.Set("from", fmt.Sprintf("%d", opts.From.Unix()))
+	}
+	if !opts.Until.IsZero() {
+		query.Set("until", fmt.Sprintf("%d", opts.Until.Unix()))
+	}
+	// Pi-hole v6's /api/queries takes repeated "status" params for an OR
+	// filter (status=A&status=B); a comma-joined value is rejected as invalid.
+	for _, status := range opts.Statuses {
+		query.Add("status", status)
+	}
+	if opts.Domain != "" {
+		query.Set("domain", opts.Domain)
+	}
+	if opts.Length > 0 {
+		query.Set("length", fmt.Sprintf("%d", opts.Length))
+	}
+
+	path := "/api/queries"
+	if encoded := query.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+
+	var resp struct {
+		Queries []QueryRecord `json:"queries"`
+	}
+	if err := c.doJSON(http.MethodGet, path, nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Queries, nil
+}
+
 func (c *Client) GetBlockingStatus() (bool, error) {
 	var resp struct {
 		Blocking string `json:"blocking"`

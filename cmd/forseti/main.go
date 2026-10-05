@@ -283,6 +283,8 @@ func runWatch(args []string) int {
 	coll := collector.NewCollector(pool, targets, cfg.Metrics.ScrapeInterval.Duration, srv, cfg.Metrics.Collectors)
 	srv.SetCollectFunc(coll.Collect)
 
+	newDomainsColl := collector.NewNewDomainsCollector(pool, targets, cfg.Metrics.NewDomainsInterval.Duration, srv, cfg.Metrics.Collectors)
+
 	gravSched, err := gravity.NewScheduler(pool, targets, srv)
 	if err != nil {
 		slog.Error("gravity scheduler init failed", "error", err)
@@ -300,6 +302,7 @@ func runWatch(args []string) int {
 	defer stop()
 
 	go gravSched.Start(ctx)
+	go newDomainsColl.Start(ctx)
 
 	slog.Info("starting", "mode", cfg.Mode)
 
@@ -353,6 +356,7 @@ func runWatch(args []string) int {
 					pool.SetAPIConfig(buildAPIConfigs(newTargets))
 					srv.SetScrapeTimeout(newTargets)
 					coll.UpdateTargets(newTargets)
+					newDomainsColl.UpdateTargets(newTargets)
 					workers = worker.SyncWorkers(workers, resolved, deps)
 				}
 				worker.ReconcileWorkers(workers)

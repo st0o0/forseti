@@ -215,6 +215,63 @@ func TestUpdateUpstreams(t *testing.T) {
 	}
 }
 
+func TestSetNewBlockedDomains24h(t *testing.T) {
+	s := NewServer(0, "/metrics", config.CollectorToggles{})
+
+	s.SetNewBlockedDomains24h("pihole-test", 3)
+
+	m := &dto.Metric{}
+	g, _ := s.newBlockedDomains24h.GetMetricWithLabelValues("pihole-test")
+	_ = g.Write(m)
+	if m.GetGauge().GetValue() != 3 {
+		t.Errorf("new blocked domains = %f, want 3", m.GetGauge().GetValue())
+	}
+}
+
+func TestNewBlockedDomains24hDisabledByToggle(t *testing.T) {
+	disabled := false
+	s := NewServer(0, "/metrics", config.CollectorToggles{NewDomains: &disabled})
+
+	if s.newBlockedDomains24h != nil {
+		t.Fatal("newBlockedDomains24h should not be registered when toggle is disabled")
+	}
+
+	// Setter must be a no-op, not panic, when the metric was never registered.
+	s.SetNewBlockedDomains24h("pihole-test", 3)
+
+	families, err := s.registry.Gather()
+	if err != nil {
+		t.Fatalf("Gather() error: %v", err)
+	}
+	for _, f := range families {
+		if f.GetName() == "forseti_new_blocked_domains_24h" {
+			t.Error("forseti_new_blocked_domains_24h should not be registered when toggle is disabled")
+		}
+	}
+}
+
+func TestNewBlockedDomains24hNoDomainLabel(t *testing.T) {
+	s := NewServer(0, "/metrics", config.CollectorToggles{})
+	s.SetNewBlockedDomains24h("pihole-test", 2)
+
+	families, err := s.registry.Gather()
+	if err != nil {
+		t.Fatalf("Gather() error: %v", err)
+	}
+	for _, f := range families {
+		if f.GetName() != "forseti_new_blocked_domains_24h" {
+			continue
+		}
+		for _, metric := range f.GetMetric() {
+			for _, label := range metric.GetLabel() {
+				if label.GetName() == "domain" {
+					t.Error("forseti_new_blocked_domains_24h must not carry a domain label")
+				}
+			}
+		}
+	}
+}
+
 func TestSetConfigMetrics(t *testing.T) {
 	s := NewServer(0, "/metrics", config.CollectorToggles{})
 

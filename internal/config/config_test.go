@@ -1080,6 +1080,79 @@ metrics:
 	}
 }
 
+func TestSubMinimumNewDomainsInterval(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+metrics:
+  new_domains_interval: 10s
+`
+	path := writeTestConfig(t, cfg)
+	_, _, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for sub-minimum new_domains_interval")
+	}
+	if !strings.Contains(err.Error(), "new_domains_interval must be at least 1m0s") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestDefaultNewDomainsIntervalPassValidation(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+`
+	path := writeTestConfig(t, cfg)
+	c, _, err := Load(path)
+	if err != nil {
+		t.Fatalf("default new_domains_interval should pass: %v", err)
+	}
+	if c.Metrics.NewDomainsInterval.Duration != DefaultNewDomainsInterval {
+		t.Errorf("default new_domains_interval = %v, want %v", c.Metrics.NewDomainsInterval.Duration, DefaultNewDomainsInterval)
+	}
+}
+
+func TestNewDomainsToggleDefaultsEnabled(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+`
+	path := writeTestConfig(t, cfg)
+	c, _, err := Load(path)
+	if err != nil {
+		t.Fatalf("config should load: %v", err)
+	}
+	if !c.Metrics.Collectors.IsEnabled("new_domains") {
+		t.Error("new_domains collector should default to enabled")
+	}
+}
+
+func TestNewDomainsToggleCanBeDisabled(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+metrics:
+  collectors:
+    new_domains: false
+`
+	path := writeTestConfig(t, cfg)
+	c, _, err := Load(path)
+	if err != nil {
+		t.Fatalf("config should load: %v", err)
+	}
+	if c.Metrics.Collectors.IsEnabled("new_domains") {
+		t.Error("new_domains collector should be disabled")
+	}
+}
+
 func TestValidIntervalsPass(t *testing.T) {
 	cfg := `
 targets:

@@ -171,6 +171,7 @@ Fields marked with `*` are pointers -- omit them to keep Pi-hole's existing valu
 | `port` | int | `9099` | Prometheus metrics server port |
 | `path` | string | `/metrics` | Metrics endpoint path |
 | `scrape_interval` | duration | `30s` | Collect-on-scrape cache TTL (min 5s) |
+| `new_domains_interval` | duration | `15m` | How often to check for newly blocked domains (min 1m), independent of `scrape_interval` |
 
 #### `metrics.collectors`
 
@@ -187,6 +188,23 @@ All toggles are `*bool`, default enabled (omit = true). Set `false` to disable a
 | `sessions` | Active sessions, re-auth events |
 | `settings_drift` | Per-setting drift detection |
 | `dhcp` | Active DHCP lease count |
+| `new_domains` | Newly blocked domain count (see below) |
+
+#### New blocked domain detection (`metrics.collectors.new_domains`)
+
+On its own interval (`metrics.new_domains_interval`, default `15m`), Forseti checks each target's query history for domains blocked for the first time in the last 24 hours. This runs independently of `scrape_interval` because it is a heavier query than the summary stats endpoints and does not need scrape-level freshness.
+
+Forseti does not keep its own record of "domains seen before" — each cycle derives this from the target's own Pi-hole query history, so a restart does not produce a false "everything is new" burst. If a target's Pi-hole history retention (`MAXDBDAYS`) is shorter than 24 hours, a domain blocked before that retention window may be misreported as new.
+
+Per-domain detail is emitted as a structured log event (not a Prometheus label, to avoid unbounded metric cardinality):
+
+```json
+{"time":"...","level":"INFO","msg":"new_blocked_domain","target":"pizero","domain":"click.example.com","first_seen":"2026-10-05T08:11:00Z","count_24h":14}
+```
+
+Every newly detected domain is logged — there is no built-in count threshold. Filter or alert on `count_24h` downstream (e.g., in Grafana/LogQL) if you want to ignore one-off queries.
+
+The aggregated count per target is exposed as `forseti_new_blocked_domains_24h{target="..."}`, with no `domain` label.
 
 #### `targets[]`
 
@@ -434,6 +452,7 @@ Individual metric families can be disabled via `metrics.collectors.*` toggles in
 | `forseti_session_active` | -- |
 | `forseti_session_reauth_total` | `target` |
 | `forseti_dhcp_leases_active` | `target` |
+| `forseti_new_blocked_domains_24h` | `target` |
 
 ### Operational
 

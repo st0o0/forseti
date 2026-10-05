@@ -1,6 +1,4 @@
-# Collector Toggles
-
-Per-area boolean switches in `metrics.collectors` that control which metric groups are registered and which Pi-hole API calls are made during scrape.
+## MODIFIED Requirements
 
 ### Requirement: Collector toggles configuration
 The system SHALL accept a `metrics.collectors` section in the config file with boolean toggles for each metric area. Each toggle controls whether the corresponding metrics are registered and whether the associated Pi-hole API calls are made during collection.
@@ -32,25 +30,3 @@ The supported toggles SHALL be:
 #### Scenario: Disable new-blocked-domains collector
 - **WHEN** the config contains `metrics.collectors.new_domains: false`
 - **THEN** the system SHALL NOT register `forseti_new_blocked_domains_24h`, SHALL NOT emit `new_blocked_domain` log events, and SHALL NOT call the query-history API on any target
-
-### Requirement: Conditional metric registration
-When a collector toggle is disabled, the system SHALL NOT register the corresponding Prometheus metrics with the registry. Disabled collectors SHALL produce no metrics in the `/metrics` output — not zero-value metrics, but absent metrics.
-
-#### Scenario: Disabled collector produces no output
-- **WHEN** `metrics.collectors.query_types` is `false`
-- **THEN** `forseti_dns_queries_by_type`, `forseti_dns_queries_by_status`, and `forseti_dns_replies_by_type` SHALL not appear in the `/metrics` response
-
-#### Scenario: Enabled collector registers normally
-- **WHEN** `metrics.collectors.stats` is `true`
-- **THEN** all stats-group metrics SHALL be registered and populated on scrape
-
-### Requirement: Conditional API call skipping
-When a collector toggle is disabled, the system SHALL skip the associated Pi-hole API calls during stats collection. This reduces API load on the Pi-hole instance.
-
-#### Scenario: Disabled upstreams skips API call
-- **WHEN** `metrics.collectors.upstreams` is `false`
-- **THEN** the collector SHALL NOT call `GetUpstreams()` on any target
-
-#### Scenario: Disabled stats skips summary fetch
-- **WHEN** `metrics.collectors.stats` is `false`
-- **THEN** the collector SHALL NOT call `GetStats()` on any target

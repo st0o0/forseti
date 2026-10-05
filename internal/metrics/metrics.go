@@ -89,6 +89,9 @@ type Server struct {
 	// dhcp (toggle: dhcp)
 	dhcpLeasesActive *prometheus.GaugeVec
 
+	// new_domains (toggle: new_domains)
+	newBlockedDomains24h *prometheus.GaugeVec
+
 	mu               sync.Mutex
 	knownQueryTypes  map[string]map[string]bool
 	knownQueryStatus map[string]map[string]bool
@@ -337,6 +340,15 @@ func NewServer(port int, path string, toggles config.CollectorToggles) *Server {
 			Help: "Number of active DHCP leases",
 		}, []string{"target"})
 		reg.MustRegister(s.dhcpLeasesActive)
+	}
+
+	// New blocked domains
+	if toggles.IsEnabled("new_domains") {
+		s.newBlockedDomains24h = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_new_blocked_domains_24h",
+			Help: "Number of domains blocked for the first time in the last 24h",
+		}, []string{"target"})
+		reg.MustRegister(s.newBlockedDomains24h)
 	}
 
 	promHandler := promhttp.HandlerFor(reg, promhttp.HandlerOpts{})
@@ -601,6 +613,13 @@ func (s *Server) UpdateDHCPLeases(target string, count int) {
 		return
 	}
 	s.dhcpLeasesActive.WithLabelValues(target).Set(float64(count))
+}
+
+func (s *Server) SetNewBlockedDomains24h(target string, count int) {
+	if s.newBlockedDomains24h == nil {
+		return
+	}
+	s.newBlockedDomains24h.WithLabelValues(target).Set(float64(count))
 }
 
 func updateGaugeMap(gauge *prometheus.GaugeVec, prev map[string]bool, target string, data map[string]int) map[string]bool {

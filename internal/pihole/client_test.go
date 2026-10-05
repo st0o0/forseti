@@ -2,8 +2,10 @@ package pihole
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -338,6 +340,130 @@ func TestGetUpstreams(t *testing.T) {
 	}
 	if upstreams[2].Port != -1 {
 		t.Errorf("upstreams[2].Port = %d, want -1", upstreams[2].Port)
+	}
+}
+
+func TestGetQueries(t *testing.T) {
+	var gotQuery string
+	from := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	until := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+
+	_, client := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/auth":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"session": map[string]any{"sid": "s"},
+			})
+		case r.URL.Path == "/api/queries":
+			gotQuery = r.URL.RawQuery
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"queries": []map[string]any{
+					{"time": 1767225600.0, "domain": "click.example.com", "status": "GRAVITY"},
+					{"time": 1767225601.0, "domain": "trk.example.net", "status": "DENYLIST"},
+				},
+			})
+		}
+	})
+
+	_ = client.Login()
+	records, err := client.GetQueries(QueryHistoryOptions{
+		From:     from,
+		Until:    until,
+		Statuses: BlockedQueryStatuses,
+	})
+	if err != nil {
+		t.Fatalf("GetQueries() error: %v", err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("len = %d, want 2", len(records))
+	}
+	if records[0].Domain != "click.example.com" {
+		t.Errorf("records[0].Domain = %q, want click.example.com", records[0].Domain)
+	}
+	if records[1].Status != "DENYLIST" {
+		t.Errorf("records[1].Status = %q, want DENYLIST", records[1].Status)
+	}
+
+	q, err := url.ParseQuery(gotQuery)
+	if err != nil {
+		t.Fatalf("parse query: %v", err)
+	}
+	if q.Get("from") != fmt.Sprintf("%d", from.Unix()) {
+		t.Errorf("from = %q, want %d", q.Get("from"), from.Unix())
+	}
+	if q.Get("until") != fmt.Sprintf("%d", until.Unix()) {
+		t.Errorf("until = %q, want %d", q.Get("until"), until.Unix())
+	}
+	gotStatuses := q["status"]
+	if len(gotStatuses) != len(BlockedQueryStatuses) {
+		t.Fatalf("status params = %v, want %d repeated values matching %v", gotStatuses, len(BlockedQueryStatuses), BlockedQueryStatuses)
+	}
+	for i, want := range BlockedQueryStatuses {
+		if gotStatuses[i] != want {
+			t.Errorf("status[%d] = %q, want %q", i, gotStatuses[i], want)
+		}
+	}
+}
+
+func TestGetQueriesNoOptions(t *testing.T) {
+	var gotQuery string
+	_, client := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/auth":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"session": map[string]any{"sid": "s"},
+			})
+		case r.URL.Path == "/api/queries":
+			gotQuery = r.URL.RawQuery
+			_ = json.NewEncoder(w).Encode(map[string]any{"queries": []map[string]any{}})
+		}
+	})
+
+	_ = client.Login()
+	records, err := client.GetQueries(QueryHistoryOptions{})
+	if err != nil {
+		t.Fatalf("GetQueries() error: %v", err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("len = %d, want 0", len(records))
+	}
+	if gotQuery != "" {
+		t.Errorf("query = %q, want empty", gotQuery)
+	}
+}
+
+func TestGetQueriesDomainAndLength(t *testing.T) {
+	var gotQuery string
+	_, client := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/auth":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"session": map[string]any{"sid": "s"},
+			})
+		case r.URL.Path == "/api/queries":
+			gotQuery = r.URL.RawQuery
+			_ = json.NewEncoder(w).Encode(map[string]any{"queries": []map[string]any{}})
+		}
+	})
+
+	_ = client.Login()
+	_, err := client.GetQueries(QueryHistoryOptions{
+		Domain: "click.example.com",
+		Length: 1,
+	})
+	if err != nil {
+		t.Fatalf("GetQueries() error: %v", err)
+	}
+
+	q, err := url.ParseQuery(gotQuery)
+	if err != nil {
+		t.Fatalf("parse query: %v", err)
+	}
+	if q.Get("domain") != "click.example.com" {
+		t.Errorf("domain = %q, want click.example.com", q.Get("domain"))
+	}
+	if q.Get("length") != "1" {
+		t.Errorf("length = %q, want 1", q.Get("length"))
 	}
 }
 

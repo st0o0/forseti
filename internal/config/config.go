@@ -20,9 +20,11 @@ const (
 	ModeConfig Mode = "config"
 	ModeSync   Mode = "sync"
 
-	MinReconcileInterval = 10 * time.Second
-	MinSyncInterval      = 10 * time.Second
-	MinScrapeInterval    = 5 * time.Second
+	MinReconcileInterval      = 10 * time.Second
+	MinSyncInterval           = 10 * time.Second
+	MinScrapeInterval         = 5 * time.Second
+	MinNewDomainsInterval     = 1 * time.Minute
+	DefaultNewDomainsInterval = 15 * time.Minute
 )
 
 type Config struct {
@@ -165,10 +167,11 @@ type SyncConfig struct {
 }
 
 type Metrics struct {
-	Port           int              `yaml:"port"`
-	Path           string           `yaml:"path"`
-	ScrapeInterval Duration         `yaml:"scrape_interval"`
-	Collectors     CollectorToggles `yaml:"collectors"`
+	Port               int              `yaml:"port"`
+	Path               string           `yaml:"path"`
+	ScrapeInterval     Duration         `yaml:"scrape_interval"`
+	NewDomainsInterval Duration         `yaml:"new_domains_interval"`
+	Collectors         CollectorToggles `yaml:"collectors"`
 }
 
 type CollectorToggles struct {
@@ -181,6 +184,7 @@ type CollectorToggles struct {
 	Sessions      *bool `yaml:"sessions"`
 	SettingsDrift *bool `yaml:"settings_drift"`
 	DHCP          *bool `yaml:"dhcp"`
+	NewDomains    *bool `yaml:"new_domains"`
 }
 
 func (ct CollectorToggles) IsEnabled(name string) bool {
@@ -204,6 +208,8 @@ func (ct CollectorToggles) IsEnabled(name string) bool {
 		p = ct.SettingsDrift
 	case "dhcp":
 		p = ct.DHCP
+	case "new_domains":
+		p = ct.NewDomains
 	default:
 		return true
 	}
@@ -430,6 +436,9 @@ func applyDefaults(cfg *Config) {
 	if cfg.Metrics.ScrapeInterval.Duration == 0 {
 		cfg.Metrics.ScrapeInterval.Duration = 30 * time.Second
 	}
+	if cfg.Metrics.NewDomainsInterval.Duration == 0 {
+		cfg.Metrics.NewDomainsInterval.Duration = DefaultNewDomainsInterval
+	}
 	if cfg.Reconcile.Marker == "" {
 		cfg.Reconcile.Marker = "[forseti]"
 	}
@@ -569,6 +578,11 @@ func validate(cfg *Config) error {
 		errs = append(errs, fmt.Errorf("scrape_interval must be at least %s", MinScrapeInterval))
 	} else if cfg.Metrics.ScrapeInterval.Duration < 0 {
 		errs = append(errs, fmt.Errorf("scrape_interval must be at least %s", MinScrapeInterval))
+	}
+	if cfg.Metrics.NewDomainsInterval.Duration > 0 && cfg.Metrics.NewDomainsInterval.Duration < MinNewDomainsInterval {
+		errs = append(errs, fmt.Errorf("new_domains_interval must be at least %s", MinNewDomainsInterval))
+	} else if cfg.Metrics.NewDomainsInterval.Duration < 0 {
+		errs = append(errs, fmt.Errorf("new_domains_interval must be at least %s", MinNewDomainsInterval))
 	}
 
 	groupNames := make(map[string]bool)
