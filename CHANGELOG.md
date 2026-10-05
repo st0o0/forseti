@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.1.9](https://github.com/st0o0/forseti/compare/v0.1.8...v0.1.9) (2026-10-05)
+
+
+### Features
+
+* detect domains blocked for the first time in the last 24h per target ([6825a7d](https://github.com/st0o0/forseti/commit/6825a7d9fe066ca7bbe565936aaa754a7cf271be))
+* extend docker preset for base image digest pinning + automerge ([3430c4b](https://github.com/st0o0/forseti/commit/3430c4b6bc88f38bd633ab2e56f8a7d5cdbb0418))
+
+
+### Bug Fixes
+
+* grant contents:read and drop paths filter in dev-build docker job ([c0932ba](https://github.com/st0o0/forseti/commit/c0932ba67471318ec501b5235103f1d0dede8892))
+* grant pull-requests/issues write permission to labeler and label-sync callers ([dad9340](https://github.com/st0o0/forseti/commit/dad9340dc0f0203acb8f657f29d2bab6fcc0d14b))
+
+
+### Documentation
+
+* add README badges ([fd08122](https://github.com/st0o0/forseti/commit/fd081225be8632284d3d868b767c6af148038772))
+
 ## [0.1.8](https://github.com/st0o0/forseti/compare/v0.1.7...v0.1.8) (2026-09-16)
 
 
