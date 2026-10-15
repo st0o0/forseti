@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/url"
 	"os"
@@ -254,6 +255,20 @@ type Target struct {
 	File     string        `yaml:"file"`
 }
 
+// LogValue keeps the password out of logs when a target is logged as a
+// whole: only name, role and host are rendered.
+func (t Target) LogValue() slog.Value {
+	host := t.URL
+	if u, err := url.Parse(t.URL); err == nil && u.Host != "" {
+		host = u.Host
+	}
+	attrs := []slog.Attr{slog.String("name", t.Name), slog.String("host", host)}
+	if t.Role != "" {
+		attrs = append(attrs, slog.String("role", t.Role))
+	}
+	return slog.GroupValue(attrs...)
+}
+
 type TargetOverride struct {
 	Settings Settings        `yaml:"settings"`
 	Groups   []Group         `yaml:"groups"`
@@ -380,6 +395,10 @@ type ResolvedTarget struct {
 	LocalDNS []LocalDNSEntry
 	CNAME    []CNAMEEntry
 	Clients  []ClientEntry
+	// Warnings collects non-fatal problems found while resolving this
+	// target (e.g. exclude entries that match nothing). They are logged by
+	// the caller once the configured logger is in place.
+	Warnings []string
 }
 
 func Load(path string) (*Config, []ResolvedTarget, error) {

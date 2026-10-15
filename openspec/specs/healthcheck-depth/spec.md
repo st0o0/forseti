@@ -1,47 +1,23 @@
 ## ADDED Requirements
 
-### Requirement: Healthcheck verifies target connectivity
+### Requirement: Liveness endpoint
+The metrics HTTP server SHALL serve `GET /healthz`. It SHALL return 200 with `{"status":"ok"}` while the watch loop is alive, and 503 with `{"status":"stalled"}` when the loop has not completed a cycle within `max(3 × interval, interval + 2m)`. The result SHALL NOT depend on Pi-hole reachability.
 
-The `forseti healthcheck` command SHALL load the config file and attempt a login to each configured Pi-hole target. It SHALL exit 0 only when all targets respond successfully.
+#### Scenario: Pi-hole down, Forseti alive
+- **WHEN** every Pi-hole target is unreachable but the watch loop keeps running cycles
+- **THEN** `/healthz` SHALL return 200
 
-#### Scenario: All targets reachable
+#### Scenario: Loop stuck
+- **WHEN** no cycle has completed for longer than the stall threshold
+- **THEN** `/healthz` SHALL return 503
 
-- **WHEN** the healthcheck runs with a valid config and all Pi-hole targets respond to Login within the timeout
-- **THEN** the command SHALL print a status line per target (`[<name>] ok`) and exit with code 0
+### Requirement: Healthcheck probes the liveness endpoint
+The `forseti healthcheck` command SHALL perform an HTTP GET against `http://127.0.0.1:<port>/healthz` with a 3-second timeout and exit 0 on a 200 response and 1 otherwise. The port SHALL be taken from `--addr` if given, otherwise from `metrics.port` in the file passed via `--config`, otherwise 9099. The command SHALL NOT log in to any Pi-hole and SHALL NOT fail because the config file is invalid.
 
-#### Scenario: One target unreachable
+#### Scenario: Healthy daemon
+- **WHEN** the daemon is running and `/healthz` returns 200
+- **THEN** `forseti healthcheck --config /config/forseti.yml` SHALL exit 0
 
-- **WHEN** the healthcheck runs and one target fails Login (connection refused, auth error, or timeout)
-- **THEN** the command SHALL print `[<name>] error: <reason>` for the failing target, print `[<name>] ok` for healthy targets, and exit with code 1
-
-#### Scenario: All targets unreachable
-
-- **WHEN** the healthcheck runs and no target responds
-- **THEN** the command SHALL print error lines for each target and exit with code 1
-
-### Requirement: Healthcheck requires config flag
-
-The healthcheck subcommand SHALL require the `--config <path>` flag, consistent with `plan`, `apply`, and `watch`.
-
-#### Scenario: Missing config flag
-
-- **WHEN** `forseti healthcheck` is invoked without `--config`
-- **THEN** the command SHALL print an error message and exit with code 1
-
-### Requirement: Healthcheck has a per-target timeout
-
-Each target probe SHALL be bounded by a 5-second timeout. If a target does not respond within the timeout, it SHALL be reported as unreachable.
-
-#### Scenario: Target exceeds timeout
-
-- **WHEN** a Pi-hole target does not respond within 5 seconds
-- **THEN** the command SHALL report that target as a timeout error and continue probing remaining targets
-
-### Requirement: Healthcheck cleans up sessions
-
-The healthcheck SHALL close each Pi-hole client session immediately after probing, regardless of success or failure.
-
-#### Scenario: Session cleanup after probe
-
-- **WHEN** the healthcheck completes probing a target
-- **THEN** the client session SHALL be closed before probing the next target
+#### Scenario: Invalid config edit
+- **WHEN** the config file was edited into an invalid state while the daemon keeps running with the previous config
+- **THEN** the healthcheck SHALL still exit 0

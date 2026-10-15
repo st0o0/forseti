@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/st0o0/forseti/internal/config"
+	"github.com/st0o0/forseti/internal/logging/logtest"
 	"github.com/st0o0/forseti/internal/session"
 )
 
@@ -884,5 +885,25 @@ func TestUpdateTargetsEnablesTriggerForNewTarget(t *testing.T) {
 	}
 	if len(rec.runs) != 1 {
 		t.Errorf("gravity runs = %d, want 1", len(rec.runs))
+	}
+}
+
+func TestGravityEvents(t *testing.T) {
+	rec := logtest.New(t)
+	srv := newGravityTestServer()
+	defer srv.Close()
+
+	pool := session.NewPool()
+	sched, _ := NewScheduler(pool, []config.Target{{Name: "pi", URL: srv.URL, Password: "pw"}}, nil)
+
+	if err := sched.TriggerNow("pi", ReasonAdlistChange); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(rec.Find("gravity started")); n != 1 {
+		t.Errorf("gravity started events = %d", n)
+	}
+	fin := rec.Find("gravity finished")
+	if len(fin) != 1 || fin[0].Attrs["status"] != "ok" || fin[0].Attrs["component"] != "gravity" {
+		t.Errorf("gravity finished = %+v", fin)
 	}
 }

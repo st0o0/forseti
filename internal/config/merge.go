@@ -2,11 +2,12 @@ package config
 
 import (
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/st0o0/forseti/internal/redact"
 )
 
 func resolveTargets(cfg *Config, configDir string) ([]ResolvedTarget, error) {
@@ -143,7 +144,7 @@ func applyExcludes(rt *ResolvedTarget, ex *ExcludeBlock) {
 			return false
 		})
 		if !found {
-			slog.Warn("exclude: group not found in effective config", "name", e.Name, "target", rt.Name)
+			rt.Warnings = append(rt.Warnings, fmt.Sprintf("exclude: group %q not found in effective config", e.Name))
 		}
 	}
 
@@ -157,7 +158,7 @@ func applyExcludes(rt *ResolvedTarget, ex *ExcludeBlock) {
 			return false
 		})
 		if !found {
-			slog.Warn("exclude: adlist not found in effective config", "url", e.URL, "target", rt.Name)
+			rt.Warnings = append(rt.Warnings, fmt.Sprintf("exclude: adlist %q not found in effective config", redact.URL(e.URL)))
 		}
 	}
 
@@ -171,7 +172,7 @@ func applyExcludes(rt *ResolvedTarget, ex *ExcludeBlock) {
 			return false
 		})
 		if !found {
-			slog.Warn("exclude: deny entry not found in effective config", "domain", e.Domain, "target", rt.Name)
+			rt.Warnings = append(rt.Warnings, fmt.Sprintf("exclude: deny entry %q not found in effective config", e.Domain))
 		}
 	}
 
@@ -185,7 +186,7 @@ func applyExcludes(rt *ResolvedTarget, ex *ExcludeBlock) {
 			return false
 		})
 		if !found {
-			slog.Warn("exclude: allow entry not found in effective config", "domain", e.Domain, "target", rt.Name)
+			rt.Warnings = append(rt.Warnings, fmt.Sprintf("exclude: allow entry %q not found in effective config", e.Domain))
 		}
 	}
 
@@ -199,7 +200,7 @@ func applyExcludes(rt *ResolvedTarget, ex *ExcludeBlock) {
 			return false
 		})
 		if !found {
-			slog.Warn("exclude: local_dns entry not found in effective config", "domain", e.Domain, "target", rt.Name)
+			rt.Warnings = append(rt.Warnings, fmt.Sprintf("exclude: local_dns entry %q not found in effective config", e.Domain))
 		}
 	}
 
@@ -213,7 +214,7 @@ func applyExcludes(rt *ResolvedTarget, ex *ExcludeBlock) {
 			return false
 		})
 		if !found {
-			slog.Warn("exclude: cname entry not found in effective config", "domain", e.Domain, "target", rt.Name)
+			rt.Warnings = append(rt.Warnings, fmt.Sprintf("exclude: cname entry %q not found in effective config", e.Domain))
 		}
 	}
 
@@ -227,7 +228,7 @@ func applyExcludes(rt *ResolvedTarget, ex *ExcludeBlock) {
 			return false
 		})
 		if !found {
-			slog.Warn("exclude: client not found in effective config", "match", e.Match, "target", rt.Name)
+			rt.Warnings = append(rt.Warnings, fmt.Sprintf("exclude: client %q not found in effective config", e.Match))
 		}
 	}
 }

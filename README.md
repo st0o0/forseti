@@ -51,7 +51,7 @@ docker run -d -v ./forseti.yml:/config/forseti.yml:ro \
 | `forseti plan --config <path>` | Dry-run: show what would change without applying |
 | `forseti apply --config <path>` | Reconcile desired state (one-shot) |
 | `forseti watch --config <path>` | Daemon mode with periodic reconcile, metrics server, and gravity scheduler |
-| `forseti healthcheck --config <path>` | Liveness probe -- login to all targets (5s timeout) |
+| `forseti healthcheck [--config <path> \| --addr <host:port>]` | Liveness probe: `GET /healthz` on the running daemon (3s timeout). Does not contact Pi-hole. |
 | `forseti version` | Print version |
 
 ## Configuration
@@ -199,10 +199,10 @@ Forseti does not keep its own record of "domains seen before" — each cycle der
 Per-domain detail is emitted as a structured log event (not a Prometheus label, to avoid unbounded metric cardinality):
 
 ```json
-{"time":"...","level":"INFO","msg":"new_blocked_domain","target":"pizero","domain":"click.example.com","first_seen":"2026-10-05T08:11:00Z","count_24h":14}
+{"time":"...","level":"INFO","msg":"new_blocked_domain","component":"newdomains","target":"pizero","domain":"click.example.com","first_seen":"2026-10-05T08:11:00Z","count_24h":14}
 ```
 
-Every newly detected domain is logged — there is no built-in count threshold. Filter or alert on `count_24h` downstream (e.g., in Grafana/LogQL) if you want to ignore one-off queries.
+Every newly detected domain is logged once per 24h window — there is no built-in count threshold. Later detection runs that still see the domain as new count it in the gauge but do not log it again (this de-duplication is in memory, so a restart may log a domain once more). Filter or alert on `count_24h` downstream (e.g., in Grafana/LogQL) if you want to ignore one-off queries.
 
 The aggregated count per target is exposed as `forseti_new_blocked_domains_24h{target="..."}`, with no `domain` label.
 
@@ -373,6 +373,54 @@ adlists:
     groups: [default]
 ```
 
+## Logging
+
+Forseti logs one line per event to stdout (`plan` and `apply` log to stderr so their output can be piped). Every line has a `component` (`main`, `config`, `http`, `session`, `worker`, `sync`, `reconcile`, `pihole`, `collector`, `newdomains`, `gravity`) and, where applicable, a `target`. `log_level` changes take effect on config reload; `log_format` changes need a restart. Set `TZ` (e.g. `TZ=Europe/Berlin`) to get local timestamps and gravity schedules.
+
+**Levels**: `error` = something failed and needs attention, `warn` = degraded or self-healing, `info` = lifecycle and changes, `debug` = per-request, per-item and retry detail.
+
+**Lifecycle events** (stable message strings, safe to alert on):
+
+| Message | Level | Key attributes |
+|---------|-------|----------------|
+| `forseti starting` | info | `version`, `mode`, `config`, `tz` |
+| `config loaded` | info | `mode`, `targets`, `interval`; sync: `primary`, `replicas`, `resources`; config: resource counts |
+| `config warning` | warn | `target`, `reason` |
+| `http server listening` | info | `addr`, `endpoints` |
+| `target connected` / `target unreachable` | info / warn | `target`, `source`, `error` — logged on change only |
+| `run finished` | debug (no changes) / info (changes) / warn (partial) / error (failed) | `target`, `role`, `status`, `stage`, `added`, `updated`, `deleted`, `failed`, `<resource>.<action>`, `errors` |
+| `cycle complete` | info | `mode`, `targets`, `ok`, `partial`, `failed`, `skipped`, `changes`, `next_run` — every cycle, also when nothing changed |
+| `target degraded` / `target down` / `target recovered` | warn / error / info | `target`, `consecutive_failures`, `retry_at`, `failures`, `downtime` |
+| `config reloaded` / `config reload failed` | info / error | `changed`, `targets_added`, `targets_removed` / `error` |
+| `gravity scheduled` / `gravity started` / `gravity finished` | info (finished with error: error) | `target`, `schedule`, `next_run`, `reason`, `status`, `duration` |
+| `setting applied` | info | `target`, `setting`, `from`, `to` (secrets shown as `[REDACTED]`) |
+| `shutting down` / `stopped` | info | `uptime` |
+
+A target becomes `degraded` on its first failed run and `down` after 5 consecutive failures; failing targets back off (`min(failures × interval, 30m)`). In sync mode, if the primary cannot be read, replica runs in that cycle are `skipped`.
+
+Example (sync mode, replica outage and recovery):
+
+```
+level=INFO msg="forseti starting" component=main version=0.2.0 mode=sync config=/config/forseti.yml tz=Europe/Berlin
+level=INFO msg="config loaded" component=main mode=sync targets=2 interval=5m0s primary=pihole-alpha replicas=[pihole-beta] resources="[groups adlists clients]"
+level=INFO msg="target connected" component=session target=pihole-alpha
+level=WARN msg="target unreachable" component=session target=pihole-beta source=worker error="... connection refused"
+level=ERROR msg="run finished" component=sync target=pihole-beta role=replica status=failed stage=session ... consecutive_failures=1
+level=WARN msg="target degraded" component=sync target=pihole-beta consecutive_failures=1 retry_at=...
+level=INFO msg="cycle complete" component=sync mode=sync targets=2 ok=1 partial=0 failed=1 skipped=0 changes=0 next_run=...
+level=INFO msg="target connected" component=session target=pihole-beta
+level=INFO msg="run finished" component=sync target=pihole-beta role=replica status=ok added=14 ... clients.added=12 adlists.added=2
+level=INFO msg="target recovered" component=sync target=pihole-beta from=degraded failures=1 downtime=5m0s
+```
+
+URL credentials and query values (e.g. `?token=`) are redacted in logs and errors; passwords are never logged.
+
+## Health check
+
+The metrics server also serves `GET /healthz`: `200 {"status":"ok"}` while the watch loop completes cycles, `503 {"status":"stalled"}` if no cycle finished within `max(3 × interval, interval + 2m)`. It reflects Forseti's own liveness, not Pi-hole reachability — use `forseti_target_reachable` / `forseti_target_health` for that. The image's Docker `HEALTHCHECK` runs `forseti healthcheck`, which probes this endpoint (port from `metrics.port`, default 9099) and keeps working while an invalid config edit is pending.
+
+Do not expose port 9099 publicly; `/metrics` and `/healthz` are unauthenticated.
+
 ## Docker Compose
 
 ```yaml
@@ -408,7 +456,7 @@ Individual metric families can be disabled via `metrics.collectors.*` toggles in
 |--------|--------|-------------|
 | `forseti_reconcile_runs_total` | `target`, `status` | Reconcile/sync run count. `success`: no errors; `partial`: target reached but some item writes failed; `error`: run could not complete |
 | `forseti_reconcile_duration_seconds` | `target` | Reconcile cycle duration (histogram) |
-| `forseti_reconcile_changes_total` | `target`, `type`, `action` | Changes applied (add/update/delete per resource type) |
+| `forseti_reconcile_changes_total` | `target`, `type`, `action` | Changes successfully applied (add/update/delete per resource type); failed writes are not counted |
 | `forseti_reconcile_drift` | `target`, `type` | Current drift count per resource type |
 
 ### Pi-hole stats
@@ -467,7 +515,7 @@ Individual metric families can be disabled via `metrics.collectors.*` toggles in
 | `forseti_collector_fetches_total` | `target`, `status` | |
 | `forseti_collector_cache_hits_total` | `target` | |
 | `forseti_collector_cache_stale_total` | `target` | |
-| `forseti_target_health` | `target` | `0` = healthy, `1` = degraded, `2` = down (config mode, updated after every cycle) |
+| `forseti_target_health` | `target` | `0` = healthy, `1` = degraded, `2` = down (5+ consecutive failures); updated after every run in both modes |
 
 ## Critical invariants
 

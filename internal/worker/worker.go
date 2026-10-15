@@ -1,19 +1,21 @@
 package worker
 
 import (
+	"errors"
 	"log/slog"
 	"time"
 
 	"github.com/st0o0/forseti/internal/config"
-	"github.com/st0o0/forseti/internal/metrics"
+	"github.com/st0o0/forseti/internal/logging"
 	"github.com/st0o0/forseti/internal/pihole"
-	"github.com/st0o0/forseti/internal/reconcile"
+	"github.com/st0o0/forseti/internal/redact"
+	"github.com/st0o0/forseti/internal/run"
 )
 
 type HealthState int
 
 const (
-	Healthy  HealthState = iota
+	Healthy HealthState = iota
 	Degraded
 	Down
 )
@@ -31,6 +33,12 @@ func (h HealthState) String() string {
 	}
 }
 
+// downThreshold is the number of consecutive failed runs after which a
+// target is considered down.
+const downThreshold = 5
+
+const maxBackoff = 30 * time.Minute
+
 type TargetHealth struct {
 	State            HealthState
 	ConsecutiveFails int
@@ -40,190 +48,182 @@ type TargetHealth struct {
 }
 
 type Dependencies struct {
-	Sessions  SessionManager
-	Settings  SettingsReconciler
-	Content   ContentReconciler
-	Gravity   GravityTrigger
-	Recorder  Recorder
-	Interval  time.Duration
-	Marker    string
-	LocalDNSPurge bool
-	CNAMEPurge    bool
+	Sessions        SessionManager
+	Settings        SettingsReconciler
+	Content         ContentReconciler
+	Gravity         GravityTrigger
+	Recorder        Recorder
+	Reachability    Reachability
+	Interval        time.Duration
+	Marker          string
+	LocalDNSPurge   bool
+	CNAMEPurge      bool
 	GravityOnChange bool
+	// Log is the logger for run and health events; defaults to
+	// component=worker.
+	Log *slog.Logger
 }
 
 type TargetWorker struct {
 	rt   config.ResolvedTarget
 	deps Dependencies
+	log  *slog.Logger
 
 	health           HealthState
 	consecutiveFails int
 	lastError        error
 	lastSuccess      time.Time
+	failingSince     time.Time
 	backoffUntil     time.Time
 }
 
 func NewTargetWorker(rt config.ResolvedTarget, deps Dependencies) *TargetWorker {
+	log := deps.Log
+	if log == nil {
+		log = logging.Component("worker")
+	}
 	return &TargetWorker{
 		rt:     rt,
 		deps:   deps,
+		log:    log,
 		health: Healthy,
 	}
 }
 
+// stageError names the stage at which a runner failed.
+type stageError struct {
+	stage       string
+	unreachable bool
+	err         error
+}
+
+func (e *stageError) Error() string { return e.err.Error() }
+func (e *stageError) Unwrap() error { return e.err }
+
+// StageError wraps err with the run stage it occurred in. If unreachable is
+// true the target is reported as unreachable.
+func StageError(stage string, unreachable bool, err error) error {
+	return &stageError{stage: stage, unreachable: unreachable, err: err}
+}
+
+// Reconcile runs a config-mode cycle for this target and returns the fatal
+// error of a failed run.
 func (w *TargetWorker) Reconcile() error {
-	w.deps.Sessions.Acquire(w.rt.Name)
-	defer w.deps.Sessions.Release(w.rt.Name)
-
-	start := time.Now()
-
-	client, err := w.deps.Sessions.Get(w.rt.Target)
-	if err != nil {
-		slog.Error("session error", "target", w.rt.Name, "error", err)
-		w.deps.Sessions.Invalidate(w.rt.Name)
-		w.deps.Recorder.MarkTargetUnreachable(w.rt.Name)
-		return w.fail(start, err)
+	res := w.Run(&ConfigRunner{w: w})
+	if res.Status == run.Failed {
+		return res.Err
 	}
-
-	if err := client.CheckReadiness(); err != nil {
-		slog.Error("target not ready", "target", w.rt.Name, "error", err)
-		w.deps.Recorder.MarkTargetUnreachable(w.rt.Name)
-		return w.fail(start, err)
-	}
-	w.deps.Recorder.MarkTargetReachable(w.rt.Name)
-
-	client, err = w.reconcileSettings(client)
-	if err != nil {
-		w.deps.Recorder.MarkTargetUnreachable(w.rt.Name)
-		return w.fail(start, err)
-	}
-
-	report, err := w.deps.Content.Apply(&w.rt, client, reconcile.ReconcileOptions{
-		Marker:        w.deps.Marker,
-		LocalDNSPurge: w.deps.LocalDNSPurge,
-		CNAMEPurge:    w.deps.CNAMEPurge,
-	})
-	duration := time.Since(start)
-
-	if err != nil {
-		if pihole.IsGravityCorrupted(err) {
-			slog.Error("gravity database corrupted, skipping target", "target", w.rt.Name, "error", err)
-			w.health = Down
-		} else {
-			slog.Error("reconcile error", "target", w.rt.Name, "error", err)
-		}
-		w.deps.Sessions.Invalidate(w.rt.Name)
-		return w.fail(start, err)
-	}
-
-	for _, e := range report.Errors {
-		slog.Warn("reconcile warning", "target", w.rt.Name, "error", e)
-	}
-
-	status := metrics.RunSuccess
-	if len(report.Errors) > 0 {
-		status = metrics.RunPartial
-	}
-	changes := buildChangesMap(&report.Diff)
-	drift := buildDriftMap(&report.Diff)
-	w.deps.Recorder.RecordReconcileResult(w.rt.Name, duration, status, changes, drift)
-
-	if report.Diff.NeedsGravity && w.deps.GravityOnChange {
-		if err := client.CheckReadiness(); err != nil {
-			slog.Warn("skipping gravity, target not ready", "target", w.rt.Name, "error", err)
-		} else {
-			w.deps.Gravity.TriggerAsync(w.rt.Name, "adlist_change")
-		}
-	}
-
-	if hasDiff(&report.Diff) {
-		slog.Info("reconciled", "target", w.rt.Name, "duration", duration.Round(time.Millisecond))
-	} else {
-		slog.Debug("no drift", "target", w.rt.Name, "duration", duration.Round(time.Millisecond))
-	}
-
-	w.recordSuccess()
-	w.deps.Recorder.RecordTargetHealth(w.rt.Name, w.health.String())
 	return nil
 }
 
-// fail records an error run outcome, updates failure state and publishes the
-// resulting health. It returns err for convenience.
-func (w *TargetWorker) fail(start time.Time, err error) error {
-	w.deps.Recorder.RecordReconcileResult(w.rt.Name, time.Since(start), metrics.RunError, nil, nil)
-	w.recordFailure(err)
+// Run executes one run through the shared envelope: acquire gate, get
+// session, check readiness, run the mode-specific step, then classify the
+// outcome, record metrics, log and update health.
+func (w *TargetWorker) Run(r Runner) run.Result {
+	name := w.rt.Name
+	res := run.Result{Target: name, Role: w.rt.Role, Started: time.Now()}
+
+	w.deps.Sessions.Acquire(name)
+	defer w.deps.Sessions.Release(name)
+
+	client, err := w.deps.Sessions.Get(w.rt.Target)
+	if err != nil {
+		w.deps.Sessions.Invalidate(name)
+		w.observe(err)
+		res.Fail(run.StageSession, err)
+		return w.finish(res, false)
+	}
+
+	if err := client.CheckReadiness(); err != nil {
+		w.observe(err)
+		res.Fail(run.StageReadiness, err)
+		return w.finish(res, false)
+	}
+	w.observe(nil)
+
+	if err := r.Run(client, &res); err != nil {
+		stage := run.StageApply
+		var se *stageError
+		if errors.As(err, &se) {
+			stage = se.stage
+			if se.unreachable {
+				w.observe(err)
+			}
+		}
+		w.deps.Sessions.Invalidate(name)
+		res.Fail(stage, err)
+		return w.finish(res, pihole.IsGravityCorrupted(err))
+	}
+	return w.finish(res, false)
+}
+
+// Skip returns a skipped result (backoff, primary unavailable) without
+// touching health. It is logged at debug level and not recorded in metrics.
+func (w *TargetWorker) Skip(stage string) run.Result {
+	res := run.Result{Target: w.rt.Name, Role: w.rt.Role, Started: time.Now(), Status: run.Skipped, Stage: stage}
+	res.Finish()
+	attrs := []any{"target", res.Target, "status", res.Status, "stage", stage}
+	if stage == run.StageBackoff {
+		attrs = append(attrs, "retry_at", w.backoffUntil.Format(time.RFC3339))
+	}
+	w.log.Debug("run finished", attrs...)
+	return res
+}
+
+func (w *TargetWorker) observe(err error) {
+	if w.deps.Reachability != nil {
+		w.deps.Reachability.Observe(w.rt.Name, "worker", err)
+	}
+}
+
+// finish classifies the result, records it, logs it and updates health.
+func (w *TargetWorker) finish(res run.Result, corrupted bool) run.Result {
+	res.Finish()
+	w.deps.Recorder.RecordRun(res)
+	w.logRun(res)
+
+	if res.Status == run.Failed {
+		w.recordFailure(res.Err, corrupted)
+	} else {
+		w.recordSuccess()
+	}
 	w.deps.Recorder.RecordTargetHealth(w.rt.Name, w.health.String())
-	return err
+	return res
 }
 
-func (w *TargetWorker) reconcileSettings(client *pihole.Client) (*pihole.Client, error) {
-	if w.rt.Settings.IsEmpty() {
-		return client, nil
+func (w *TargetWorker) logRun(res run.Result) {
+	attrs := []any{"target", res.Target}
+	if res.Role != "" {
+		attrs = append(attrs, "role", res.Role)
+	}
+	attrs = append(attrs, "status", res.Status, "duration", res.Duration.Round(time.Millisecond))
+	if res.Stage != "" {
+		attrs = append(attrs, "stage", res.Stage)
+	}
+	// Inline the counts (added=.. clients.added=..) as top-level attributes.
+	attrs = append(attrs, slog.Attr{Key: "", Value: res.LogValue()})
+	if errs := res.ErrorStrings(3); len(errs) > 0 {
+		attrs = append(attrs, "errors", errs)
 	}
 
-	settingsDiff, err := w.deps.Settings.Diff(&w.rt.Settings, client)
-	if err != nil {
-		slog.Error("settings diff error", "target", w.rt.Name, "error", err)
-	} else {
-		w.reportSettingsDrift(settingsDiff)
+	switch res.Status {
+	case run.Failed:
+		attrs = append(attrs, "consecutive_failures", w.consecutiveFails+1)
+		w.log.Error("run finished", attrs...)
+	case run.Partial:
+		w.log.Warn("run finished", attrs...)
+	default:
+		if res.Totals().Changes() > 0 {
+			w.log.Info("run finished", attrs...)
+		} else {
+			w.log.Debug("run finished", attrs...)
+		}
 	}
-
-	if _, err := w.deps.Settings.Apply(w.rt.Name, &w.rt.Settings, client); err != nil {
-		slog.Error("settings reconcile error", "target", w.rt.Name, "error", err)
-		return client, nil
-	}
-
-	if settingsDiff == nil || !settingsDiff.HasChanges() {
-		return client, nil
-	}
-
-	slog.Info("waiting for FTL ready after settings change", "target", w.rt.Name)
-	if err := client.WaitForReady(30*time.Second, 500*time.Millisecond); err != nil {
-		slog.Error("FTL not ready after settings change", "target", w.rt.Name, "error", err)
-		w.deps.Sessions.Invalidate(w.rt.Name)
-		return nil, err
-	}
-
-	w.deps.Sessions.Invalidate(w.rt.Name)
-	newClient, err := w.deps.Sessions.Get(w.rt.Target)
-	if err != nil {
-		slog.Error("session error after settings change", "target", w.rt.Name, "error", err)
-		w.deps.Sessions.Invalidate(w.rt.Name)
-		return nil, err
-	}
-
-	if err := newClient.CheckReadiness(); err != nil {
-		slog.Error("target not ready after settings change", "target", w.rt.Name, "error", err)
-		w.deps.Sessions.Invalidate(w.rt.Name)
-		return nil, err
-	}
-
-	postDiff, err := w.deps.Settings.Diff(&w.rt.Settings, newClient)
-	if err != nil {
-		slog.Error("settings post-apply diff error", "target", w.rt.Name, "error", err)
-	} else {
-		w.reportSettingsDrift(postDiff)
-	}
-
-	return newClient, nil
-}
-
-func (w *TargetWorker) reportSettingsDrift(diff *reconcile.SettingsDiff) {
-	drifted := make(map[string]bool)
-	for _, m := range w.deps.Settings.BuildDesiredList(&w.rt.Settings) {
-		drifted[m.ForsetiPath] = false
-	}
-	for _, c := range diff.Changes {
-		drifted[c.Name] = true
-	}
-	w.deps.Recorder.UpdateSettingsDrift(w.rt.Name, drifted)
 }
 
 func (w *TargetWorker) UpdateConfig(rt config.ResolvedTarget) {
 	w.rt = rt
 }
-
-const maxBackoff = 30 * time.Minute
 
 func (w *TargetWorker) ShouldSkip(now time.Time) bool {
 	return !w.backoffUntil.IsZero() && now.Before(w.backoffUntil)
@@ -244,66 +244,63 @@ func (w *TargetWorker) Name() string {
 }
 
 func (w *TargetWorker) recordSuccess() {
+	if w.health != Healthy {
+		w.log.Info("target recovered",
+			"target", w.rt.Name,
+			"from", w.health.String(),
+			"failures", w.consecutiveFails,
+			"downtime", time.Since(w.failingSince).Round(time.Second),
+		)
+	}
 	w.health = Healthy
 	w.consecutiveFails = 0
 	w.lastError = nil
 	w.lastSuccess = time.Now()
+	w.failingSince = time.Time{}
 	w.backoffUntil = time.Time{}
 }
 
-func (w *TargetWorker) recordFailure(err error) {
+func (w *TargetWorker) recordFailure(err error, corrupted bool) {
+	prev := w.health
 	w.consecutiveFails++
 	w.lastError = err
-	if w.health != Down {
+	if w.consecutiveFails == 1 {
+		w.failingSince = time.Now()
+	}
+
+	switch {
+	case corrupted || w.consecutiveFails >= downThreshold:
+		w.health = Down
+	case w.health != Down:
 		w.health = Degraded
 	}
+
 	backoff := time.Duration(w.consecutiveFails) * w.deps.Interval
 	if backoff > maxBackoff {
 		backoff = maxBackoff
 	}
 	w.backoffUntil = time.Now().Add(backoff)
-}
 
-func buildChangesMap(diff *reconcile.DiffReport) map[string]map[string]int {
-	m := make(map[string]map[string]int)
-	add := func(name string, d reconcile.ResourceDiff) {
-		if !d.HasChanges() {
-			return
-		}
-		m[name] = map[string]int{
-			"add":    len(d.Adds),
-			"update": len(d.Updates),
-			"delete": len(d.Deletes),
-		}
+	if prev == w.health {
+		return
 	}
-	add("groups", diff.Groups)
-	add("adlists", diff.Adlists)
-	add("deny", diff.Deny)
-	add("allow", diff.Allow)
-	add("local_dns", diff.LocalDNS)
-	add("cname", diff.CNAME)
-	add("clients", diff.Clients)
-	return m
-}
-
-func buildDriftMap(diff *reconcile.DiffReport) map[string]int {
-	m := make(map[string]int, 7)
-	count := func(name string, d reconcile.ResourceDiff) {
-		m[name] = len(d.Adds) + len(d.Updates) + len(d.Deletes)
+	msg := ""
+	if err != nil {
+		msg = redact.Text(err.Error())
 	}
-	count("groups", diff.Groups)
-	count("adlists", diff.Adlists)
-	count("deny", diff.Deny)
-	count("allow", diff.Allow)
-	count("local_dns", diff.LocalDNS)
-	count("cname", diff.CNAME)
-	count("clients", diff.Clients)
-	return m
-}
-
-func hasDiff(diff *reconcile.DiffReport) bool {
-	return diff.Groups.HasChanges() || diff.Adlists.HasChanges() ||
-		diff.Deny.HasChanges() || diff.Allow.HasChanges() ||
-		diff.LocalDNS.HasChanges() || diff.CNAME.HasChanges() ||
-		diff.Clients.HasChanges()
+	switch w.health {
+	case Degraded:
+		w.log.Warn("target degraded",
+			"target", w.rt.Name,
+			"consecutive_failures", w.consecutiveFails,
+			"retry_at", w.backoffUntil.Format(time.RFC3339),
+			"error", msg,
+		)
+	case Down:
+		attrs := []any{"target", w.rt.Name, "consecutive_failures", w.consecutiveFails, "error", msg}
+		if corrupted {
+			attrs = append(attrs, "reason", "gravity_corrupted")
+		}
+		w.log.Error("target down", attrs...)
+	}
 }
