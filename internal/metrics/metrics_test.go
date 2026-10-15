@@ -45,7 +45,7 @@ func TestRecordReconcile(t *testing.T) {
 	s.RecordReconcile(ReconcileResult{
 		Target:   "pihole-test",
 		Duration: 2 * time.Second,
-		Success:  true,
+		Status:   RunSuccess,
 		Changes: map[string]map[string]int{
 			"adlist": {"add": 3, "delete": 1},
 		},
@@ -298,19 +298,51 @@ func TestRecordReconcileError(t *testing.T) {
 	s.RecordReconcile(ReconcileResult{
 		Target:   "pihole-fail",
 		Duration: 1 * time.Second,
-		Success:  false,
+		Status:   RunError,
 	})
 
 	val := getCounterValue(t, s.reconcileRuns, "pihole-fail", "error")
 	if val != 1 {
 		t.Errorf("error runs = %f, want 1", val)
 	}
+}
+
+func TestRecordReconcilePartial(t *testing.T) {
+	s := NewServer(0, "/metrics", config.CollectorToggles{})
+	s.MarkTargetReachable("pihole-partial")
+
+	s.RecordReconcile(ReconcileResult{
+		Target:   "pihole-partial",
+		Duration: 1 * time.Second,
+		Status:   RunPartial,
+	})
+
+	if val := getCounterValue(t, s.reconcileRuns, "pihole-partial", "partial"); val != 1 {
+		t.Errorf("partial runs = %f, want 1", val)
+	}
+	if val := getCounterValue(t, s.reconcileRuns, "pihole-partial", "success"); val != 0 {
+		t.Errorf("success runs = %f, want 0", val)
+	}
 
 	m := &dto.Metric{}
-	g, _ := s.targetReachable.GetMetricWithLabelValues("pihole-fail")
+	g, _ := s.targetReachable.GetMetricWithLabelValues("pihole-partial")
 	_ = g.Write(m)
-	if m.GetGauge().GetValue() != 0 {
-		t.Errorf("reachable = %f, want 0 on failure", m.GetGauge().GetValue())
+	if m.GetGauge().GetValue() != 1 {
+		t.Errorf("reachable = %f, want 1 (run outcome must not change reachability)", m.GetGauge().GetValue())
+	}
+}
+
+func TestRecordReconcileDoesNotTouchReachable(t *testing.T) {
+	s := NewServer(0, "/metrics", config.CollectorToggles{})
+	s.MarkTargetReachable("pihole-x")
+
+	s.RecordReconcile(ReconcileResult{Target: "pihole-x", Status: RunError})
+
+	m := &dto.Metric{}
+	g, _ := s.targetReachable.GetMetricWithLabelValues("pihole-x")
+	_ = g.Write(m)
+	if m.GetGauge().GetValue() != 1 {
+		t.Errorf("reachable = %f, want 1", m.GetGauge().GetValue())
 	}
 }
 

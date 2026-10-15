@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/st0o0/forseti/internal/config"
+	"github.com/st0o0/forseti/internal/metrics"
 	"github.com/st0o0/forseti/internal/pihole"
 	"github.com/st0o0/forseti/internal/reconcile"
 )
@@ -81,23 +82,20 @@ func (w *TargetWorker) Reconcile() error {
 		slog.Error("session error", "target", w.rt.Name, "error", err)
 		w.deps.Sessions.Invalidate(w.rt.Name)
 		w.deps.Recorder.MarkTargetUnreachable(w.rt.Name)
-		w.recordFailure(err)
-		w.deps.Recorder.RecordTargetHealth(w.rt.Name, w.health.String())
-		return err
+		return w.fail(start, err)
 	}
 
 	if err := client.CheckReadiness(); err != nil {
 		slog.Error("target not ready", "target", w.rt.Name, "error", err)
 		w.deps.Recorder.MarkTargetUnreachable(w.rt.Name)
-		w.recordFailure(err)
-		return err
+		return w.fail(start, err)
 	}
+	w.deps.Recorder.MarkTargetReachable(w.rt.Name)
 
 	client, err = w.reconcileSettings(client)
 	if err != nil {
 		w.deps.Recorder.MarkTargetUnreachable(w.rt.Name)
-		w.recordFailure(err)
-		return err
+		return w.fail(start, err)
 	}
 
 	report, err := w.deps.Content.Apply(&w.rt, client, reconcile.ReconcileOptions{
@@ -114,20 +112,21 @@ func (w *TargetWorker) Reconcile() error {
 		} else {
 			slog.Error("reconcile error", "target", w.rt.Name, "error", err)
 		}
-		w.deps.Recorder.RecordReconcileResult(w.rt.Name, duration, false, nil, nil)
 		w.deps.Sessions.Invalidate(w.rt.Name)
-		w.deps.Recorder.MarkTargetUnreachable(w.rt.Name)
-		w.recordFailure(err)
-		return err
+		return w.fail(start, err)
 	}
 
 	for _, e := range report.Errors {
 		slog.Warn("reconcile warning", "target", w.rt.Name, "error", e)
 	}
 
+	status := metrics.RunSuccess
+	if len(report.Errors) > 0 {
+		status = metrics.RunPartial
+	}
 	changes := buildChangesMap(&report.Diff)
 	drift := buildDriftMap(&report.Diff)
-	w.deps.Recorder.RecordReconcileResult(w.rt.Name, duration, len(report.Errors) == 0, changes, drift)
+	w.deps.Recorder.RecordReconcileResult(w.rt.Name, duration, status, changes, drift)
 
 	if report.Diff.NeedsGravity && w.deps.GravityOnChange {
 		if err := client.CheckReadiness(); err != nil {
@@ -146,6 +145,15 @@ func (w *TargetWorker) Reconcile() error {
 	w.recordSuccess()
 	w.deps.Recorder.RecordTargetHealth(w.rt.Name, w.health.String())
 	return nil
+}
+
+// fail records an error run outcome, updates failure state and publishes the
+// resulting health. It returns err for convenience.
+func (w *TargetWorker) fail(start time.Time, err error) error {
+	w.deps.Recorder.RecordReconcileResult(w.rt.Name, time.Since(start), metrics.RunError, nil, nil)
+	w.recordFailure(err)
+	w.deps.Recorder.RecordTargetHealth(w.rt.Name, w.health.String())
+	return err
 }
 
 func (w *TargetWorker) reconcileSettings(client *pihole.Client) (*pihole.Client, error) {

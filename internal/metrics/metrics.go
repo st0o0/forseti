@@ -398,10 +398,17 @@ func (s *Server) SetConfigMetrics(cfg *config.Config) {
 	s.configAllowDomains.Set(float64(len(cfg.Allow)))
 }
 
+// Run status values for forseti_reconcile_runs_total.
+const (
+	RunSuccess = "success"
+	RunPartial = "partial"
+	RunError   = "error"
+)
+
 type ReconcileResult struct {
 	Target   string
 	Duration time.Duration
-	Success  bool
+	Status   string
 	Changes  map[string]map[string]int
 	Drift    map[string]int
 }
@@ -410,13 +417,12 @@ func (s *Server) RecordReconcile(r ReconcileResult) {
 	if s.reconcileRuns == nil {
 		return
 	}
-	status := "success"
-	if !r.Success {
-		status = "error"
+	status := r.Status
+	if status == "" {
+		status = RunSuccess
 	}
 	s.reconcileRuns.WithLabelValues(r.Target, status).Inc()
 	s.reconcileDuration.WithLabelValues(r.Target).Observe(r.Duration.Seconds())
-	s.targetReachable.WithLabelValues(r.Target).Set(boolToFloat(r.Success))
 
 	for resType, actions := range r.Changes {
 		for action, count := range actions {
@@ -507,6 +513,10 @@ func (s *Server) MarkTargetUnreachable(target string) {
 	s.targetReachable.WithLabelValues(target).Set(0)
 }
 
+func (s *Server) MarkTargetReachable(target string) {
+	s.targetReachable.WithLabelValues(target).Set(1)
+}
+
 func (s *Server) RecordTargetHealth(target string, state string) {
 	var val float64
 	switch state {
@@ -520,11 +530,11 @@ func (s *Server) RecordTargetHealth(target string, state string) {
 	s.targetHealth.WithLabelValues(target).Set(val)
 }
 
-func (s *Server) RecordReconcileResult(target string, duration time.Duration, success bool, changes map[string]map[string]int, drift map[string]int) {
+func (s *Server) RecordReconcileResult(target string, duration time.Duration, status string, changes map[string]map[string]int, drift map[string]int) {
 	s.RecordReconcile(ReconcileResult{
 		Target:   target,
 		Duration: duration,
-		Success:  success,
+		Status:   status,
 		Changes:  changes,
 		Drift:    drift,
 	})
