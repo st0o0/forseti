@@ -1,6 +1,10 @@
 # Config
 
+## Purpose
+
 YAML configuration parsing, environment variable expansion, validation, and multi-target support.
+
+## Requirements
 
 ### Requirement: YAML configuration format
 The system SHALL accept a single YAML file as its primary configuration source. The file defines metrics settings (including collector toggles), Pi-hole targets, reconcile behavior, Pi-hole settings (DNS, blocking, DHCP, webserver, privacy, misc), and all managed resources (adlists, deny domains, allow domains, local DNS records, groups, clients). Targets MAY reference external override files via the `file:` field. Each target MAY include an `api` block with `timeout` (duration) and `max_concurrent` (integer) fields to control per-target API behavior.

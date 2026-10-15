@@ -1,6 +1,10 @@
 # Pi-hole Settings
 
+## Purpose
+
 Forseti-native settings format, mapping to Pi-hole v6 config API, settings reconciliation (read/diff/apply).
+
+## Requirements
 
 ### Requirement: Settings configuration format
 The system SHALL accept a `settings` section at the top level of the config file. This section uses Forseti's own format — a curated subset of Pi-hole FTL configuration values, not a 1:1 mirror of pihole.toml.

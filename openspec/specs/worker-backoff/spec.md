@@ -1,6 +1,10 @@
 # Worker Backoff
 
+## Purpose
+
 Exponential backoff for failing targets with health state transitions.
+
+## Requirements
 
 ### Requirement: Exponential backoff on failure
 The worker SHALL implement backoff that increases with consecutive failures. The backoff formula SHALL be `min(consecutiveFails * reconcileInterval, 30 minutes)`. During backoff, `ShouldSkip()` SHALL return true and the watch loop SHALL skip the worker's reconcile cycle.
