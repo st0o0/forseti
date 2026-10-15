@@ -148,8 +148,8 @@ func (m *mockRecorder) Observe(target, source string, err error) {
 	}
 }
 
-func (m *mockRecorder) RecordTargetHealth(target string, state string) {
-	m.healthStates = append(m.healthStates, state)
+func (m *mockRecorder) RecordTargetState(target string, s run.TargetState) {
+	m.healthStates = append(m.healthStates, s.Health)
 }
 
 func newTestWorker() (*TargetWorker, *mockSessions, *mockSettings, *mockContent, *mockGravity, *mockRecorder) {

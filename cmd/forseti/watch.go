@@ -19,6 +19,7 @@ import (
 	"github.com/st0o0/forseti/internal/reconcile"
 	"github.com/st0o0/forseti/internal/redact"
 	"github.com/st0o0/forseti/internal/session"
+	"github.com/st0o0/forseti/internal/status"
 	forsetisync "github.com/st0o0/forseti/internal/sync"
 	"github.com/st0o0/forseti/internal/targetstate"
 	"github.com/st0o0/forseti/internal/worker"
@@ -80,6 +81,19 @@ func logConfigLoaded(log *slog.Logger, cfg *config.Config) {
 	log.Info("config loaded", attrs...)
 }
 
+// statusTargets lists the targets shown by /status: in sync mode the primary
+// and replicas, in config mode every target.
+func statusTargets(cfg *config.Config) []status.Target {
+	out := make([]status.Target, 0, len(cfg.Targets))
+	for _, t := range cfg.Targets {
+		if cfg.Mode == config.ModeSync && t.Name != cfg.Sync.Primary && t.Role != "replica" {
+			continue
+		}
+		out = append(out, status.Target{Name: t.Name, Role: t.Role})
+	}
+	return out
+}
+
 func runWatch(args []string) int {
 	cfgPath := parseConfigFlag(args, "watch")
 	cfg, resolved, err := loadConfig(cfgPath, os.Stdout)
@@ -112,6 +126,13 @@ func runWatch(args []string) int {
 	})
 	tracker := targetstate.New(srv)
 
+	store := status.New(version, string(cfg.Mode), status.DefaultCapacity)
+	store.SetInterval(loopInterval(cfg))
+	store.SetTargets(statusTargets(cfg))
+	statusHandler := status.Handler(store)
+	srv.Handle("/status", statusHandler)
+	srv.Handle("/status/history", statusHandler)
+
 	targets := resolvedToTargets(resolved)
 	pool.SetAPIConfig(buildAPIConfigs(targets))
 	srv.SetScrapeTimeout(targets)
@@ -131,7 +152,7 @@ func runWatch(args []string) int {
 
 	httpLog := logging.Component("http")
 	go func() {
-		httpLog.Info("http server listening", "addr", fmt.Sprintf(":%d", cfg.Metrics.Port), "endpoints", []string{cfg.Metrics.Path, "/healthz"})
+		httpLog.Info("http server listening", "addr", fmt.Sprintf(":%d", cfg.Metrics.Port), "endpoints", []string{cfg.Metrics.Path, "/healthz", "/status", "/status/history"})
 		if err := srv.Start(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			httpLog.Error("http server failed", "addr", fmt.Sprintf(":%d", cfg.Metrics.Port), "error", err)
 		}
@@ -162,6 +183,7 @@ func runWatch(args []string) int {
 		if err != nil {
 			log.Error("config reload failed", "error", redact.Text(err.Error()))
 			srv.RecordConfigReload(false)
+			store.ConfigReloaded(false, err)
 			return nil, nil
 		}
 		if newCfg == nil {
@@ -170,6 +192,9 @@ func runWatch(args []string) int {
 		d := config.Diff(cfg, newCfg)
 		log.Info("config reloaded", "changed", d.Changed, "targets_added", d.Added, "targets_removed", d.Removed)
 		srv.RecordConfigReload(true)
+		store.ConfigReloaded(true, nil)
+		store.SetTargets(statusTargets(newCfg))
+		store.SetInterval(loopInterval(newCfg))
 		if level, err := logging.ParseLevel(newCfg.LogLevel); err == nil {
 			logging.SetLevel(level)
 		}
@@ -210,6 +235,7 @@ func runWatch(args []string) int {
 			Gravity:         gravSched,
 			Recorder:        srv,
 			Reachability:    tracker,
+			Observer:        store,
 			Interval:        interval,
 			Marker:          cfg.Reconcile.Marker,
 			LocalDNSPurge:   cfg.Reconcile.LocalDNSPurge,
@@ -218,8 +244,12 @@ func runWatch(args []string) int {
 		}
 
 		workers := worker.SyncWorkers(nil, resolved, deps)
-		worker.ReconcileWorkers(workers, time.Now().Add(interval))
-		srv.Heartbeat()
+		runCycle := func() {
+			next := time.Now().Add(interval)
+			store.CycleFinished(worker.ReconcileWorkers(workers, next), next)
+			srv.Heartbeat()
+		}
+		runCycle()
 
 		for {
 			select {
@@ -238,8 +268,7 @@ func runWatch(args []string) int {
 					srv.SetConfigMetrics(cfg)
 					workers = worker.SyncWorkers(workers, newResolved, deps)
 				}
-				worker.ReconcileWorkers(workers, time.Now().Add(interval))
-				srv.Heartbeat()
+				runCycle()
 			case <-ctx.Done():
 				return shutdown()
 			}
@@ -247,8 +276,14 @@ func runWatch(args []string) int {
 
 	case config.ModeSync:
 		syncer := forsetisync.NewSyncer(pool, cfg, srv, tracker)
-		syncer.Cycle(time.Now().Add(interval))
-		srv.Heartbeat()
+		syncer.SetObserver(store)
+		runCycle := func() {
+			next := time.Now().Add(interval)
+			cycle, _ := syncer.Cycle(next)
+			store.CycleFinished(cycle, next)
+			srv.Heartbeat()
+		}
+		runCycle()
 
 		for {
 			select {
@@ -261,8 +296,7 @@ func runWatch(args []string) int {
 					cfg = newCfg
 					syncer.Update(cfg)
 				}
-				syncer.Cycle(time.Now().Add(interval))
-				srv.Heartbeat()
+				runCycle()
 			case <-ctx.Done():
 				return shutdown()
 			}
