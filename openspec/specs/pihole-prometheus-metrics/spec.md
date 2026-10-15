@@ -1,6 +1,10 @@
 # Pi-hole Prometheus Metrics
 
+## Purpose
+
 Registering and populating the full set of forseti_* Prometheus metrics from collected Pi-hole stats.
+
+## Requirements
 
 ### Requirement: Summary-derived query metrics
 The metrics server SHALL register and populate the following gauges from Stats data:

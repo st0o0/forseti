@@ -1,4 +1,10 @@
-## ADDED Requirements
+# CNAME Reconcile
+
+## Purpose
+
+Declarative CNAME records: config model, diffing against Pi-hole local CNAME entries, opt-in purge of unmanaged records, and the FTL restart they cause.
+
+## Requirements
 
 ### Requirement: CNAME entries in config model
 

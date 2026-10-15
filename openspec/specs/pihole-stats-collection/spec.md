@@ -1,6 +1,10 @@
 # Pi-hole Stats Collection
 
+## Purpose
+
 Collecting and parsing Pi-hole v6 statistics (summary, upstreams, blocking status) into Go structs for metrics exposure.
+
+## Requirements
 
 ### Requirement: Extended summary stats parsing
 The Stats struct SHALL parse all available fields from the `/api/stats/summary` response: `queries.forwarded`, `queries.cached`, `queries.unique_domains`, `queries.frequency`, `queries.types` (map), `queries.status` (map), `queries.replies` (map), `clients.active`, and `clients.total`.

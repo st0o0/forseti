@@ -1,4 +1,10 @@
-## ADDED Requirements
+# Config Interval Validation
+
+## Purpose
+
+Validation of reconcile, sync and scrape intervals: negative values are rejected and minimum bounds are enforced to protect Pi-hole targets.
+
+## Requirements
 
 ### Requirement: Negative duration values are rejected
 
