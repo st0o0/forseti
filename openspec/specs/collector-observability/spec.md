@@ -1,6 +1,10 @@
 # Collector Observability
 
+## Purpose
+
 Prometheus metrics for the stats collector: scrape duration, fetch counts, and cache hit tracking.
+
+## Requirements
 
 ### Requirement: Collector scrape duration metric
 The metrics server SHALL register `forseti_collector_duration_seconds` as a Histogram that records the wall-clock duration of each `Collect()` cycle (covering all targets, including cache checks and parallel fetches).

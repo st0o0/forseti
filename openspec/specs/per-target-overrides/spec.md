@@ -1,6 +1,10 @@
 # Per-Target Overrides
 
+## Purpose
+
 Per-target configuration file loading, merge engine (append + exclude), and effective config computation.
+
+## Requirements
 
 ### Requirement: Target override file loading
 The system SHALL support an optional `file:` field on each target entry. When present, the system SHALL load the referenced YAML file and merge its contents with the global config to produce the effective config for that target. The path SHALL be resolved relative to the main config file's directory. Absolute paths SHALL also be accepted.

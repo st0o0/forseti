@@ -1,4 +1,10 @@
-## ADDED Requirements
+# DNS Safe Reconcile
+
+## Purpose
+
+Local DNS reconciliation that only adds records by default, because Pi-hole DNS entries cannot carry the managed marker; deletion is opt-in.
+
+## Requirements
 
 ### Requirement: DNS reconciliation defaults to additive-only mode
 

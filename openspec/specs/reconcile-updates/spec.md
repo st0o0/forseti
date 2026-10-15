@@ -1,4 +1,10 @@
-## ADDED Requirements
+# Reconcile Updates
+
+## Purpose
+
+In-place updates of managed adlists, domains and clients whose group assignments drifted, instead of delete-and-recreate.
+
+## Requirements
 
 ### Requirement: Adlist group assignment drift detection
 

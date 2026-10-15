@@ -1,6 +1,10 @@
 # Settings Drift Metrics
 
+## Purpose
+
 Settings drift detection as a Prometheus gauge, comparing YAML desired state against actual Pi-hole config each reconcile cycle.
+
+## Requirements
 
 ### Requirement: Settings drift gauge metric
 The system SHALL expose `forseti_settings_drift{target, setting}` as a Prometheus gauge. For each declared setting in the effective config, the gauge SHALL be 1 when the actual Pi-hole value differs from the desired value, and 0 when they match.

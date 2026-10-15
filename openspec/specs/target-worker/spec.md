@@ -1,6 +1,10 @@
 # Target Worker
 
+## Purpose
+
 Per-target worker with lifecycle management, health tracking, and interface-driven orchestration.
+
+## Requirements
 
 ### Requirement: Worker encapsulates target orchestration
 The system SHALL provide a TargetWorker that runs one target through a mode-independent envelope: gate acquisition, session acquisition, readiness check, the mode-specific step (config mode: settings reconciliation, content reconciliation and gravity triggering; sync mode: primary snapshot load or replica sync), outcome classification, health update and metrics recording. The same envelope SHALL be used in config and sync mode. The worker SHALL depend on interfaces, not concrete types. The worker SHALL acquire the target's concurrency gate before starting any API work and release it when the run completes (including on error paths).

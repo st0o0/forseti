@@ -1,4 +1,10 @@
-## ADDED Requirements
+# Config Hot Reload
+
+## Purpose
+
+Detecting config file changes in watch mode and applying a validated new config to the running process without a restart, with fallback on invalid files.
+
+## Requirements
 
 ### Requirement: Config file change detection via mtime polling
 

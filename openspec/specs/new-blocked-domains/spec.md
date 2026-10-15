@@ -1,6 +1,10 @@
 # New Blocked Domains
 
+## Purpose
+
 Per-target detection of domains newly blocked within a rolling 24-hour window, surfaced via structured log events and an aggregated Prometheus gauge.
+
+## Requirements
 
 ### Requirement: New blocked domain detection per target
 The system SHALL, on its own collection interval, query each target's blocked DNS history for a rolling 24-hour window (`now-24h` to `now`) and identify domains whose earliest occurrence in that window falls within the window itself (i.e., first seen within the last 24 hours). Detection SHALL run independently per target; results from different targets SHALL NOT be merged.
@@ -56,4 +60,3 @@ The system SHALL derive "newly blocked" status solely from the target's own quer
 #### Scenario: Restart does not cause a false "everything is new" burst
 - **WHEN** Forseti restarts and performs its first new-blocked-domains check after startup
 - **THEN** the system SHALL compute "newly blocked" using only the target's query history within the rolling 24h window, producing the same gauge value as if Forseti had not restarted
-

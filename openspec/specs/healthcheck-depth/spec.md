@@ -1,4 +1,10 @@
-## ADDED Requirements
+# Healthcheck
+
+## Purpose
+
+Container liveness: the /healthz endpoint reports whether the watch loop is alive, and `forseti healthcheck` probes it without contacting Pi-hole.
+
+## Requirements
 
 ### Requirement: Liveness endpoint
 The metrics HTTP server SHALL serve `GET /healthz`. It SHALL return 200 with `{"status":"ok"}` while the watch loop is alive, and 503 with `{"status":"stalled"}` when the loop has not completed a cycle within `max(3 × interval, interval + 2m)`. The result SHALL NOT depend on Pi-hole reachability.

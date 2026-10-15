@@ -1,4 +1,10 @@
-## ADDED Requirements
+# Structured Logging
+
+## Purpose
+
+Log output format and conventions: configurable level and format, structured attributes with component and target, and consistent output from the first line.
+
+## Requirements
 
 ### Requirement: Configurable log level
 
