@@ -193,10 +193,11 @@ func TestIntegration_SettingsChange(t *testing.T) {
 
 type noopRecorder struct{}
 
-func (noopRecorder) RecordReconcileResult(string, time.Duration, bool, map[string]map[string]int, map[string]int) {
+func (noopRecorder) RecordReconcileResult(string, time.Duration, string, map[string]map[string]int, map[string]int) {
 }
 func (noopRecorder) UpdateSettingsDrift(string, map[string]bool) {}
-func (noopRecorder) MarkTargetUnreachable(string)               {}
+func (noopRecorder) MarkTargetUnreachable(string)                {}
+func (noopRecorder) MarkTargetReachable(string)                  {}
 func (noopRecorder) RecordTargetHealth(string, string)           {}
 
 type noopGravity struct{}

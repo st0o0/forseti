@@ -241,11 +241,13 @@ func tryReloadConfig(cfgPath string, lastMtime *time.Time) (*config.Config, []co
 	if !info.ModTime().After(*lastMtime) {
 		return nil, nil, nil
 	}
+	// Record the mtime before loading so a broken modification is attempted
+	// and reported once, not on every tick until the file changes again.
+	*lastMtime = info.ModTime()
 	newCfg, resolved, err := config.Load(cfgPath)
 	if err != nil {
 		return nil, nil, err
 	}
-	*lastMtime = info.ModTime()
 	return newCfg, resolved, nil
 }
 
@@ -301,6 +303,15 @@ func runWatch(args []string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// applyTargets propagates a reloaded target set to every runtime component.
+	applyTargets := func(newTargets []config.Target) {
+		pool.SetAPIConfig(buildAPIConfigs(newTargets))
+		srv.SetScrapeTimeout(newTargets)
+		coll.UpdateTargets(newTargets)
+		newDomainsColl.UpdateTargets(newTargets)
+		gravSched.UpdateTargets(newTargets)
+	}
+
 	go gravSched.Start(ctx)
 	go newDomainsColl.Start(ctx)
 
@@ -352,11 +363,7 @@ func runWatch(args []string) int {
 					deps.CNAMEPurge = cfg.Reconcile.CNAMEPurge
 					deps.GravityOnChange = cfg.Reconcile.GravityOnChange != nil && *cfg.Reconcile.GravityOnChange
 					srv.SetConfigMetrics(cfg)
-					newTargets := resolvedToTargets(resolved)
-					pool.SetAPIConfig(buildAPIConfigs(newTargets))
-					srv.SetScrapeTimeout(newTargets)
-					coll.UpdateTargets(newTargets)
-					newDomainsColl.UpdateTargets(newTargets)
+					applyTargets(resolvedToTargets(resolved))
 					workers = worker.SyncWorkers(workers, resolved, deps)
 				}
 				worker.ReconcileWorkers(workers)
@@ -380,7 +387,7 @@ func runWatch(args []string) int {
 		for {
 			select {
 			case <-ticker.C:
-				if newCfg, _, err := tryReloadConfig(cfgPath, &lastMtime); err != nil {
+				if newCfg, newResolved, err := tryReloadConfig(cfgPath, &lastMtime); err != nil {
 					slog.Error("config reload failed", "error", err)
 					srv.RecordConfigReload(false)
 				} else if newCfg != nil {
@@ -392,6 +399,7 @@ func runWatch(args []string) int {
 						slog.Info("sync interval updated", "interval", newCfg.Sync.Interval.Duration)
 					}
 					cfg = newCfg
+					applyTargets(resolvedToTargets(newResolved))
 					syncer = forsetisync.NewSyncer(pool, cfg, srv)
 				}
 				syncer.SyncAll()

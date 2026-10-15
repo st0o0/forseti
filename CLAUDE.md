@@ -42,7 +42,9 @@ docker build -t forseti:ci .
 
 - **Managed-marker purge**: forseti only touches entries tagged `[forseti]`
   (config mode) or `[forseti-sync]` (sync mode) in the comment field.
-  Manual UI entries are never modified or deleted.
+  Manual UI entries are never modified or deleted. Exception: local DNS
+  records have no comment field and are deleted only with `local_dns_purge`
+  (opt-in in config mode, default `true` in sync mode).
 - **Reconcile order**: groups -> adlists -> deny -> allow -> local DNS -> clients.
   Groups must exist before anything references them.
 - **Gravity trigger**: via gravity scheduler — on adlist changes (if

@@ -31,27 +31,47 @@ func NewSyncer(pool *session.Pool, cfg *config.Config, m *metrics.Server) *Synce
 type SyncReport struct {
 	Target   string
 	Duration time.Duration
+	Status   string
 	Added    int
 	Deleted  int
+	Changes  map[string]map[string]int
 	Errors   []error
 }
 
-func (s *Syncer) SyncAll() {
-	primary, err := s.getPrimary()
-	if err != nil {
-		slog.Error("primary session error", "error", err)
-		s.pool.Invalidate(s.cfg.Sync.Primary)
+// add merges a per-resource result into the report under the given
+// resource type name (matching config-mode type names).
+func (r *SyncReport) add(resource string, res resourceResult) {
+	r.Added += res.added
+	r.Deleted += res.deleted
+	r.Errors = append(r.Errors, res.errs...)
+	if res.added == 0 && res.deleted == 0 {
 		return
 	}
+	if r.Changes == nil {
+		r.Changes = make(map[string]map[string]int)
+	}
+	if r.Changes[resource] == nil {
+		r.Changes[resource] = make(map[string]int)
+	}
+	r.Changes[resource]["add"] += res.added
+	r.Changes[resource]["delete"] += res.deleted
+}
 
+// resourceResult is the outcome of syncing one resource type to a replica.
+type resourceResult struct {
+	added   int
+	deleted int
+	errs    []error
+}
+
+func (s *Syncer) SyncAll() {
 	resources := make(map[string]bool)
 	for _, r := range s.cfg.Sync.Resources {
 		resources[r] = true
 	}
 
-	var primaryState state
-	if err := primaryState.load(primary, resources); err != nil {
-		slog.Error("error reading primary", "error", err)
+	primaryState, ok := s.loadPrimary(resources)
+	if !ok {
 		return
 	}
 
@@ -59,34 +79,72 @@ func (s *Syncer) SyncAll() {
 		if target.Role != "replica" {
 			continue
 		}
-		s.syncReplica(target, &primaryState, resources)
+		s.syncReplica(target, primaryState, resources)
 	}
 }
 
-func (s *Syncer) syncReplica(target config.Target, primary *state, resources map[string]bool) {
+// loadPrimary reads the primary's state while holding its API gate.
+func (s *Syncer) loadPrimary(resources map[string]bool) (*state, bool) {
+	name := s.cfg.Sync.Primary
+	s.pool.Acquire(name)
+	defer s.pool.Release(name)
+
+	primary, err := s.getPrimary()
+	if err != nil {
+		slog.Error("primary session error", "error", err)
+		s.pool.Invalidate(name)
+		s.metrics.MarkTargetUnreachable(name)
+		return nil, false
+	}
+
+	var primaryState state
+	if err := primaryState.load(primary, resources); err != nil {
+		slog.Error("error reading primary", "error", err)
+		s.pool.Invalidate(name)
+		return nil, false
+	}
+	s.metrics.MarkTargetReachable(name)
+	return &primaryState, true
+}
+
+func (s *Syncer) syncReplica(target config.Target, primary *state, resources map[string]bool) SyncReport {
+	s.pool.Acquire(target.Name)
+	defer s.pool.Release(target.Name)
+
 	start := time.Now()
 	log := slog.With("target", target.Name)
+	report := SyncReport{Target: target.Name, Status: metrics.RunError}
+
+	defer func() {
+		report.Duration = time.Since(start)
+		s.metrics.RecordReconcile(metrics.ReconcileResult{
+			Target:   target.Name,
+			Duration: report.Duration,
+			Status:   report.Status,
+			Changes:  report.Changes,
+		})
+	}()
 
 	replica, err := s.pool.Get(target)
 	if err != nil {
 		log.Error("sync session error", "error", err)
 		s.pool.Invalidate(target.Name)
 		s.metrics.MarkTargetUnreachable(target.Name)
-		return
+		report.Errors = append(report.Errors, err)
+		return report
 	}
 
 	var replicaState state
 	if err := replicaState.load(replica, resources); err != nil {
 		log.Error("reading replica state failed", "error", err)
-		return
+		s.pool.Invalidate(target.Name)
+		report.Errors = append(report.Errors, err)
+		return report
 	}
-
-	report := SyncReport{Target: target.Name}
+	s.metrics.MarkTargetReachable(target.Name)
 
 	if resources["groups"] {
-		a, d := s.syncGroups(log, replica, primary.groups, replicaState.groups)
-		report.Added += a
-		report.Deleted += d
+		report.add("groups", s.syncGroups(log, replica, primary.groups, replicaState.groups))
 	}
 
 	primaryIDToName := buildPrimaryIDToName(primary.groups)
@@ -96,58 +154,43 @@ func (s *Syncer) syncReplica(target config.Target, primary *state, resources map
 		replicaGroups, err := replica.ListGroups()
 		if err != nil {
 			log.Error("re-fetching replica groups failed", "error", err)
+			report.Errors = append(report.Errors, fmt.Errorf("re-fetch replica groups: %w", err))
 		} else {
 			replicaNameToID = buildReplicaNameToID(replicaGroups)
 		}
 	}
 
 	if resources["adlists"] {
-		a, d := s.syncAdlists(log, replica, primary.adlists, replicaState.adlists, primaryIDToName, replicaNameToID)
-		report.Added += a
-		report.Deleted += d
+		report.add("adlists", s.syncAdlists(log, replica, primary.adlists, replicaState.adlists, primaryIDToName, replicaNameToID))
 	}
 
 	if resources["deny"] {
-		a, d := s.syncDomains(log, replica, "deny", "exact", primary.deny, replicaState.deny, primaryIDToName, replicaNameToID)
-		report.Added += a
-		report.Deleted += d
-		a, d = s.syncDomains(log, replica, "deny", "regex", primary.denyRegex, replicaState.denyRegex, primaryIDToName, replicaNameToID)
-		report.Added += a
-		report.Deleted += d
+		report.add("deny", s.syncDomains(log, replica, "deny", "exact", primary.deny, replicaState.deny, primaryIDToName, replicaNameToID))
+		report.add("deny", s.syncDomains(log, replica, "deny", "regex", primary.denyRegex, replicaState.denyRegex, primaryIDToName, replicaNameToID))
 	}
 
 	if resources["allow"] {
-		a, d := s.syncDomains(log, replica, "allow", "exact", primary.allow, replicaState.allow, primaryIDToName, replicaNameToID)
-		report.Added += a
-		report.Deleted += d
-		a, d = s.syncDomains(log, replica, "allow", "regex", primary.allowRegex, replicaState.allowRegex, primaryIDToName, replicaNameToID)
-		report.Added += a
-		report.Deleted += d
+		report.add("allow", s.syncDomains(log, replica, "allow", "exact", primary.allow, replicaState.allow, primaryIDToName, replicaNameToID))
+		report.add("allow", s.syncDomains(log, replica, "allow", "regex", primary.allowRegex, replicaState.allowRegex, primaryIDToName, replicaNameToID))
 	}
 
 	if resources["local_dns"] {
-		a, d := s.syncDNS(log, replica, primary.dns, replicaState.dns)
-		report.Added += a
-		report.Deleted += d
+		report.add("local_dns", s.syncDNS(log, replica, primary.dns, replicaState.dns))
 	}
 
 	if resources["clients"] {
-		a, d := s.syncClients(log, replica, primary.clients, replicaState.clients, primaryIDToName, replicaNameToID)
-		report.Added += a
-		report.Deleted += d
+		report.add("clients", s.syncClients(log, replica, primary.clients, replicaState.clients, primaryIDToName, replicaNameToID))
 	}
 
-	report.Duration = time.Since(start)
-
-	s.metrics.RecordReconcile(metrics.ReconcileResult{
-		Target:   target.Name,
-		Duration: report.Duration,
-		Success:  len(report.Errors) == 0,
-	})
+	report.Status = metrics.RunSuccess
+	if len(report.Errors) > 0 {
+		report.Status = metrics.RunPartial
+	}
 
 	if report.Added > 0 || report.Deleted > 0 {
-		log.Info("synced", "added", report.Added, "deleted", report.Deleted, "duration", report.Duration.Round(time.Millisecond))
+		log.Info("synced", "added", report.Added, "deleted", report.Deleted, "duration", time.Since(start).Round(time.Millisecond))
 	}
+	return report
 }
 
 func (s *Syncer) getPrimary() (*pihole.Client, error) {
@@ -219,7 +262,7 @@ func (st *state) load(client *pihole.Client, resources map[string]bool) error {
 	return nil
 }
 
-func (s *Syncer) syncGroups(log *slog.Logger, replica *pihole.Client, primary, replicaGroups []pihole.APIGroup) (added, deleted int) {
+func (s *Syncer) syncGroups(log *slog.Logger, replica *pihole.Client, primary, replicaGroups []pihole.APIGroup) (res resourceResult) {
 	primaryByName := make(map[string]pihole.APIGroup)
 	for _, g := range primary {
 		primaryByName[strings.ToLower(g.Name)] = g
@@ -234,8 +277,9 @@ func (s *Syncer) syncGroups(log *slog.Logger, replica *pihole.Client, primary, r
 		if _, exists := replicaByName[name]; !exists {
 			if _, err := replica.CreateGroup(g.Name, s.marker, g.Enabled); err != nil {
 				log.Error("create group failed", "group", g.Name, "error", err)
+				res.errs = append(res.errs, fmt.Errorf("create group %s: %w", g.Name, err))
 			} else {
-				added++
+				res.added++
 			}
 		}
 	}
@@ -245,8 +289,9 @@ func (s *Syncer) syncGroups(log *slog.Logger, replica *pihole.Client, primary, r
 			if strings.Contains(g.Comment, s.marker) {
 				if err := replica.DeleteGroups([]string{g.Name}); err != nil {
 					log.Error("delete group failed", "group", g.Name, "error", err)
+					res.errs = append(res.errs, fmt.Errorf("delete group %s: %w", g.Name, err))
 				} else {
-					deleted++
+					res.deleted++
 				}
 			}
 		}
@@ -255,7 +300,7 @@ func (s *Syncer) syncGroups(log *slog.Logger, replica *pihole.Client, primary, r
 	return
 }
 
-func (s *Syncer) syncAdlists(log *slog.Logger, replica *pihole.Client, primary, replicaAdlists []pihole.APIList, primaryIDToName map[int]string, replicaNameToID map[string]int) (added, deleted int) {
+func (s *Syncer) syncAdlists(log *slog.Logger, replica *pihole.Client, primary, replicaAdlists []pihole.APIList, primaryIDToName map[int]string, replicaNameToID map[string]int) (res resourceResult) {
 	primaryByURL := make(map[string]pihole.APIList)
 	for _, a := range primary {
 		primaryByURL[a.Address] = a
@@ -271,8 +316,9 @@ func (s *Syncer) syncAdlists(log *slog.Logger, replica *pihole.Client, primary, 
 			groups := translateGroupIDs(a.Groups, primaryIDToName, replicaNameToID)
 			if _, err := replica.CreateAdlist(a.Address, s.marker, a.Enabled, groups); err != nil {
 				log.Error("create adlist failed", "adlist", url, "error", err)
+				res.errs = append(res.errs, fmt.Errorf("create adlist %s: %w", url, err))
 			} else {
-				added++
+				res.added++
 			}
 		}
 	}
@@ -282,8 +328,9 @@ func (s *Syncer) syncAdlists(log *slog.Logger, replica *pihole.Client, primary, 
 			if strings.Contains(a.Comment, s.marker) {
 				if err := replica.DeleteAdlists([]string{url}); err != nil {
 					log.Error("delete adlist failed", "adlist", url, "error", err)
+					res.errs = append(res.errs, fmt.Errorf("delete adlist %s: %w", url, err))
 				} else {
-					deleted++
+					res.deleted++
 				}
 			}
 		}
@@ -292,7 +339,7 @@ func (s *Syncer) syncAdlists(log *slog.Logger, replica *pihole.Client, primary, 
 	return
 }
 
-func (s *Syncer) syncDomains(log *slog.Logger, replica *pihole.Client, domType, kind string, primary, replicaDomains []pihole.APIDomain, primaryIDToName map[int]string, replicaNameToID map[string]int) (added, deleted int) {
+func (s *Syncer) syncDomains(log *slog.Logger, replica *pihole.Client, domType, kind string, primary, replicaDomains []pihole.APIDomain, primaryIDToName map[int]string, replicaNameToID map[string]int) (res resourceResult) {
 	primaryByDomain := make(map[string]pihole.APIDomain)
 	for _, d := range primary {
 		primaryByDomain[d.Domain] = d
@@ -308,8 +355,9 @@ func (s *Syncer) syncDomains(log *slog.Logger, replica *pihole.Client, domType, 
 			groups := translateGroupIDs(d.Groups, primaryIDToName, replicaNameToID)
 			if _, err := replica.CreateDomain(domType, kind, d.Domain, s.marker, d.Enabled, groups); err != nil {
 				log.Error("create domain failed", "type", domType, "kind", kind, "domain", domain, "error", err)
+				res.errs = append(res.errs, fmt.Errorf("create %s/%s domain %s: %w", domType, kind, domain, err))
 			} else {
-				added++
+				res.added++
 			}
 		}
 	}
@@ -319,8 +367,9 @@ func (s *Syncer) syncDomains(log *slog.Logger, replica *pihole.Client, domType, 
 			if strings.Contains(d.Comment, s.marker) {
 				if err := replica.DeleteDomains([]string{domain}); err != nil {
 					log.Error("delete domain failed", "type", domType, "domain", domain, "error", err)
+					res.errs = append(res.errs, fmt.Errorf("delete %s domain %s: %w", domType, domain, err))
 				} else {
-					deleted++
+					res.deleted++
 				}
 			}
 		}
@@ -329,7 +378,7 @@ func (s *Syncer) syncDomains(log *slog.Logger, replica *pihole.Client, domType, 
 	return
 }
 
-func (s *Syncer) syncDNS(log *slog.Logger, replica *pihole.Client, primary, replicaDNS []pihole.APIDNSRecord) (added, deleted int) {
+func (s *Syncer) syncDNS(log *slog.Logger, replica *pihole.Client, primary, replicaDNS []pihole.APIDNSRecord) (res resourceResult) {
 	primaryKeys := make(map[string]pihole.APIDNSRecord)
 	for _, r := range primary {
 		primaryKeys[r.IP+" "+r.Domain] = r
@@ -344,18 +393,24 @@ func (s *Syncer) syncDNS(log *slog.Logger, replica *pihole.Client, primary, repl
 		if _, exists := replicaKeys[key]; !exists {
 			if err := replica.AddDNSRecord(r.IP, r.Domain); err != nil {
 				log.Error("add DNS failed", "record", key, "error", err)
+				res.errs = append(res.errs, fmt.Errorf("add DNS %s: %w", key, err))
 			} else {
-				added++
+				res.added++
 			}
 		}
+	}
+
+	if !s.cfg.Sync.PurgeLocalDNS() {
+		return
 	}
 
 	for key, r := range replicaKeys {
 		if _, exists := primaryKeys[key]; !exists {
 			if err := replica.DeleteDNSRecord(r.IP, r.Domain); err != nil {
 				log.Error("delete DNS failed", "record", key, "error", err)
+				res.errs = append(res.errs, fmt.Errorf("delete DNS %s: %w", key, err))
 			} else {
-				deleted++
+				res.deleted++
 			}
 		}
 	}
@@ -363,7 +418,7 @@ func (s *Syncer) syncDNS(log *slog.Logger, replica *pihole.Client, primary, repl
 	return
 }
 
-func (s *Syncer) syncClients(log *slog.Logger, replica *pihole.Client, primary, replicaClients []pihole.APIClient, primaryIDToName map[int]string, replicaNameToID map[string]int) (added, deleted int) {
+func (s *Syncer) syncClients(log *slog.Logger, replica *pihole.Client, primary, replicaClients []pihole.APIClient, primaryIDToName map[int]string, replicaNameToID map[string]int) (res resourceResult) {
 	primaryByIP := make(map[string]pihole.APIClient)
 	for _, c := range primary {
 		primaryByIP[c.Client] = c
@@ -379,8 +434,9 @@ func (s *Syncer) syncClients(log *slog.Logger, replica *pihole.Client, primary, 
 			groups := translateGroupIDs(c.Groups, primaryIDToName, replicaNameToID)
 			if _, err := replica.CreateClient(c.Client, s.marker, groups); err != nil {
 				log.Error("create client failed", "client", ip, "error", err)
+				res.errs = append(res.errs, fmt.Errorf("create client %s: %w", ip, err))
 			} else {
-				added++
+				res.added++
 			}
 		}
 	}
@@ -390,8 +446,9 @@ func (s *Syncer) syncClients(log *slog.Logger, replica *pihole.Client, primary, 
 			if strings.Contains(c.Comment, s.marker) {
 				if err := replica.DeleteClients([]string{ip}); err != nil {
 					log.Error("delete client failed", "client", ip, "error", err)
+					res.errs = append(res.errs, fmt.Errorf("delete client %s: %w", ip, err))
 				} else {
-					deleted++
+					res.deleted++
 				}
 			}
 		}

@@ -955,3 +955,38 @@ func TestTryReloadConfig_MissingFile(t *testing.T) {
 		t.Error("expected error for missing file")
 	}
 }
+
+func TestTryReloadConfig_InvalidReportedOnce(t *testing.T) {
+	srv := newFullPiholeTestServer()
+	defer srv.Close()
+
+	dir := t.TempDir()
+	cfgPath := dir + "/forseti.yml"
+	_ = os.WriteFile(cfgPath, []byte("invalid: [broken"), 0o644)
+	lastMtime := time.Time{}
+
+	if _, _, err := tryReloadConfig(cfgPath, &lastMtime); err == nil {
+		t.Fatal("expected error for invalid config file")
+	}
+	newCfg, _, err := tryReloadConfig(cfgPath, &lastMtime)
+	if err != nil || newCfg != nil {
+		t.Fatalf("unchanged broken file must not be retried: cfg=%v err=%v", newCfg, err)
+	}
+
+	// Fixing the file (new mtime) reloads it.
+	valid, err := os.ReadFile(writeTempConfig(t, srv.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(cfgPath, valid, 0o644)
+	future := lastMtime.Add(time.Second)
+	_ = os.Chtimes(cfgPath, future, future)
+
+	newCfg, _, err = tryReloadConfig(cfgPath, &lastMtime)
+	if err != nil {
+		t.Fatalf("reload after fix: %v", err)
+	}
+	if newCfg == nil {
+		t.Fatal("expected config after fixing the file")
+	}
+}
