@@ -11,6 +11,7 @@ import (
 	"github.com/st0o0/forseti/internal/metrics"
 	"github.com/st0o0/forseti/internal/pihole"
 	"github.com/st0o0/forseti/internal/reconcile"
+	"github.com/st0o0/forseti/internal/run"
 )
 
 func newReadyServer(t *testing.T) *httptest.Server {
@@ -115,14 +116,22 @@ type mockRecorder struct {
 	reachableCalls     int
 	lastTarget         string
 	lastStatus         string
+	lastResult         run.Result
 	lastDrift          map[string]int
 	healthStates       []string
 }
 
-func (m *mockRecorder) RecordReconcileResult(target string, duration time.Duration, status string, changes map[string]map[string]int, drift map[string]int) {
+func (m *mockRecorder) RecordRun(r run.Result) {
+	if r.Status == run.Skipped {
+		return
+	}
 	m.reconcileCalls++
-	m.lastTarget = target
-	m.lastStatus = status
+	m.lastTarget = r.Target
+	m.lastStatus = r.Status.MetricStatus()
+	m.lastResult = r
+}
+
+func (m *mockRecorder) RecordDrift(target string, drift map[string]int) {
 	m.lastDrift = drift
 }
 
@@ -130,12 +139,13 @@ func (m *mockRecorder) UpdateSettingsDrift(target string, drifted map[string]boo
 	m.settingsDriftCalls++
 }
 
-func (m *mockRecorder) MarkTargetUnreachable(target string) {
-	m.unreachableCalls++
-}
-
-func (m *mockRecorder) MarkTargetReachable(target string) {
-	m.reachableCalls++
+// Observe implements Reachability.
+func (m *mockRecorder) Observe(target, source string, err error) {
+	if err != nil {
+		m.unreachableCalls++
+	} else {
+		m.reachableCalls++
+	}
 }
 
 func (m *mockRecorder) RecordTargetHealth(target string, state string) {
@@ -175,8 +185,9 @@ func newTestWorker() (*TargetWorker, *mockSessions, *mockSettings, *mockContent,
 		Settings:  sett,
 		Content:   cont,
 		Gravity:   grav,
-		Recorder:  rec,
-		Interval:  5 * time.Minute,
+		Recorder:     rec,
+		Reachability: rec,
+		Interval:     5 * time.Minute,
 		Marker:    "[forseti]",
 	})
 

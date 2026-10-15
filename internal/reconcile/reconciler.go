@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/st0o0/forseti/internal/config"
+	"github.com/st0o0/forseti/internal/logging"
 	"github.com/st0o0/forseti/internal/pihole"
+	"github.com/st0o0/forseti/internal/redact"
 )
 
 type PiholeAPI interface {
@@ -175,14 +177,14 @@ func Apply(rt *config.ResolvedTarget, api PiholeAPI, opts ReconcileOptions) (*Ap
 			g, createErr = api.CreateGroup(entry.Key, buildComment(marker, findGroupByName(rt.Groups, entry.Key).Comment), true)
 			return createErr
 		}); err != nil {
-			report.Errors = append(report.Errors, fmt.Errorf("create group %q: %w", entry.Key, err))
+			report.Errors = append(report.Errors, itemErr("groups", "add", entry.Key, err))
 			continue
 		}
 		groupNameToID[entry.Key] = g.ID
 	}
 	if keys := collectKeys(report.Diff.Groups.Deletes); len(keys) > 0 {
 		if err := api.DeleteGroups(keys); err != nil && !pihole.IsNotFound(err) {
-			report.Errors = append(report.Errors, fmt.Errorf("delete groups: %w", err))
+			report.Errors = append(report.Errors, batchErr("groups", len(keys), err))
 		}
 	}
 
@@ -201,7 +203,7 @@ func Apply(rt *config.ResolvedTarget, api PiholeAPI, opts ReconcileOptions) (*Ap
 			_, err := api.CreateAdlist(entry.Key, buildComment(marker, adlist.Comment), true, groupIDs)
 			return err
 		}); err != nil {
-			report.Errors = append(report.Errors, fmt.Errorf("create adlist %q: %w", entry.Key, err))
+			report.Errors = append(report.Errors, itemErr("adlists", "add", entry.Key, err))
 		} else {
 			adlistsChanged = true
 		}
@@ -212,7 +214,7 @@ func Apply(rt *config.ResolvedTarget, api PiholeAPI, opts ReconcileOptions) (*Ap
 		if err := retryWrite(rt.Name, "update adlist", func() error {
 			return api.UpdateAdlist(entry.Key, buildComment(marker, adlist.Comment), groupIDs)
 		}); err != nil {
-			report.Errors = append(report.Errors, fmt.Errorf("update adlist %q: %w", entry.Key, err))
+			report.Errors = append(report.Errors, itemErr("adlists", "update", entry.Key, err))
 		} else {
 			adlistsChanged = true
 		}
@@ -220,9 +222,9 @@ func Apply(rt *config.ResolvedTarget, api PiholeAPI, opts ReconcileOptions) (*Ap
 	if keys := collectKeys(report.Diff.Adlists.Deletes); len(keys) > 0 {
 		if err := api.DeleteAdlists(keys); err != nil {
 			if pihole.IsNotFound(err) {
-				slog.Debug("adlist delete returned 404 (already gone)", "target", rt.Name)
+				logger().Debug("adlist delete returned 404 (already gone)", "target", rt.Name)
 			} else {
-				report.Errors = append(report.Errors, fmt.Errorf("delete adlists: %w", err))
+				report.Errors = append(report.Errors, batchErr("adlists", len(keys), err))
 				adlistsChanged = true
 			}
 		} else {
@@ -246,12 +248,12 @@ func Apply(rt *config.ResolvedTarget, api PiholeAPI, opts ReconcileOptions) (*Ap
 				_, err := api.CreateDomain("deny", kind, entry.Key, marker, true, nil)
 				return err
 			}); err != nil {
-				report.Errors = append(report.Errors, fmt.Errorf("create deny/%s %q: %w", kind, entry.Key, err))
+				report.Errors = append(report.Errors, itemErr("deny", "add", entry.Key, err))
 			}
 		}
 		if keys := collectKeys(kindDiff.Deletes); len(keys) > 0 {
 			if err := api.DeleteDomains(keys); err != nil && !pihole.IsNotFound(err) {
-				report.Errors = append(report.Errors, fmt.Errorf("delete deny/%s domains: %w", kind, err))
+				report.Errors = append(report.Errors, batchErr("deny", len(keys), err))
 			}
 		}
 		mergeDiff(&report.Diff.Deny, kindDiff)
@@ -272,12 +274,12 @@ func Apply(rt *config.ResolvedTarget, api PiholeAPI, opts ReconcileOptions) (*Ap
 				_, err := api.CreateDomain("allow", kind, entry.Key, marker, true, nil)
 				return err
 			}); err != nil {
-				report.Errors = append(report.Errors, fmt.Errorf("create allow/%s %q: %w", kind, entry.Key, err))
+				report.Errors = append(report.Errors, itemErr("allow", "add", entry.Key, err))
 			}
 		}
 		if keys := collectKeys(kindDiff.Deletes); len(keys) > 0 {
 			if err := api.DeleteDomains(keys); err != nil && !pihole.IsNotFound(err) {
-				report.Errors = append(report.Errors, fmt.Errorf("delete allow/%s domains: %w", kind, err))
+				report.Errors = append(report.Errors, batchErr("allow", len(keys), err))
 			}
 		}
 		mergeDiff(&report.Diff.Allow, kindDiff)
@@ -294,13 +296,13 @@ func Apply(rt *config.ResolvedTarget, api PiholeAPI, opts ReconcileOptions) (*Ap
 		if err := retryWrite(rt.Name, "add DNS", func() error {
 			return api.AddDNSRecord(parts[0], parts[1])
 		}); err != nil {
-			report.Errors = append(report.Errors, fmt.Errorf("add DNS %q: %w", entry.Key, err))
+			report.Errors = append(report.Errors, itemErr("local_dns", "add", entry.Key, err))
 		}
 	}
 	for _, entry := range report.Diff.LocalDNS.Deletes {
 		parts := strings.SplitN(entry.Key, " ", 2)
 		if err := api.DeleteDNSRecord(parts[0], parts[1]); err != nil && !pihole.IsNotFound(err) {
-			report.Errors = append(report.Errors, fmt.Errorf("delete DNS %q: %w", entry.Key, err))
+			report.Errors = append(report.Errors, itemErr("local_dns", "delete", entry.Key, err))
 		}
 	}
 
@@ -315,17 +317,17 @@ func Apply(rt *config.ResolvedTarget, api PiholeAPI, opts ReconcileOptions) (*Ap
 		if err := retryWrite(rt.Name, "add CNAME", func() error {
 			return api.AddCNAMERecord(parts[0], parts[1])
 		}); err != nil {
-			report.Errors = append(report.Errors, fmt.Errorf("add CNAME %q: %w", entry.Key, err))
+			report.Errors = append(report.Errors, itemErr("cname", "add", entry.Key, err))
 		}
 	}
 	for _, entry := range report.Diff.CNAME.Deletes {
 		parts := strings.SplitN(entry.Key, ",", 2)
 		if err := api.DeleteCNAMERecord(parts[0], parts[1]); err != nil && !pihole.IsNotFound(err) {
-			report.Errors = append(report.Errors, fmt.Errorf("delete CNAME %q: %w", entry.Key, err))
+			report.Errors = append(report.Errors, itemErr("cname", "delete", entry.Key, err))
 		}
 	}
 	if report.Diff.CNAME.HasChanges() {
-		slog.Warn("CNAME changes will trigger FTL restart (brief DNS outage)", "target", rt.Name)
+		logger().Warn("CNAME changes will trigger FTL restart (brief DNS outage)", "target", rt.Name)
 	}
 
 	// Clients
@@ -342,7 +344,7 @@ func Apply(rt *config.ResolvedTarget, api PiholeAPI, opts ReconcileOptions) (*Ap
 			_, err := api.CreateClient(entry.Key, buildComment(marker, client.Comment), groupIDs)
 			return err
 		}); err != nil {
-			report.Errors = append(report.Errors, fmt.Errorf("create client %q: %w", entry.Key, err))
+			report.Errors = append(report.Errors, itemErr("clients", "add", entry.Key, err))
 		}
 	}
 	for _, entry := range report.Diff.Clients.Updates {
@@ -351,12 +353,12 @@ func Apply(rt *config.ResolvedTarget, api PiholeAPI, opts ReconcileOptions) (*Ap
 		if err := retryWrite(rt.Name, "update client", func() error {
 			return api.UpdateClient(entry.Key, buildComment(marker, client.Comment), groupIDs)
 		}); err != nil {
-			report.Errors = append(report.Errors, fmt.Errorf("update client %q: %w", entry.Key, err))
+			report.Errors = append(report.Errors, itemErr("clients", "update", entry.Key, err))
 		}
 	}
 	if keys := collectKeys(report.Diff.Clients.Deletes); len(keys) > 0 {
 		if err := api.DeleteClients(keys); err != nil && !pihole.IsNotFound(err) {
-			report.Errors = append(report.Errors, fmt.Errorf("delete clients: %w", err))
+			report.Errors = append(report.Errors, batchErr("clients", len(keys), err))
 		}
 	}
 
@@ -417,7 +419,7 @@ func diffAdlists(desired []config.Adlist, actual []pihole.APIList, marker string
 
 	for _, a := range actual {
 		if !desiredURLs[a.Address] && strings.Contains(a.Comment, marker) {
-			slog.Debug("adlist marked for delete", "address", a.Address, "id", a.ID, "comment", a.Comment)
+			logger().Debug("adlist marked for delete", "address", redact.URL(a.Address), "id", a.ID, "comment", a.Comment)
 			diff.Deletes = append(diff.Deletes, DiffEntry{Action: ActionDelete, Key: a.Address, ID: a.ID})
 		}
 	}
@@ -719,6 +721,11 @@ func filterAllowByKind(entries []config.AllowEntry, kind string) []config.AllowE
 	return out
 }
 
+// logger returns the reconcile component logger. It is looked up per call
+// because Apply is a package-level function used by one-shot commands and
+// the worker alike.
+func logger() *slog.Logger { return logging.Component("reconcile") }
+
 var retryBackoffs = []time.Duration{1 * time.Second, 2 * time.Second, 4 * time.Second}
 
 func retryList[T any](target string, op string, fn func() ([]T, error)) ([]T, error) {
@@ -728,7 +735,7 @@ func retryList[T any](target string, op string, fn func() ([]T, error)) ([]T, er
 	}
 
 	for i, backoff := range retryBackoffs {
-		slog.Warn("retrying transient error", "target", target, "op", op, "attempt", i+2, "error", err)
+		logger().Debug("retrying transient error", "target", target, "op", op, "attempt", i+2, "error", err)
 		time.Sleep(backoff)
 		result, err = fn()
 		if err == nil || !pihole.IsTransient(err) {
@@ -745,7 +752,7 @@ func retryWrite(target string, op string, fn func() error) error {
 	}
 
 	for i, backoff := range retryBackoffs {
-		slog.Warn("retrying transient write", "target", target, "op", op, "attempt", i+2, "error", err)
+		logger().Debug("retrying transient write", "target", target, "op", op, "attempt", i+2, "error", err)
 		time.Sleep(backoff)
 		err = fn()
 		if err == nil || !pihole.IsTransient(err) {
@@ -766,7 +773,7 @@ func logDiff(target, resource string, d ResourceDiff) {
 	if !d.HasChanges() {
 		return
 	}
-	slog.Debug("drift detected",
+	logger().Debug("drift detected",
 		"target", target,
 		"resource", resource,
 		"adds", len(d.Adds),

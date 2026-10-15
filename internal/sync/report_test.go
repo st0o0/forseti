@@ -1,12 +1,18 @@
 package sync
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/st0o0/forseti/internal/config"
+	"github.com/st0o0/forseti/internal/logging/logtest"
 	"github.com/st0o0/forseti/internal/metrics"
 	"github.com/st0o0/forseti/internal/pihole"
+	"github.com/st0o0/forseti/internal/run"
 	"github.com/st0o0/forseti/internal/session"
 )
 
@@ -46,24 +52,22 @@ func labelledValue(t *testing.T, m *metrics.Server, name string, labels map[stri
 	return 0
 }
 
-func resourceSet(rs ...string) map[string]bool {
-	m := make(map[string]bool, len(rs))
-	for _, r := range rs {
-		m[r] = true
-	}
-	return m
-}
-
-func syncOnce(t *testing.T, pool *session.Pool, cfg *config.Config, m *metrics.Server, resources []string) SyncReport {
+func syncOnce(t *testing.T, pool *session.Pool, cfg *config.Config, m *metrics.Server, resources []string) run.Result {
 	t.Helper()
 	cfg.Sync.Resources = resources
-	s := NewSyncer(pool, cfg, m)
-	set := resourceSet(resources...)
-	primary, ok := s.loadPrimary(set)
-	if !ok {
-		t.Fatal("primary load failed")
+	_, results := NewSyncer(pool, cfg, m, nil).Cycle(time.Now())
+	return replicaResult(t, results)
+}
+
+func replicaResult(t *testing.T, results []run.Result) run.Result {
+	t.Helper()
+	for _, r := range results {
+		if r.Target == "replica" {
+			return r
+		}
 	}
-	return s.syncReplica(cfg.Targets[1], primary, set)
+	t.Fatalf("no replica result in %+v", results)
+	return run.Result{}
 }
 
 func TestReportSuccessWithoutChanges(t *testing.T) {
@@ -80,7 +84,7 @@ func TestReportSuccessWithoutChanges(t *testing.T) {
 
 	rep := syncOnce(t, pool, cfg, m, []string{"groups"})
 
-	if rep.Status != metrics.RunSuccess {
+	if rep.Status != run.OK {
 		t.Errorf("status = %q, want success", rep.Status)
 	}
 	if got := runsTotal(t, m, "replica", "success"); got != 1 {
@@ -106,11 +110,11 @@ func TestReportPartialOnItemError(t *testing.T) {
 
 	rep := syncOnce(t, pool, cfg, m, []string{"adlists"})
 
-	if rep.Status != metrics.RunPartial {
+	if rep.Status != run.Partial {
 		t.Errorf("status = %q, want partial", rep.Status)
 	}
-	if len(rep.Errors) != 1 {
-		t.Errorf("errors = %d, want 1", len(rep.Errors))
+	if rep.ErrorCount != 1 {
+		t.Errorf("errors = %d, want 1", rep.ErrorCount)
 	}
 	if got := runsTotal(t, m, "replica", "partial"); got != 1 {
 		t.Errorf("runs{partial} = %v, want 1", got)
@@ -142,7 +146,7 @@ func TestReportErrorOnReplicaLoadFailure(t *testing.T) {
 
 	rep := syncOnce(t, pool, cfg, m, []string{"groups"})
 
-	if rep.Status != metrics.RunError {
+	if rep.Status != run.Failed {
 		t.Errorf("status = %q, want error", rep.Status)
 	}
 	if got := runsTotal(t, m, "replica", "error"); got != 1 {
@@ -166,7 +170,7 @@ func TestReportErrorOnReplicaSessionFailure(t *testing.T) {
 
 	rep := syncOnce(t, pool, cfg, m, []string{"groups"})
 
-	if rep.Status != metrics.RunError {
+	if rep.Status != run.Failed {
 		t.Errorf("status = %q, want error", rep.Status)
 	}
 	if got := runsTotal(t, m, "replica", "error"); got != 1 {
@@ -194,11 +198,11 @@ func TestReportChangesPerResource(t *testing.T) {
 
 	rep := syncOnce(t, pool, cfg, m, []string{"deny", "clients"})
 
-	if rep.Changes["clients"]["add"] != 2 {
-		t.Errorf("clients add = %d, want 2", rep.Changes["clients"]["add"])
+	if rep.ChangeMap()["clients"]["add"] != 2 {
+		t.Errorf("clients add = %d, want 2", rep.ChangeMap()["clients"]["add"])
 	}
-	if rep.Changes["deny"]["delete"] != 1 {
-		t.Errorf("deny delete = %d, want 1", rep.Changes["deny"]["delete"])
+	if rep.ChangeMap()["deny"]["delete"] != 1 {
+		t.Errorf("deny delete = %d, want 1", rep.ChangeMap()["deny"]["delete"])
 	}
 	if got := labelledValue(t, m, "forseti_reconcile_changes_total", map[string]string{"target": "replica", "type": "clients", "action": "add"}); got != 2 {
 		t.Errorf("changes_total{clients,add} = %v, want 2", got)
@@ -219,17 +223,12 @@ func TestReplicaSyncWaitsForGate(t *testing.T) {
 	pool.SetAPIConfig(map[string]config.APIConfig{"replica": {MaxConcurrent: 1}})
 	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"groups"})
 	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
-	s := NewSyncer(pool, cfg, m)
-	set := resourceSet("groups")
-	primary, ok := s.loadPrimary(set)
-	if !ok {
-		t.Fatal("primary load failed")
-	}
+	s := NewSyncer(pool, cfg, m, nil)
 
 	pool.Acquire("replica")
 	done := make(chan struct{})
 	go func() {
-		s.syncReplica(cfg.Targets[1], primary, set)
+		s.Cycle(time.Now())
 		close(done)
 	}()
 
@@ -244,6 +243,94 @@ func TestReplicaSyncWaitsForGate(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("sync did not proceed after gate release")
+	}
+}
+
+func TestPrimaryFailureSkipsReplicas(t *testing.T) {
+	rec := logtest.New(t)
+	primarySrv := newUnreachableServer()
+	defer primarySrv.Close()
+	replicaCounters := &testCounters{}
+	replicaSrv := newFullTestServer(testData{}, replicaCounters)
+	defer replicaSrv.Close()
+
+	pool := session.NewPool()
+	defer pool.Close()
+	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"groups"})
+	cfg.Targets = append(cfg.Targets, config.Target{Name: "replica-2", URL: replicaSrv.URL, Password: "pw", Role: "replica"})
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
+
+	cycle, results := NewSyncer(pool, cfg, m, nil).Cycle(time.Now())
+
+	if cycle.Failed != 1 || cycle.Skipped != 2 {
+		t.Errorf("cycle = %+v, want failed=1 skipped=2", cycle)
+	}
+	for _, r := range results[1:] {
+		if r.Status != run.Skipped || r.Stage != run.StagePrimary {
+			t.Errorf("replica %s: status=%s stage=%s", r.Target, r.Status, r.Stage)
+		}
+	}
+	if got := runsTotal(t, m, "replica", "error") + runsTotal(t, m, "replica", "success"); got != 0 {
+		t.Errorf("skipped replica recorded in metrics: %v", got)
+	}
+	if got := runsTotal(t, m, "primary", "error"); got != 1 {
+		t.Errorf("primary runs{error} = %v, want 1", got)
+	}
+	ev := rec.Find("cycle complete")
+	if len(ev) != 1 || ev[0].Attrs["skipped"] != int64(2) || ev[0].Attrs["component"] != "sync" {
+		t.Errorf("cycle complete = %+v", ev)
+	}
+}
+
+func TestPrimaryStateLoadedOncePerCycle(t *testing.T) {
+	var groupReads atomic.Int32
+	primarySrv := newFullTestServer(testData{}, &testCounters{})
+	defer primarySrv.Close()
+	counting := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/groups" && r.Method == http.MethodGet {
+			groupReads.Add(1)
+		}
+		primarySrv.Config.Handler.ServeHTTP(w, r)
+	}))
+	defer counting.Close()
+	replicaSrv := newFullTestServer(testData{}, &testCounters{})
+	defer replicaSrv.Close()
+
+	pool := session.NewPool()
+	defer pool.Close()
+	cfg := makeSyncConfig(counting.URL, replicaSrv.URL, []string{"groups"})
+	for i := 2; i <= 3; i++ {
+		cfg.Targets = append(cfg.Targets, config.Target{Name: fmt.Sprintf("replica-%d", i), URL: replicaSrv.URL, Password: "pw", Role: "replica"})
+	}
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
+
+	NewSyncer(pool, cfg, m, nil).Cycle(time.Now())
+
+	if got := groupReads.Load(); got != 1 {
+		t.Errorf("primary group reads = %d, want 1", got)
+	}
+}
+
+func TestReplicaBackoffAfterFailures(t *testing.T) {
+	primarySrv := newFullTestServer(testData{}, &testCounters{})
+	defer primarySrv.Close()
+	replicaSrv := newUnreachableServer()
+	defer replicaSrv.Close()
+
+	pool := session.NewPool()
+	defer pool.Close()
+	cfg := makeSyncConfig(primarySrv.URL, replicaSrv.URL, []string{"groups"})
+	cfg.Sync.Interval.Duration = time.Hour
+	m := metrics.NewServer(0, "/metrics", config.CollectorToggles{})
+	s := NewSyncer(pool, cfg, m, nil)
+
+	_, first := s.Cycle(time.Now())
+	if r := replicaResult(t, first); r.Status != run.Failed {
+		t.Fatalf("first run status = %s, want failed", r.Status)
+	}
+	_, second := s.Cycle(time.Now())
+	if r := replicaResult(t, second); r.Status != run.Skipped || r.Stage != run.StageBackoff {
+		t.Errorf("second run = %s/%s, want skipped/backoff", r.Status, r.Stage)
 	}
 }
 
@@ -269,7 +356,7 @@ func TestDNSPurgeDisabledKeepsReplicaRecords(t *testing.T) {
 	if got := replicaCounters.creates.Load(); got != 1 {
 		t.Errorf("DNS adds = %d, want 1", got)
 	}
-	if rep.Status != metrics.RunSuccess {
+	if rep.Status != run.OK {
 		t.Errorf("status = %q, want success", rep.Status)
 	}
 }
