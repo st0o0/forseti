@@ -81,7 +81,7 @@ type ApplyReport struct {
 }
 
 type ReconcileOptions struct {
-	Marker       string
+	Marker        string
 	LocalDNSPurge bool
 	CNAMEPurge    bool
 }

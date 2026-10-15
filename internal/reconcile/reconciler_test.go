@@ -53,27 +53,27 @@ type mockAPI struct {
 	addedCNAME      []string
 	deletedCNAME    []string
 
-	listGroupsErr      error
-	listAdlistsErr     error
-	listDomainsErr     map[string]error // "deny/exact" -> error
-	listDNSErr         error
-	listClientsErr     error
-	createGroupErr     error
-	createAdlistErr    error
-	createDomainErr    error
-	createClientErr    error
-	deleteGroupsErr    error
-	deleteAdlistsErr   error
-	deleteDomainsErr   error
-	deleteClientsErr   error
-	addDNSErr          error
-	deleteDNSErr       error
-	updateAdlistErr    error
-	updateClientErr    error
-	updateDomainErr    error
-	listCNAMEErr       error
-	addCNAMEErr        error
-	deleteCNAMEErr     error
+	listGroupsErr    error
+	listAdlistsErr   error
+	listDomainsErr   map[string]error // "deny/exact" -> error
+	listDNSErr       error
+	listClientsErr   error
+	createGroupErr   error
+	createAdlistErr  error
+	createDomainErr  error
+	createClientErr  error
+	deleteGroupsErr  error
+	deleteAdlistsErr error
+	deleteDomainsErr error
+	deleteClientsErr error
+	addDNSErr        error
+	deleteDNSErr     error
+	updateAdlistErr  error
+	updateClientErr  error
+	updateDomainErr  error
+	listCNAMEErr     error
+	addCNAMEErr      error
+	deleteCNAMEErr   error
 
 	nextGroupID int
 }

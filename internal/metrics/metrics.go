@@ -9,8 +9,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
-	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/st0o0/forseti/internal/config"
 	"github.com/st0o0/forseti/internal/pihole"
 	"github.com/st0o0/forseti/internal/run"
@@ -44,17 +44,17 @@ type Server struct {
 	configAllowDomains prometheus.Gauge
 
 	// stats (toggle: stats)
-	statsQueries          *prometheus.GaugeVec
-	statsBlocked          *prometheus.GaugeVec
-	statsBlockedPct       *prometheus.GaugeVec
+	statsQueries           *prometheus.GaugeVec
+	statsBlocked           *prometheus.GaugeVec
+	statsBlockedPct        *prometheus.GaugeVec
 	statsGravityLastUpdate *prometheus.GaugeVec
-	statsDomainsBlocked   *prometheus.GaugeVec
-	statsQueriesForwarded *prometheus.GaugeVec
-	statsQueriesCached    *prometheus.GaugeVec
-	statsUniqueDomains    *prometheus.GaugeVec
-	statsRequestFrequency *prometheus.GaugeVec
-	statsClientsActive    *prometheus.GaugeVec
-	statsClientsTotal     *prometheus.GaugeVec
+	statsDomainsBlocked    *prometheus.GaugeVec
+	statsQueriesForwarded  *prometheus.GaugeVec
+	statsQueriesCached     *prometheus.GaugeVec
+	statsUniqueDomains     *prometheus.GaugeVec
+	statsRequestFrequency  *prometheus.GaugeVec
+	statsClientsActive     *prometheus.GaugeVec
+	statsClientsTotal      *prometheus.GaugeVec
 
 	// query_types (toggle: query_types)
 	queryTypes  *prometheus.GaugeVec
@@ -86,9 +86,9 @@ type Server struct {
 	sessionActive prometheus.Gauge
 
 	// always registered
-	buildInfo     *prometheus.GaugeVec
-	configReload  *prometheus.CounterVec
-	targetHealth  *prometheus.GaugeVec
+	buildInfo    *prometheus.GaugeVec
+	configReload *prometheus.CounterVec
+	targetHealth *prometheus.GaugeVec
 
 	// settings_drift (toggle: settings_drift)
 	settingsDrift *prometheus.GaugeVec

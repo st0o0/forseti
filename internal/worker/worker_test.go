@@ -33,7 +33,6 @@ func newReadyServer(t *testing.T) *httptest.Server {
 	return srv
 }
 
-
 type mockSessions struct {
 	client       *pihole.Client
 	err          error
@@ -52,7 +51,7 @@ func (m *mockSessions) Invalidate(name string) {
 	m.invalids = append(m.invalids, name)
 }
 
-func (m *mockSessions) Acquire(name string)        { m.acquireCalls++ }
+func (m *mockSessions) Acquire(name string)         { m.acquireCalls++ }
 func (m *mockSessions) TryAcquire(name string) bool { return true }
 func (m *mockSessions) Release(name string)         { m.releaseCalls++ }
 
@@ -80,9 +79,9 @@ func (m *mockSettings) BuildDesiredList(settings *config.Settings) []reconcile.S
 }
 
 type mockContent struct {
-	report    *reconcile.ApplyReport
-	err       error
-	calls     int
+	report     *reconcile.ApplyReport
+	err        error
+	calls      int
 	lastClient *pihole.Client
 }
 
@@ -181,14 +180,14 @@ func newTestWorker() (*TargetWorker, *mockSessions, *mockSettings, *mockContent,
 	}
 
 	w := NewTargetWorker(rt, Dependencies{
-		Sessions:  sess,
-		Settings:  sett,
-		Content:   cont,
-		Gravity:   grav,
+		Sessions:     sess,
+		Settings:     sett,
+		Content:      cont,
+		Gravity:      grav,
 		Recorder:     rec,
 		Reachability: rec,
 		Interval:     5 * time.Minute,
-		Marker:    "[forseti]",
+		Marker:       "[forseti]",
 	})
 
 	return w, sess, sett, cont, grav, rec
@@ -326,7 +325,7 @@ func TestSettingsChangeFTLRestart(t *testing.T) {
 	secondClient := pihole.NewClient(srv.URL, "pw", 0)
 
 	customSess := &countingSessions{
-		clients:  []*pihole.Client{firstClient, secondClient},
+		clients: []*pihole.Client{firstClient, secondClient},
 	}
 	w.deps.Sessions = customSess
 
@@ -372,7 +371,7 @@ func (c *countingSessions) Invalidate(name string) {
 	c.invalids = append(c.invalids, name)
 }
 
-func (c *countingSessions) Acquire(name string)        {}
+func (c *countingSessions) Acquire(name string)         {}
 func (c *countingSessions) TryAcquire(name string) bool { return true }
 func (c *countingSessions) Release(name string)         {}
 
@@ -575,7 +574,6 @@ func TestDriftGaugeResetsToZero(t *testing.T) {
 		}
 	}
 }
-
 
 func notReadyServer(t *testing.T) *httptest.Server {
 	t.Helper()

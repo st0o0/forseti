@@ -9,12 +9,12 @@ func TestParseScheduleValid(t *testing.T) {
 	tests := []struct {
 		expr string
 	}{
-		{"0 3 * * 0"},       // Sunday 03:00
-		{"*/15 * * * *"},    // Every 15 minutes
-		{"0 0 1 * *"},       // First of month midnight
-		{"30 4 * * 1-5"},    // Weekdays 04:30
-		{"0 0 * * 0,6"},     // Weekends midnight
-		{"0 3 1,15 * *"},    // 1st and 15th at 03:00
+		{"0 3 * * 0"},    // Sunday 03:00
+		{"*/15 * * * *"}, // Every 15 minutes
+		{"0 0 1 * *"},    // First of month midnight
+		{"30 4 * * 1-5"}, // Weekdays 04:30
+		{"0 0 * * 0,6"},  // Weekends midnight
+		{"0 3 1,15 * *"}, // 1st and 15th at 03:00
 	}
 
 	for _, tt := range tests {
