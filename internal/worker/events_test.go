@@ -143,3 +143,35 @@ func TestReconcileWorkersSkipsBackoffAndLogsCycle(t *testing.T) {
 		t.Errorf("cycle complete events = %+v", ev)
 	}
 }
+
+type recordingObserver struct {
+	results []run.Result
+	states  []run.TargetState
+}
+
+func (o *recordingObserver) RunFinished(r run.Result, s run.TargetState) {
+	o.results = append(o.results, r)
+	o.states = append(o.states, s)
+}
+
+func TestObserverReceivesRunsAndSkips(t *testing.T) {
+	logtest.New(t)
+	w, sess, _, _, _, _ := newTestWorker()
+	obs := &recordingObserver{}
+	w.deps.Observer = obs
+
+	sess.err = errors.New("refused")
+	_ = w.Reconcile()
+	_ = w.Reconcile()
+	w.Skip(run.StageBackoff)
+
+	if len(obs.results) != 3 {
+		t.Fatalf("observed %d results, want 3", len(obs.results))
+	}
+	if obs.states[1].ConsecutiveFailures != 2 || obs.states[1].Health != "degraded" || obs.states[1].LastError == nil {
+		t.Errorf("state after 2 failures = %+v", obs.states[1])
+	}
+	if obs.results[2].Status != run.Skipped {
+		t.Errorf("third result = %s, want skipped", obs.results[2].Status)
+	}
+}

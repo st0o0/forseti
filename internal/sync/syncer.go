@@ -63,12 +63,19 @@ func (s *Syncer) Update(cfg *config.Config) {
 				s.primary = worker.NewTargetWorker(rt, s.deps)
 			} else {
 				s.primary.UpdateConfig(rt)
+				s.primary.UpdateDependencies(s.deps)
 			}
 		case t.Role == "replica":
 			replicas = append(replicas, rt)
 		}
 	}
 	s.replicas = worker.SyncWorkers(s.replicas, replicas, s.deps)
+}
+
+// SetObserver sets the run observer for the primary and all replicas.
+func (s *Syncer) SetObserver(o worker.Observer) {
+	s.deps.Observer = o
+	s.Update(s.cfg)
 }
 
 func (s *Syncer) resources() map[string]bool {

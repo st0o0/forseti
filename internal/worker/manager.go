@@ -24,7 +24,7 @@ func SyncWorkers(workers map[string]*TargetWorker, resolved []config.ResolvedTar
 		seen[rt.Name] = true
 		if w, ok := workers[rt.Name]; ok {
 			w.UpdateConfig(rt)
-			w.deps = deps
+			w.UpdateDependencies(deps)
 		} else {
 			log.Debug("worker added", "target", rt.Name)
 			workers[rt.Name] = NewTargetWorker(rt, deps)

@@ -23,6 +23,8 @@ Named after [Forseti](https://en.wikipedia.org/wiki/Forseti), the Norse god of j
 - **Settings reconciliation** -- manage DNS cache, rate limits, blocking mode, privacy level, and more
 - **Gravity scheduling** -- per-target cron schedules and automatic gravity updates on adlist changes
 - **Built-in Prometheus metrics** -- `/metrics` endpoint with Pi-hole stats, reconciliation telemetry, settings drift, session health, and collector stale-serve tracking
+- **Readable logs** -- a startup summary, one line per run and cycle (also when nothing changed), and health/reachability transitions instead of repeated errors
+- **Status API** -- `/status` and `/status/history` show per-target health, last success and recent runs; example Grafana dashboard included
 - **Plan/Apply workflow** -- dry-run before committing changes
 - **Watch mode** -- daemon with periodic reconcile loop, config hot-reload, and metrics server
 - **Environment variable expansion** -- `${VAR}` syntax in YAML values for secrets management
@@ -415,11 +417,43 @@ level=INFO msg="target recovered" component=sync target=pihole-beta from=degrade
 
 URL credentials and query values (e.g. `?token=`) are redacted in logs and errors; passwords are never logged.
 
+## Status API
+
+The metrics port also serves a read-only JSON view of recent activity, kept in memory (last 1440 runs per target and 1440 cycles; lost on restart, not an audit log):
+
+- `GET /status` — version, mode, uptime, last config reload, last cycle and next run, and per target: role, health, consecutive failures, last success, backoff, last error and last run with per-resource counts.
+- `GET /status/history?target=<name>&since=24h&limit=500` — runs of one target, oldest first. Without `target`: cycle summaries.
+
+```json
+{
+  "mode": "sync",
+  "cycle": { "interval_seconds": 300, "last": { "ok": 1, "failed": 1, "changes": 0 }, "next_run_at": "..." },
+  "targets": [
+    { "name": "pihole-beta", "role": "replica", "health": "degraded", "consecutive_failures": 1,
+      "last_success_at": "...", "backoff_until": "...",
+      "last_error": { "at": "...", "message": "... connection refused" },
+      "last_run": { "at": "...", "status": "failed", "stage": "session", "duration_ms": 3 } }
+  ]
+}
+```
+
+Responses never include passwords, session IDs or raw API bodies; error messages are redacted.
+
+## Grafana dashboard
+
+[`grafana/forseti.json`](grafana/forseti.json) is an example dashboard (import it and pick your Prometheus data source): time since last successful run, consecutive failures, health and reachability timelines, run outcomes per target over the last 24h, and changes / failed writes per resource type.
+
+A simple "sync is stale" alert:
+
+```promql
+time() - forseti_reconcile_last_success_timestamp > 3 * 300   # 3 missed 5m intervals
+```
+
 ## Health check
 
 The metrics server also serves `GET /healthz`: `200 {"status":"ok"}` while the watch loop completes cycles, `503 {"status":"stalled"}` if no cycle finished within `max(3 × interval, interval + 2m)`. It reflects Forseti's own liveness, not Pi-hole reachability — use `forseti_target_reachable` / `forseti_target_health` for that. The image's Docker `HEALTHCHECK` runs `forseti healthcheck`, which probes this endpoint (port from `metrics.port`, default 9099) and keeps working while an invalid config edit is pending.
 
-Do not expose port 9099 publicly; `/metrics` and `/healthz` are unauthenticated.
+Do not expose port 9099 publicly; `/metrics`, `/healthz` and `/status` are unauthenticated.
 
 ## Docker Compose
 
@@ -458,6 +492,9 @@ Individual metric families can be disabled via `metrics.collectors.*` toggles in
 | `forseti_reconcile_duration_seconds` | `target` | Reconcile cycle duration (histogram) |
 | `forseti_reconcile_changes_total` | `target`, `type`, `action` | Changes successfully applied (add/update/delete per resource type); failed writes are not counted |
 | `forseti_reconcile_drift` | `target`, `type` | Current drift count per resource type |
+| `forseti_reconcile_item_errors_total` | `target`, `type` | Failed item writes per resource type (`other` if not tied to one) |
+| `forseti_reconcile_last_run_timestamp` | `target` | Unix time of the last completed (not skipped) run |
+| `forseti_reconcile_last_success_timestamp` | `target` | Unix time of the last `success` or `partial` run |
 
 ### Pi-hole stats
 
@@ -515,6 +552,7 @@ Individual metric families can be disabled via `metrics.collectors.*` toggles in
 | `forseti_collector_fetches_total` | `target`, `status` | |
 | `forseti_collector_cache_hits_total` | `target` | |
 | `forseti_collector_cache_stale_total` | `target` | |
+| `forseti_target_consecutive_failures` | `target` | Consecutive failed runs (0 after a success) |
 | `forseti_target_health` | `target` | `0` = healthy, `1` = degraded, `2` = down (5+ consecutive failures); updated after every run in both modes |
 
 ## Critical invariants
