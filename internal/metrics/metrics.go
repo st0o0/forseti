@@ -13,12 +13,14 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/st0o0/forseti/internal/config"
 	"github.com/st0o0/forseti/internal/pihole"
+	"github.com/st0o0/forseti/internal/run"
 )
 
 type CollectFunc func(ctx context.Context)
 
 type Server struct {
 	httpServer    *http.Server
+	liveness      liveness
 	registry      *prometheus.Registry
 	collectFunc   CollectFunc
 	scrapeTimeout time.Duration
@@ -368,6 +370,10 @@ func NewServer(port int, path string, toggles config.CollectorToggles) *Server {
 		promHandler.ServeHTTP(w, r)
 	})
 
+	if path != "/healthz" {
+		mux.HandleFunc("/healthz", s.handleHealthz)
+	}
+
 	s.httpServer = &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),
 		Handler: mux,
@@ -530,14 +536,28 @@ func (s *Server) RecordTargetHealth(target string, state string) {
 	s.targetHealth.WithLabelValues(target).Set(val)
 }
 
-func (s *Server) RecordReconcileResult(target string, duration time.Duration, status string, changes map[string]map[string]int, drift map[string]int) {
+// RecordRun records a finished run. Skipped runs are not recorded.
+func (s *Server) RecordRun(r run.Result) {
+	status := r.Status.MetricStatus()
+	if status == "" {
+		return
+	}
 	s.RecordReconcile(ReconcileResult{
-		Target:   target,
-		Duration: duration,
+		Target:   r.Target,
+		Duration: r.Duration,
 		Status:   status,
-		Changes:  changes,
-		Drift:    drift,
+		Changes:  r.ChangeMap(),
 	})
+}
+
+// RecordDrift sets forseti_reconcile_drift for every resource type.
+func (s *Server) RecordDrift(target string, drift map[string]int) {
+	if s.reconcileDrift == nil {
+		return
+	}
+	for resType, count := range drift {
+		s.reconcileDrift.WithLabelValues(target, resType).Set(float64(count))
+	}
 }
 
 func (s *Server) ObserveCollectorDuration(d time.Duration) {

@@ -115,7 +115,7 @@ func reconcileWithWorkers(cfg *config.Config, resolved []config.ResolvedTarget, 
 		GravityOnChange: gravityOnChange,
 	}
 	workers := worker.SyncWorkers(nil, resolved, deps)
-	worker.ReconcileWorkers(workers)
+	worker.ReconcileWorkers(workers, time.Now())
 }
 
 func TestPrintDiffReport(t *testing.T) {
