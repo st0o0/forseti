@@ -36,7 +36,13 @@ type Recorder interface {
 	RecordRun(r run.Result)
 	RecordDrift(target string, drift map[string]int)
 	UpdateSettingsDrift(target string, drifted map[string]bool)
-	RecordTargetHealth(target string, state string)
+	RecordTargetState(target string, s run.TargetState)
+}
+
+// Observer is notified after every run, including skipped ones, with the
+// target state that resulted from it.
+type Observer interface {
+	RunFinished(r run.Result, s run.TargetState)
 }
 
 // Reachability receives reachability observations (see targetstate.Tracker).

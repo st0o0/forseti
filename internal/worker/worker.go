@@ -48,12 +48,14 @@ type TargetHealth struct {
 }
 
 type Dependencies struct {
-	Sessions        SessionManager
-	Settings        SettingsReconciler
-	Content         ContentReconciler
-	Gravity         GravityTrigger
-	Recorder        Recorder
-	Reachability    Reachability
+	Sessions     SessionManager
+	Settings     SettingsReconciler
+	Content      ContentReconciler
+	Gravity      GravityTrigger
+	Recorder     Recorder
+	Reachability Reachability
+	// Observer, if set, receives every run result with the target state.
+	Observer        Observer
 	Interval        time.Duration
 	Marker          string
 	LocalDNSPurge   bool
@@ -167,6 +169,9 @@ func (w *TargetWorker) Skip(stage string) run.Result {
 		attrs = append(attrs, "retry_at", w.backoffUntil.Format(time.RFC3339))
 	}
 	w.log.Debug("run finished", attrs...)
+	if w.deps.Observer != nil {
+		w.deps.Observer.RunFinished(res, w.State())
+	}
 	return res
 }
 
@@ -187,8 +192,23 @@ func (w *TargetWorker) finish(res run.Result, corrupted bool) run.Result {
 	} else {
 		w.recordSuccess()
 	}
-	w.deps.Recorder.RecordTargetHealth(w.rt.Name, w.health.String())
+	state := w.State()
+	w.deps.Recorder.RecordTargetState(w.rt.Name, state)
+	if w.deps.Observer != nil {
+		w.deps.Observer.RunFinished(res, state)
+	}
 	return res
+}
+
+// State returns the target's current health as a run.TargetState.
+func (w *TargetWorker) State() run.TargetState {
+	return run.TargetState{
+		Health:              w.health.String(),
+		ConsecutiveFailures: w.consecutiveFails,
+		LastSuccess:         w.lastSuccess,
+		BackoffUntil:        w.backoffUntil,
+		LastError:           w.lastError,
+	}
 }
 
 func (w *TargetWorker) logRun(res run.Result) {
@@ -223,6 +243,14 @@ func (w *TargetWorker) logRun(res run.Result) {
 
 func (w *TargetWorker) UpdateConfig(rt config.ResolvedTarget) {
 	w.rt = rt
+}
+
+// UpdateDependencies replaces the worker's dependencies, keeping its state.
+func (w *TargetWorker) UpdateDependencies(deps Dependencies) {
+	w.deps = deps
+	if deps.Log != nil {
+		w.log = deps.Log
+	}
 }
 
 func (w *TargetWorker) ShouldSkip(now time.Time) bool {

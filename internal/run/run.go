@@ -66,6 +66,9 @@ type Result struct {
 	// Errors holds item-level errors (first maxErrors); ErrorCount has all.
 	Errors     []error
 	ErrorCount int
+	// Unattributed counts item-level errors not tied to a resource write
+	// (recorded via AddError rather than Record).
+	Unattributed int
 }
 
 // Record accounts for one write of the given resource and action
@@ -80,7 +83,7 @@ func (r *Result) Record(resource, action string, n int, err error) {
 	c := r.Resources[resource]
 	if err != nil {
 		c.Failed += n
-		r.AddError(err)
+		r.addError(err)
 	} else {
 		switch action {
 		case "add":
@@ -96,6 +99,11 @@ func (r *Result) Record(resource, action string, n int, err error) {
 
 // AddError records an item-level error not tied to a counted write.
 func (r *Result) AddError(err error) {
+	r.Unattributed++
+	r.addError(err)
+}
+
+func (r *Result) addError(err error) {
 	r.ErrorCount++
 	if len(r.Errors) < maxErrors {
 		r.Errors = append(r.Errors, err)
@@ -234,4 +242,13 @@ func (c *Cycle) Add(r Result) {
 		c.Skipped++
 	}
 	c.Changes += r.Totals().Changes()
+}
+
+// TargetState is a target's health after a run, as tracked by its worker.
+type TargetState struct {
+	Health              string
+	ConsecutiveFailures int
+	LastSuccess         time.Time
+	BackoffUntil        time.Time
+	LastError           error
 }

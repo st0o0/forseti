@@ -20,6 +20,7 @@ type CollectFunc func(ctx context.Context)
 
 type Server struct {
 	httpServer    *http.Server
+	mux           *http.ServeMux
 	liveness      liveness
 	registry      *prometheus.Registry
 	collectFunc   CollectFunc
@@ -27,10 +28,14 @@ type Server struct {
 	scrapeTimeMu  sync.RWMutex
 
 	// reconcile (toggle: reconcile)
-	reconcileRuns     *prometheus.CounterVec
-	reconcileDuration *prometheus.HistogramVec
-	reconcileChanges  *prometheus.CounterVec
-	reconcileDrift    *prometheus.GaugeVec
+	reconcileRuns        *prometheus.CounterVec
+	reconcileLastRun     *prometheus.GaugeVec
+	reconcileLastSuccess *prometheus.GaugeVec
+	reconcileItemErrors  *prometheus.CounterVec
+	consecutiveFailures  *prometheus.GaugeVec
+	reconcileDuration    *prometheus.HistogramVec
+	reconcileChanges     *prometheus.CounterVec
+	reconcileDrift       *prometheus.GaugeVec
 
 	// always registered
 	targetReachable    *prometheus.GaugeVec
@@ -190,7 +195,24 @@ func NewServer(port int, path string, toggles config.CollectorToggles) *Server {
 			Name: "forseti_reconcile_drift",
 			Help: "Items differing from desired state",
 		}, []string{"target", "type"})
-		reg.MustRegister(s.reconcileRuns, s.reconcileDuration, s.reconcileChanges, s.reconcileDrift)
+		s.reconcileLastRun = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_reconcile_last_run_timestamp",
+			Help: "Unix time of the last completed (not skipped) run",
+		}, []string{"target"})
+		s.reconcileLastSuccess = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_reconcile_last_success_timestamp",
+			Help: "Unix time of the last run with status success or partial",
+		}, []string{"target"})
+		s.reconcileItemErrors = prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "forseti_reconcile_item_errors_total",
+			Help: "Failed item writes per resource type",
+		}, []string{"target", "type"})
+		s.consecutiveFailures = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_target_consecutive_failures",
+			Help: "Consecutive failed runs (0 after a success)",
+		}, []string{"target"})
+		reg.MustRegister(s.reconcileRuns, s.reconcileDuration, s.reconcileChanges, s.reconcileDrift,
+			s.reconcileLastRun, s.reconcileLastSuccess, s.reconcileItemErrors, s.consecutiveFailures)
 	}
 
 	// Stats
@@ -356,6 +378,7 @@ func NewServer(port int, path string, toggles config.CollectorToggles) *Server {
 	promHandler := promhttp.HandlerFor(reg, promhttp.HandlerOpts{})
 
 	mux := http.NewServeMux()
+	s.mux = mux
 	s.scrapeTimeout = 15 * time.Second
 
 	mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
@@ -523,6 +546,14 @@ func (s *Server) MarkTargetReachable(target string) {
 	s.targetReachable.WithLabelValues(target).Set(1)
 }
 
+// RecordTargetState sets the health and consecutive-failure gauges.
+func (s *Server) RecordTargetState(target string, st run.TargetState) {
+	s.RecordTargetHealth(target, st.Health)
+	if s.consecutiveFailures != nil {
+		s.consecutiveFailures.WithLabelValues(target).Set(float64(st.ConsecutiveFailures))
+	}
+}
+
 func (s *Server) RecordTargetHealth(target string, state string) {
 	var val float64
 	switch state {
@@ -548,6 +579,33 @@ func (s *Server) RecordRun(r run.Result) {
 		Status:   status,
 		Changes:  r.ChangeMap(),
 	})
+	if s.reconcileLastRun == nil {
+		return
+	}
+
+	end := r.Started.Add(r.Duration)
+	if r.Started.IsZero() {
+		end = time.Now()
+	}
+	s.reconcileLastRun.WithLabelValues(r.Target).Set(float64(end.Unix()))
+	if r.Status == run.OK || r.Status == run.Partial {
+		s.reconcileLastSuccess.WithLabelValues(r.Target).Set(float64(end.Unix()))
+	}
+
+	for resType, c := range r.Resources {
+		if c.Failed > 0 {
+			s.reconcileItemErrors.WithLabelValues(r.Target, resType).Add(float64(c.Failed))
+		}
+	}
+	if r.Unattributed > 0 {
+		s.reconcileItemErrors.WithLabelValues(r.Target, "other").Add(float64(r.Unattributed))
+	}
+}
+
+// Handle mounts an additional handler on the metrics HTTP server. It must be
+// called before Start.
+func (s *Server) Handle(pattern string, h http.Handler) {
+	s.mux.Handle(pattern, h)
 }
 
 // RecordDrift sets forseti_reconcile_drift for every resource type.

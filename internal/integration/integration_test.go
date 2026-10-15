@@ -197,7 +197,7 @@ type noopRecorder struct{}
 func (noopRecorder) RecordRun(run.Result)                        {}
 func (noopRecorder) RecordDrift(string, map[string]int)          {}
 func (noopRecorder) UpdateSettingsDrift(string, map[string]bool) {}
-func (noopRecorder) RecordTargetHealth(string, string)           {}
+func (noopRecorder) RecordTargetState(string, run.TargetState)   {}
 
 type noopGravity struct{}
 
