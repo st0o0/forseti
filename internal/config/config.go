@@ -156,9 +156,9 @@ type MiscSettings struct {
 }
 
 type CheckSettings struct {
-	Load *bool `yaml:"load"`
-	Disk *int  `yaml:"disk"`
-	Shmem *int `yaml:"shmem"`
+	Load  *bool `yaml:"load"`
+	Disk  *int  `yaml:"disk"`
+	Shmem *int  `yaml:"shmem"`
 }
 
 type SyncConfig struct {
@@ -282,13 +282,13 @@ type TargetOverride struct {
 }
 
 type ExcludeBlock struct {
-	Groups   []GroupExclude   `yaml:"groups"`
-	Adlists  []AdlistExclude  `yaml:"adlists"`
-	Deny     []DenyExclude    `yaml:"deny"`
-	Allow    []AllowExclude   `yaml:"allow"`
+	Groups   []GroupExclude    `yaml:"groups"`
+	Adlists  []AdlistExclude   `yaml:"adlists"`
+	Deny     []DenyExclude     `yaml:"deny"`
+	Allow    []AllowExclude    `yaml:"allow"`
 	LocalDNS []LocalDNSExclude `yaml:"local_dns"`
-	CNAME    []CNAMEExclude   `yaml:"cname"`
-	Clients  []ClientExclude  `yaml:"clients"`
+	CNAME    []CNAMEExclude    `yaml:"cname"`
+	Clients  []ClientExclude   `yaml:"clients"`
 }
 
 type GroupExclude struct {
@@ -725,8 +725,8 @@ func validate(cfg *Config) error {
 }
 
 var (
-	validBlockingModes   = map[string]bool{"NULL": true, "IP": true, "NXDOMAIN": true}
-	validListeningModes  = map[string]bool{"local": true, "all": true, "bind": true}
+	validBlockingModes  = map[string]bool{"NULL": true, "IP": true, "NXDOMAIN": true}
+	validListeningModes = map[string]bool{"local": true, "all": true, "bind": true}
 )
 
 func validateSettings(s *Settings) error {
