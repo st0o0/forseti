@@ -13,10 +13,10 @@ import (
 const defaultMaxConcurrent = 4
 
 type PoolCallbacks struct {
-	OnNewSession  func(target string)
-	OnInvalidate  func(target string)
-	OnReauth      func(target string)
-	OnClose       func()
+	OnNewSession func(target string)
+	OnInvalidate func(target string)
+	OnReauth     func(target string)
+	OnClose      func()
 }
 
 type Pool struct {

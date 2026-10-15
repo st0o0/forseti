@@ -8,11 +8,11 @@ import (
 )
 
 type Schedule struct {
-	minutes  []bool // 0-59
-	hours    []bool // 0-23
-	doms     []bool // 1-31
-	months   []bool // 1-12
-	dows     []bool // 0-6 (Sunday=0)
+	minutes []bool // 0-59
+	hours   []bool // 0-23
+	doms    []bool // 1-31
+	months  []bool // 1-12
+	dows    []bool // 0-6 (Sunday=0)
 }
 
 func ParseSchedule(expr string) (*Schedule, error) {
