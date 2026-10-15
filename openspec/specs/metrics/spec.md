@@ -18,12 +18,19 @@ The system SHALL expose a Prometheus-compatible `/metrics` endpoint. Port and pa
 ### Requirement: Forseti reconciliation metrics
 The system SHALL expose reconciliation telemetry:
 
-- `forseti_reconcile_runs_total{target, status}` — counter of reconcile cycles (status: success/error)
-- `forseti_reconcile_duration_seconds{target}` — histogram of reconcile cycle duration
-- `forseti_reconcile_changes_total{target, type, action}` — counter of changes applied (type: adlist/deny/allow/dns/group/client, action: add/delete)
+- `forseti_reconcile_runs_total{target, status}` — counter of reconcile/sync runs per target (status: `success`, `partial`, `error`)
+- `forseti_reconcile_duration_seconds{target}` — histogram of run duration
+- `forseti_reconcile_changes_total{target, type, action}` — counter of changes applied (type: groups/adlists/deny/allow/local_dns/cname/clients, action: add/update/delete)
 - `forseti_reconcile_drift{target, type}` — gauge of items that differ from desired state at each cycle
 - `forseti_target_reachable{target}` — gauge (1 = reachable, 0 = unreachable)
+- `forseti_target_health{target}` — gauge of the worker health state (0 = healthy, 1 = degraded, 2 = down)
 - `forseti_session_active` — gauge of active sessions in pool
+
+Run status values: `success` when the run completed without errors; `partial` when the target was reached and its state read, but at least one item-level write failed; `error` when the run could not complete (session, readiness, state read, settings or content apply failure).
+
+`forseti_target_reachable` SHALL reflect only whether the target answered: it SHALL be set to 0 when a session cannot be obtained or the readiness check fails, and to 1 when a session and readiness check (or a stats scrape) succeed. The outcome of content or settings reconciliation SHALL NOT change it.
+
+`forseti_target_health` SHALL be set after every reconcile cycle of a target, on every success and failure path.
 
 `forseti_session_active` SHALL increment when a new session is created and decrement when a session is invalidated. It SHALL reset to 0 when the pool is closed. The gauge MUST accurately reflect the number of live sessions at all times.
 
@@ -31,11 +38,19 @@ After each reconcile cycle, `forseti_reconcile_drift` SHALL be set for all resou
 
 #### Scenario: Successful reconcile updates metrics
 - **WHEN** a reconcile cycle completes successfully against target `pihole-router` with 2 adlists added
-- **THEN** `forseti_reconcile_runs_total{target="pihole-router", status="success"}` SHALL increment by 1 and `forseti_reconcile_changes_total{target="pihole-router", type="adlist", action="add"}` SHALL increment by 2
+- **THEN** `forseti_reconcile_runs_total{target="pihole-router", status="success"}` SHALL increment by 1 and `forseti_reconcile_changes_total{target="pihole-router", type="adlists", action="add"}` SHALL increment by 2
 
 #### Scenario: Failed reconcile
 - **WHEN** a reconcile cycle fails against target `pihole-pi`
 - **THEN** `forseti_reconcile_runs_total{target="pihole-pi", status="error"}` SHALL increment by 1
+
+#### Scenario: Partial reconcile
+- **WHEN** a reconcile cycle against `pihole-pi` reads state successfully but one item write fails
+- **THEN** `forseti_reconcile_runs_total{target="pihole-pi", status="partial"}` SHALL increment by 1 and `forseti_target_reachable{target="pihole-pi"}` SHALL remain 1
+
+#### Scenario: Health gauge on readiness failure
+- **WHEN** the readiness check for `pihole-pi` fails during a reconcile cycle
+- **THEN** `forseti_target_health{target="pihole-pi"}` SHALL be 1 (degraded) and `forseti_target_reachable{target="pihole-pi"}` SHALL be 0
 
 #### Scenario: Drift resolves after apply
 - **WHEN** a previous cycle reported `forseti_reconcile_drift{target="pizero", type="adlists"} = 1` and the next cycle finds no adlist drift
@@ -123,3 +138,33 @@ The metrics server SHALL support `forseti_dhcp_leases_active{target}` as a gauge
 - **WHEN** DHCP collector is enabled and targets have active DHCP
 - **THEN** `forseti_dhcp_leases_active` SHALL appear in `/metrics` output
 
+### Requirement: Change counters count applied changes
+`forseti_reconcile_changes_total` SHALL count only changes that were successfully applied, in both modes. Planned changes whose write failed SHALL NOT be counted. For a failed batch delete, every item in the batch SHALL be treated as failed.
+
+#### Scenario: Failed create in config mode
+- **WHEN** config mode plans 3 adlist additions on `pihole-router` and one of the creates fails
+- **THEN** `forseti_reconcile_changes_total{target="pihole-router", type="adlists", action="add"}` SHALL increment by 2
+
+#### Scenario: Failed batch delete
+- **WHEN** a batch delete of 4 deny domains fails
+- **THEN** `forseti_reconcile_changes_total{type="deny", action="delete"}` SHALL NOT increment for that batch
+
+### Requirement: Run freshness and failure metrics
+The system SHALL expose, per target, in both modes:
+
+- `forseti_reconcile_last_run_timestamp{target}` — unix time of the last completed (not skipped) run
+- `forseti_reconcile_last_success_timestamp{target}` — unix time of the last run with status `success` or `partial`
+- `forseti_target_consecutive_failures{target}` — number of consecutive failed runs (0 after a success)
+- `forseti_reconcile_item_errors_total{target, type}` — counter of failed item writes per resource type (`other` for errors not tied to a resource)
+
+#### Scenario: Alert on stale sync
+- **WHEN** replica `pihole-2` has not completed a successful run for 30 minutes
+- **THEN** `time() - forseti_reconcile_last_success_timestamp{target="pihole-2"}` SHALL exceed 1800
+
+#### Scenario: Failures reset on success
+- **WHEN** a target fails twice and then succeeds
+- **THEN** `forseti_target_consecutive_failures` SHALL read 2 after the second failure and 0 after the success
+
+#### Scenario: Item errors counted
+- **WHEN** two client writes fail during a partial run on `pihole-2`
+- **THEN** `forseti_reconcile_item_errors_total{target="pihole-2", type="clients"}` SHALL increase by 2

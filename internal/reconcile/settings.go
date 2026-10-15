@@ -3,10 +3,11 @@ package reconcile
 import (
 	"errors"
 	"fmt"
-	"log/slog"
+	"regexp"
 	"strings"
 
 	"github.com/st0o0/forseti/internal/config"
+	"github.com/st0o0/forseti/internal/logging"
 	"github.com/st0o0/forseti/internal/pihole"
 )
 
@@ -19,6 +20,17 @@ type SettingMapping struct {
 	ForsetiPath string
 	PiholePath  string
 	Value       any
+	// Sensitive marks settings whose values must never be logged or printed.
+	// Paths that look secret-bearing are treated as sensitive regardless.
+	Sensitive bool
+}
+
+// sensitivePath matches Pi-hole config paths that carry secrets.
+var sensitivePath = regexp.MustCompile(`(?i)(password|pwhash|secret|totp|token|key)`)
+
+// IsSensitive reports whether the mapping's value must be redacted.
+func (m SettingMapping) IsSensitive() bool {
+	return m.Sensitive || sensitivePath.MatchString(m.PiholePath) || sensitivePath.MatchString(m.ForsetiPath)
 }
 
 type SettingsDiff struct {
@@ -26,10 +38,30 @@ type SettingsDiff struct {
 }
 
 type SettingChange struct {
-	Name    string
-	Path    string
-	Current any
-	Desired any
+	Name      string
+	Path      string
+	Current   any
+	Desired   any
+	Sensitive bool
+}
+
+// redactedValue is shown instead of sensitive setting values.
+const redactedValue = "[REDACTED]"
+
+// DisplayCurrent returns the current value for logs and plan output.
+func (c SettingChange) DisplayCurrent() any {
+	if c.Sensitive {
+		return redactedValue
+	}
+	return c.Current
+}
+
+// DisplayDesired returns the desired value for logs and plan output.
+func (c SettingChange) DisplayDesired() any {
+	if c.Sensitive {
+		return redactedValue
+	}
+	return c.Desired
 }
 
 func (d SettingsDiff) HasChanges() bool {
@@ -409,10 +441,11 @@ func DiffSettings(settings *config.Settings, api SettingsAPI) (*SettingsDiff, er
 		actual, found := extractConfigValue(actualConfig, m.PiholePath)
 		if !found || settingsNeedUpdate(actual, m.Value) {
 			diff.Changes = append(diff.Changes, SettingChange{
-				Name:    m.ForsetiPath,
-				Path:    m.PiholePath,
-				Current: actual,
-				Desired: m.Value,
+				Name:      m.ForsetiPath,
+				Path:      m.PiholePath,
+				Current:   actual,
+				Desired:   m.Value,
+				Sensitive: m.IsSensitive(),
 			})
 		}
 	}
@@ -441,11 +474,13 @@ func ApplySettings(target string, settings *config.Settings, api SettingsAPI) (*
 	}
 
 	var errs []error
+	log := logging.Component("reconcile")
 	for _, change := range diff.Changes {
-		slog.Info("applying setting", "target", target, "name", change.Name, "current", change.Current, "desired", change.Desired)
 		if err := api.PatchConfig(change.Path, change.Desired); err != nil {
 			errs = append(errs, fmt.Errorf("set %s: %w", change.Name, err))
+			continue
 		}
+		log.Info("setting applied", "target", target, "setting", change.Name, "from", change.DisplayCurrent(), "to", change.DisplayDesired())
 	}
 
 	return diff, errors.Join(errs...)

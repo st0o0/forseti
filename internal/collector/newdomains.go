@@ -7,9 +7,11 @@ import (
 	"time"
 
 	"github.com/st0o0/forseti/internal/config"
+	"github.com/st0o0/forseti/internal/logging"
 	"github.com/st0o0/forseti/internal/metrics"
 	"github.com/st0o0/forseti/internal/pihole"
 	"github.com/st0o0/forseti/internal/session"
+	"github.com/st0o0/forseti/internal/targetstate"
 )
 
 const newDomainsWindow = 24 * time.Hour
@@ -24,9 +26,17 @@ type NewDomainsCollector struct {
 	interval time.Duration
 	metrics  *metrics.Server
 	toggles  config.CollectorToggles
+	log      *slog.Logger
+	reach    Reachability
 
 	mu      sync.RWMutex
 	targets []config.Target
+
+	// logged remembers, per target and domain, the first-seen time of
+	// domains already reported via new_blocked_domain, so each is logged
+	// once per window. In-memory only; it does not affect the gauge.
+	loggedMu sync.Mutex
+	logged   map[string]map[string]time.Time
 }
 
 func NewNewDomainsCollector(pool *session.Pool, targets []config.Target, interval time.Duration, m *metrics.Server, toggles config.CollectorToggles) *NewDomainsCollector {
@@ -36,7 +46,37 @@ func NewNewDomainsCollector(pool *session.Pool, targets []config.Target, interva
 		metrics:  m,
 		toggles:  toggles,
 		targets:  targets,
+		log:      logging.Component("newdomains"),
+		reach:    targetstate.New(m),
+		logged:   make(map[string]map[string]time.Time),
 	}
+}
+
+// SetReachability replaces the reachability tracker (see Collector).
+func (c *NewDomainsCollector) SetReachability(r Reachability) {
+	c.reach = r
+}
+
+// shouldLog reports whether domain on target has not been logged within its
+// current window, and records it. Entries older than the window are pruned.
+func (c *NewDomainsCollector) shouldLog(target, domain string, firstSeen, now time.Time) bool {
+	c.loggedMu.Lock()
+	defer c.loggedMu.Unlock()
+	seen := c.logged[target]
+	if seen == nil {
+		seen = make(map[string]time.Time)
+		c.logged[target] = seen
+	}
+	for d, t := range seen {
+		if now.Sub(t) > newDomainsWindow {
+			delete(seen, d)
+		}
+	}
+	if _, ok := seen[domain]; ok {
+		return false
+	}
+	seen[domain] = firstSeen
+	return true
 }
 
 func (c *NewDomainsCollector) UpdateTargets(targets []config.Target) {
@@ -90,7 +130,7 @@ func (c *NewDomainsCollector) CollectOnce(ctx context.Context) {
 
 func (c *NewDomainsCollector) collectTarget(_ context.Context, target config.Target) {
 	if !c.pool.TryAcquire(target.Name) {
-		slog.Debug("new-domains target busy, skipping this cycle", "target", target.Name)
+		c.log.Debug("target busy, skipping this cycle", "target", target.Name)
 		return
 	}
 	defer c.pool.Release(target.Name)
@@ -101,8 +141,9 @@ func (c *NewDomainsCollector) collectTarget(_ context.Context, target config.Tar
 
 	client, err := c.pool.Get(target)
 	if err != nil {
-		slog.Error("new-domains session error", "target", target.Name, "error", err)
+		c.log.Debug("session error", "target", target.Name, "error", err)
 		c.pool.Invalidate(target.Name)
+		c.reach.Observe(target.Name, "newdomains", err)
 		return
 	}
 
@@ -115,7 +156,7 @@ func (c *NewDomainsCollector) collectTarget(_ context.Context, target config.Tar
 		Statuses: pihole.BlockedQueryStatuses,
 	})
 	if err != nil {
-		slog.Warn("new-domains query history error", "target", target.Name, "error", err)
+		c.log.Warn("query history failed", "target", target.Name, "error", err)
 		return
 	}
 
@@ -138,7 +179,7 @@ func (c *NewDomainsCollector) collectTarget(_ context.Context, target config.Tar
 
 	select {
 	case <-ctx.Done():
-		slog.Warn("new-domains collector timeout", "target", target.Name)
+		c.log.Warn("detection timed out", "target", target.Name)
 		return
 	default:
 	}
@@ -152,7 +193,7 @@ func (c *NewDomainsCollector) collectTarget(_ context.Context, target config.Tar
 			Length:   1,
 		})
 		if err != nil {
-			slog.Warn("new-domains existence check error", "target", target.Name, "domain", domain, "error", err)
+			c.log.Debug("existence check failed", "target", target.Name, "domain", domain, "error", err)
 			continue
 		}
 		if len(prior) > 0 {
@@ -160,7 +201,10 @@ func (c *NewDomainsCollector) collectTarget(_ context.Context, target config.Tar
 		}
 
 		newCount++
-		slog.Info("new_blocked_domain",
+		if !c.shouldLog(target.Name, domain, cand.firstSeen, now) {
+			continue
+		}
+		c.log.Info("new_blocked_domain",
 			"target", target.Name,
 			"domain", domain,
 			"first_seen", cand.firstSeen.Format(time.RFC3339),

@@ -9,26 +9,33 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
-	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/st0o0/forseti/internal/config"
 	"github.com/st0o0/forseti/internal/pihole"
+	"github.com/st0o0/forseti/internal/run"
 )
 
 type CollectFunc func(ctx context.Context)
 
 type Server struct {
 	httpServer    *http.Server
+	mux           *http.ServeMux
+	liveness      liveness
 	registry      *prometheus.Registry
 	collectFunc   CollectFunc
 	scrapeTimeout time.Duration
 	scrapeTimeMu  sync.RWMutex
 
 	// reconcile (toggle: reconcile)
-	reconcileRuns     *prometheus.CounterVec
-	reconcileDuration *prometheus.HistogramVec
-	reconcileChanges  *prometheus.CounterVec
-	reconcileDrift    *prometheus.GaugeVec
+	reconcileRuns        *prometheus.CounterVec
+	reconcileLastRun     *prometheus.GaugeVec
+	reconcileLastSuccess *prometheus.GaugeVec
+	reconcileItemErrors  *prometheus.CounterVec
+	consecutiveFailures  *prometheus.GaugeVec
+	reconcileDuration    *prometheus.HistogramVec
+	reconcileChanges     *prometheus.CounterVec
+	reconcileDrift       *prometheus.GaugeVec
 
 	// always registered
 	targetReachable    *prometheus.GaugeVec
@@ -37,17 +44,17 @@ type Server struct {
 	configAllowDomains prometheus.Gauge
 
 	// stats (toggle: stats)
-	statsQueries          *prometheus.GaugeVec
-	statsBlocked          *prometheus.GaugeVec
-	statsBlockedPct       *prometheus.GaugeVec
+	statsQueries           *prometheus.GaugeVec
+	statsBlocked           *prometheus.GaugeVec
+	statsBlockedPct        *prometheus.GaugeVec
 	statsGravityLastUpdate *prometheus.GaugeVec
-	statsDomainsBlocked   *prometheus.GaugeVec
-	statsQueriesForwarded *prometheus.GaugeVec
-	statsQueriesCached    *prometheus.GaugeVec
-	statsUniqueDomains    *prometheus.GaugeVec
-	statsRequestFrequency *prometheus.GaugeVec
-	statsClientsActive    *prometheus.GaugeVec
-	statsClientsTotal     *prometheus.GaugeVec
+	statsDomainsBlocked    *prometheus.GaugeVec
+	statsQueriesForwarded  *prometheus.GaugeVec
+	statsQueriesCached     *prometheus.GaugeVec
+	statsUniqueDomains     *prometheus.GaugeVec
+	statsRequestFrequency  *prometheus.GaugeVec
+	statsClientsActive     *prometheus.GaugeVec
+	statsClientsTotal      *prometheus.GaugeVec
 
 	// query_types (toggle: query_types)
 	queryTypes  *prometheus.GaugeVec
@@ -79,9 +86,9 @@ type Server struct {
 	sessionActive prometheus.Gauge
 
 	// always registered
-	buildInfo     *prometheus.GaugeVec
-	configReload  *prometheus.CounterVec
-	targetHealth  *prometheus.GaugeVec
+	buildInfo    *prometheus.GaugeVec
+	configReload *prometheus.CounterVec
+	targetHealth *prometheus.GaugeVec
 
 	// settings_drift (toggle: settings_drift)
 	settingsDrift *prometheus.GaugeVec
@@ -188,7 +195,24 @@ func NewServer(port int, path string, toggles config.CollectorToggles) *Server {
 			Name: "forseti_reconcile_drift",
 			Help: "Items differing from desired state",
 		}, []string{"target", "type"})
-		reg.MustRegister(s.reconcileRuns, s.reconcileDuration, s.reconcileChanges, s.reconcileDrift)
+		s.reconcileLastRun = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_reconcile_last_run_timestamp",
+			Help: "Unix time of the last completed (not skipped) run",
+		}, []string{"target"})
+		s.reconcileLastSuccess = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_reconcile_last_success_timestamp",
+			Help: "Unix time of the last run with status success or partial",
+		}, []string{"target"})
+		s.reconcileItemErrors = prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "forseti_reconcile_item_errors_total",
+			Help: "Failed item writes per resource type",
+		}, []string{"target", "type"})
+		s.consecutiveFailures = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_target_consecutive_failures",
+			Help: "Consecutive failed runs (0 after a success)",
+		}, []string{"target"})
+		reg.MustRegister(s.reconcileRuns, s.reconcileDuration, s.reconcileChanges, s.reconcileDrift,
+			s.reconcileLastRun, s.reconcileLastSuccess, s.reconcileItemErrors, s.consecutiveFailures)
 	}
 
 	// Stats
@@ -354,6 +378,7 @@ func NewServer(port int, path string, toggles config.CollectorToggles) *Server {
 	promHandler := promhttp.HandlerFor(reg, promhttp.HandlerOpts{})
 
 	mux := http.NewServeMux()
+	s.mux = mux
 	s.scrapeTimeout = 15 * time.Second
 
 	mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
@@ -367,6 +392,10 @@ func NewServer(port int, path string, toggles config.CollectorToggles) *Server {
 		}
 		promHandler.ServeHTTP(w, r)
 	})
+
+	if path != "/healthz" {
+		mux.HandleFunc("/healthz", s.handleHealthz)
+	}
 
 	s.httpServer = &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),
@@ -398,10 +427,17 @@ func (s *Server) SetConfigMetrics(cfg *config.Config) {
 	s.configAllowDomains.Set(float64(len(cfg.Allow)))
 }
 
+// Run status values for forseti_reconcile_runs_total.
+const (
+	RunSuccess = "success"
+	RunPartial = "partial"
+	RunError   = "error"
+)
+
 type ReconcileResult struct {
 	Target   string
 	Duration time.Duration
-	Success  bool
+	Status   string
 	Changes  map[string]map[string]int
 	Drift    map[string]int
 }
@@ -410,13 +446,12 @@ func (s *Server) RecordReconcile(r ReconcileResult) {
 	if s.reconcileRuns == nil {
 		return
 	}
-	status := "success"
-	if !r.Success {
-		status = "error"
+	status := r.Status
+	if status == "" {
+		status = RunSuccess
 	}
 	s.reconcileRuns.WithLabelValues(r.Target, status).Inc()
 	s.reconcileDuration.WithLabelValues(r.Target).Observe(r.Duration.Seconds())
-	s.targetReachable.WithLabelValues(r.Target).Set(boolToFloat(r.Success))
 
 	for resType, actions := range r.Changes {
 		for action, count := range actions {
@@ -507,6 +542,18 @@ func (s *Server) MarkTargetUnreachable(target string) {
 	s.targetReachable.WithLabelValues(target).Set(0)
 }
 
+func (s *Server) MarkTargetReachable(target string) {
+	s.targetReachable.WithLabelValues(target).Set(1)
+}
+
+// RecordTargetState sets the health and consecutive-failure gauges.
+func (s *Server) RecordTargetState(target string, st run.TargetState) {
+	s.RecordTargetHealth(target, st.Health)
+	if s.consecutiveFailures != nil {
+		s.consecutiveFailures.WithLabelValues(target).Set(float64(st.ConsecutiveFailures))
+	}
+}
+
 func (s *Server) RecordTargetHealth(target string, state string) {
 	var val float64
 	switch state {
@@ -520,14 +567,55 @@ func (s *Server) RecordTargetHealth(target string, state string) {
 	s.targetHealth.WithLabelValues(target).Set(val)
 }
 
-func (s *Server) RecordReconcileResult(target string, duration time.Duration, success bool, changes map[string]map[string]int, drift map[string]int) {
+// RecordRun records a finished run. Skipped runs are not recorded.
+func (s *Server) RecordRun(r run.Result) {
+	status := r.Status.MetricStatus()
+	if status == "" {
+		return
+	}
 	s.RecordReconcile(ReconcileResult{
-		Target:   target,
-		Duration: duration,
-		Success:  success,
-		Changes:  changes,
-		Drift:    drift,
+		Target:   r.Target,
+		Duration: r.Duration,
+		Status:   status,
+		Changes:  r.ChangeMap(),
 	})
+	if s.reconcileLastRun == nil {
+		return
+	}
+
+	end := r.Started.Add(r.Duration)
+	if r.Started.IsZero() {
+		end = time.Now()
+	}
+	s.reconcileLastRun.WithLabelValues(r.Target).Set(float64(end.Unix()))
+	if r.Status == run.OK || r.Status == run.Partial {
+		s.reconcileLastSuccess.WithLabelValues(r.Target).Set(float64(end.Unix()))
+	}
+
+	for resType, c := range r.Resources {
+		if c.Failed > 0 {
+			s.reconcileItemErrors.WithLabelValues(r.Target, resType).Add(float64(c.Failed))
+		}
+	}
+	if r.Unattributed > 0 {
+		s.reconcileItemErrors.WithLabelValues(r.Target, "other").Add(float64(r.Unattributed))
+	}
+}
+
+// Handle mounts an additional handler on the metrics HTTP server. It must be
+// called before Start.
+func (s *Server) Handle(pattern string, h http.Handler) {
+	s.mux.Handle(pattern, h)
+}
+
+// RecordDrift sets forseti_reconcile_drift for every resource type.
+func (s *Server) RecordDrift(target string, drift map[string]int) {
+	if s.reconcileDrift == nil {
+		return
+	}
+	for resType, count := range drift {
+		s.reconcileDrift.WithLabelValues(target, resType).Set(float64(count))
+	}
 }
 
 func (s *Server) ObserveCollectorDuration(d time.Duration) {

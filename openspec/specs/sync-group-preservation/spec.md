@@ -1,4 +1,10 @@
-## ADDED Requirements
+# Sync Group Preservation
+
+## Purpose
+
+Preserving group assignments when syncing adlists, domains and clients from the primary to replicas by translating group IDs via group names.
+
+## Requirements
 
 ### Requirement: Adlist group assignments are preserved during sync
 

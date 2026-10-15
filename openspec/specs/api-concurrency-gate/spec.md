@@ -1,6 +1,10 @@
 # API Concurrency Gate
 
+## Purpose
+
 Per-target semaphore controlling how many concurrent API calls each subsystem can make to a single Pi-hole instance.
+
+## Requirements
 
 ### Requirement: Per-target API concurrency gate
 The session pool SHALL provide a per-target semaphore that limits the number of concurrent API calls to each Pi-hole instance. The semaphore capacity SHALL equal the target's configured `max_concurrent` value. All subsystems (reconciler, collector, gravity) MUST acquire a slot before making API calls to a target and release it when done.

@@ -1,6 +1,10 @@
 # DHCP Metrics
 
+## Purpose
+
 DHCP lease count metric and Pi-hole DHCP API integration.
+
+## Requirements
 
 ### Requirement: DHCP lease count metric
 The system SHALL expose `forseti_dhcp_leases_active{target}` as a Prometheus gauge representing the number of active DHCP leases on each Pi-hole target.

@@ -1,6 +1,10 @@
 # Session Observability
 
+## Purpose
+
 Prometheus metrics for session pool health: reauth events and active session count.
+
+## Requirements
 
 ### Requirement: Session reauth counter
 The metrics server SHALL register `forseti_session_reauth_total` as a Counter with label `{target}`. Each time the Pi-hole client successfully re-authenticates after a 401 response, the counter SHALL increment for that target.

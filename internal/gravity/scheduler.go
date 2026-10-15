@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/st0o0/forseti/internal/config"
+	"github.com/st0o0/forseti/internal/logging"
 	"github.com/st0o0/forseti/internal/session"
 )
 
@@ -31,7 +32,14 @@ type triggerRequest struct {
 	reason string
 }
 
+// Reachability receives reachability observations (see targetstate.Tracker).
+type Reachability interface {
+	Observe(target, source string, err error)
+}
+
 type Scheduler struct {
+	log       *slog.Logger
+	reach     Reachability
 	pool      *session.Pool
 	entries   []entry
 	recorder  Recorder
@@ -44,6 +52,7 @@ type Scheduler struct {
 
 func NewScheduler(pool *session.Pool, targets []config.Target, recorder Recorder) (*Scheduler, error) {
 	s := &Scheduler{
+		log:       logging.Component("gravity"),
 		pool:      pool,
 		recorder:  recorder,
 		targetMap: make(map[string]config.Target, len(targets)),
@@ -72,25 +81,74 @@ func NewScheduler(pool *session.Pool, targets []config.Target, recorder Recorder
 	return s, nil
 }
 
-func (s *Scheduler) Start(ctx context.Context) {
+// SetReachability sets the shared reachability tracker.
+func (s *Scheduler) SetReachability(r Reachability) {
+	s.reach = r
+}
+
+func (s *Scheduler) logScheduled(e entry) {
+	s.log.Info("gravity scheduled", "target", e.target.Name, "schedule", e.target.Gravity.Schedule, "next_run", e.next.Format(time.RFC3339))
+}
+
+// UpdateTargets replaces the scheduler's target set after a config reload.
+// Entries whose schedule is unchanged keep their next run time; new or
+// changed schedules are recomputed; removed targets are dropped. In-flight
+// gravity runs are not affected.
+func (s *Scheduler) UpdateTargets(targets []config.Target) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	existing := make(map[string]entry, len(s.entries))
 	for _, e := range s.entries {
-		slog.Debug("gravity scheduled", "target", e.target.Name, "next_run", e.next.Format(time.RFC3339))
+		existing[e.target.Name] = e
 	}
 
-	var tickerCh <-chan time.Time
-	var ticker *time.Ticker
-	if len(s.entries) > 0 {
-		ticker = time.NewTicker(30 * time.Second)
-		tickerCh = ticker.C
-		defer ticker.Stop()
+	s.targetMap = make(map[string]config.Target, len(targets))
+	entries := make([]entry, 0, len(targets))
+	now := time.Now()
+	for _, t := range targets {
+		s.targetMap[t.Name] = t
+		if t.Gravity.Schedule == "" {
+			continue
+		}
+		if old, ok := existing[t.Name]; ok && old.target.Gravity.Schedule == t.Gravity.Schedule {
+			old.target = t
+			entries = append(entries, old)
+			continue
+		}
+		sched, err := ParseSchedule(t.Gravity.Schedule)
+		if err != nil {
+			s.log.Warn("gravity schedule invalid, keeping previous", "target", t.Name, "schedule", t.Gravity.Schedule, "error", err)
+			if old, ok := existing[t.Name]; ok {
+				entries = append(entries, old)
+			}
+			continue
+		}
+		e := entry{target: t, schedule: sched, next: sched.Next(now)}
+		s.logScheduled(e)
+		entries = append(entries, e)
 	}
+	s.entries = entries
+}
+
+func (s *Scheduler) Start(ctx context.Context) {
+	s.mu.Lock()
+	for _, e := range s.entries {
+		s.logScheduled(e)
+	}
+	s.mu.Unlock()
+
+	// The ticker always runs so that schedules added by a config reload are
+	// honoured; with no entries a tick is a no-op.
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			s.wg.Wait()
 			return
-		case now := <-tickerCh:
+		case now := <-ticker.C:
 			s.mu.Lock()
 			for i := range s.entries {
 				e := &s.entries[i]
@@ -111,7 +169,7 @@ func (s *Scheduler) TriggerAsync(targetName string, reason string) {
 	select {
 	case s.asyncCh <- triggerRequest{target: targetName, reason: reason}:
 	default:
-		slog.Warn("gravity async channel full, dropping request", "target", targetName, "reason", reason)
+		s.log.Warn("gravity request dropped, queue full", "target", targetName, "reason", reason)
 	}
 }
 
@@ -121,7 +179,7 @@ func (s *Scheduler) processAsync(req triggerRequest) {
 
 	target, ok := s.targetMap[req.target]
 	if !ok {
-		slog.Error("gravity trigger: unknown target", "target", req.target)
+		s.log.Error("gravity trigger for unknown target", "target", req.target)
 		return
 	}
 
@@ -133,7 +191,7 @@ func (s *Scheduler) TriggerNow(targetName string, reason string) error {
 
 	if s.inFlight[targetName] {
 		s.mu.Unlock()
-		slog.Warn("gravity already running, skipping", "target", targetName, "reason", reason)
+		s.log.Debug("gravity skipped, already running", "target", targetName, "reason", reason)
 		return nil
 	}
 
@@ -158,7 +216,7 @@ func (s *Scheduler) TriggerNow(targetName string, reason string) error {
 // triggerLocked spawns an async gravity run. Caller must hold s.mu.
 func (s *Scheduler) triggerLocked(target config.Target, reason string) {
 	if s.inFlight[target.Name] {
-		slog.Warn("gravity already running, skipping", "target", target.Name, "reason", reason)
+		s.log.Debug("gravity skipped, already running", "target", target.Name, "reason", reason)
 		return
 	}
 
@@ -184,22 +242,25 @@ func (s *Scheduler) runGravity(target config.Target, reason string) error {
 	client, err := s.pool.Get(target)
 	if err != nil {
 		s.pool.Invalidate(target.Name)
-		slog.Error("gravity session error", "target", target.Name, "error", err)
+		if s.reach != nil {
+			s.reach.Observe(target.Name, "gravity", err)
+		}
+		s.log.Error("gravity finished", "target", target.Name, "reason", reason, "status", "failed", "error", err)
 		if s.recorder != nil {
 			s.recorder.RecordGravityRun(target.Name, reason, 0, err)
 		}
 		return fmt.Errorf("gravity trigger %s: session error: %w", target.Name, err)
 	}
 
-	slog.Info("triggering gravity", "target", target.Name, "reason", reason)
+	s.log.Info("gravity started", "target", target.Name, "reason", reason)
 	start := time.Now()
 	err = client.TriggerGravity()
 	duration := time.Since(start)
 
 	if err != nil {
-		slog.Error("gravity error", "target", target.Name, "error", err)
+		s.log.Error("gravity finished", "target", target.Name, "reason", reason, "status", "failed", "duration", duration.Round(time.Millisecond), "error", err)
 	} else {
-		slog.Info("gravity completed", "target", target.Name, "duration", duration.Round(time.Millisecond))
+		s.log.Info("gravity finished", "target", target.Name, "reason", reason, "status", "ok", "duration", duration.Round(time.Millisecond))
 	}
 
 	if s.recorder != nil {

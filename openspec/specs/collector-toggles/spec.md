@@ -1,6 +1,10 @@
 # Collector Toggles
 
+## Purpose
+
 Per-area boolean switches in `metrics.collectors` that control which metric groups are registered and which Pi-hole API calls are made during scrape.
+
+## Requirements
 
 ### Requirement: Collector toggles configuration
 The system SHALL accept a `metrics.collectors` section in the config file with boolean toggles for each metric area. Each toggle controls whether the corresponding metrics are registered and whether the associated Pi-hole API calls are made during collection.

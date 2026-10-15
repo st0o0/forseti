@@ -1,6 +1,10 @@
 # Pi-hole API
 
+## Purpose
+
 Pi-hole v6 REST API client contract: session authentication, CRUD operations, batch constraints, stats retrieval.
+
+## Requirements
 
 ### Requirement: Session-based authentication
 The system SHALL authenticate against Pi-hole v6 using `POST /api/auth` which returns a session ID. All subsequent requests SHALL include the `X-FTL-SID` header. After operations complete, the system SHALL call `DELETE /api/auth` to release the session.

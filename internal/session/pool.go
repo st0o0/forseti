@@ -6,16 +6,17 @@ import (
 	"sync"
 
 	"github.com/st0o0/forseti/internal/config"
+	"github.com/st0o0/forseti/internal/logging"
 	"github.com/st0o0/forseti/internal/pihole"
 )
 
 const defaultMaxConcurrent = 4
 
 type PoolCallbacks struct {
-	OnNewSession  func(target string)
-	OnInvalidate  func(target string)
-	OnReauth      func(target string)
-	OnClose       func()
+	OnNewSession func(target string)
+	OnInvalidate func(target string)
+	OnReauth     func(target string)
+	OnClose      func()
 }
 
 type Pool struct {
@@ -24,6 +25,7 @@ type Pool struct {
 	gates     map[string]chan struct{}
 	apiConfig map[string]config.APIConfig
 	callbacks PoolCallbacks
+	log       *slog.Logger
 }
 
 func NewPool() *Pool {
@@ -31,6 +33,7 @@ func NewPool() *Pool {
 		clients:   make(map[string]*pihole.Client),
 		gates:     make(map[string]chan struct{}),
 		apiConfig: make(map[string]config.APIConfig),
+		log:       logging.Component("session"),
 	}
 }
 
@@ -103,16 +106,17 @@ func (p *Pool) Get(target config.Target) (*pihole.Client, error) {
 	defer p.mu.Unlock()
 
 	if c, ok := p.clients[target.Name]; ok && c.HasSession() {
-		slog.Debug("reusing session", "target", target.Name)
+		p.log.Debug("reusing session", "target", target.Name)
 		return c, nil
 	}
 
-	slog.Debug("creating session", "target", target.Name)
+	p.log.Debug("creating session", "target", target.Name)
 	c := pihole.NewClient(target.URL, target.Password, target.API.TimeoutOrDefault())
+	c.Log = logging.Component("pihole").With("target", target.Name)
 	if p.callbacks.OnReauth != nil {
 		name := target.Name
 		c.OnReauth = func() {
-			slog.Debug("session re-authenticated", "target", name)
+			p.log.Debug("session re-authenticated", "target", name)
 			p.callbacks.OnReauth(name)
 		}
 	}
@@ -131,7 +135,7 @@ func (p *Pool) Invalidate(name string) {
 	defer p.mu.Unlock()
 
 	if c, ok := p.clients[name]; ok {
-		slog.Debug("invalidating session", "target", name)
+		p.log.Debug("invalidating session", "target", name)
 		c.Close()
 		delete(p.clients, name)
 		if p.callbacks.OnInvalidate != nil {
@@ -144,7 +148,7 @@ func (p *Pool) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	slog.Debug("closing all sessions", "count", len(p.clients))
+	p.log.Debug("closing all sessions", "count", len(p.clients))
 	var firstErr error
 	for name, c := range p.clients {
 		if err := c.Close(); err != nil && firstErr == nil {

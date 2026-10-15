@@ -1,4 +1,10 @@
-## ADDED Requirements
+# Regex Domain Support
+
+## Purpose
+
+Exact and regex allow/deny domain entries: the `kind` field in config, per-kind diffing and reconciliation against the matching Pi-hole lists.
+
+## Requirements
 
 ### Requirement: Domain entries support a kind field
 

@@ -1,6 +1,10 @@
 # Error Resilience
 
+## Purpose
+
 Transient error detection, retry policy, and idempotent operation semantics for the Pi-hole API client layer.
+
+## Requirements
 
 ### Requirement: Idempotent delete operations
 The reconciler SHALL treat a 404 response on any delete operation as success. An item that is already absent does not need to be deleted.

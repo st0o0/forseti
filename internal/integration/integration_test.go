@@ -12,6 +12,7 @@ import (
 	"github.com/st0o0/forseti/internal/config"
 	"github.com/st0o0/forseti/internal/pihole"
 	"github.com/st0o0/forseti/internal/reconcile"
+	"github.com/st0o0/forseti/internal/run"
 	"github.com/st0o0/forseti/internal/session"
 	"github.com/st0o0/forseti/internal/worker"
 )
@@ -193,11 +194,10 @@ func TestIntegration_SettingsChange(t *testing.T) {
 
 type noopRecorder struct{}
 
-func (noopRecorder) RecordReconcileResult(string, time.Duration, bool, map[string]map[string]int, map[string]int) {
-}
+func (noopRecorder) RecordRun(run.Result)                        {}
+func (noopRecorder) RecordDrift(string, map[string]int)          {}
 func (noopRecorder) UpdateSettingsDrift(string, map[string]bool) {}
-func (noopRecorder) MarkTargetUnreachable(string)               {}
-func (noopRecorder) RecordTargetHealth(string, string)           {}
+func (noopRecorder) RecordTargetState(string, run.TargetState)   {}
 
 type noopGravity struct{}
 

@@ -8,8 +8,10 @@ import (
 	"time"
 
 	"github.com/st0o0/forseti/internal/config"
+	"github.com/st0o0/forseti/internal/metrics"
 	"github.com/st0o0/forseti/internal/pihole"
 	"github.com/st0o0/forseti/internal/reconcile"
+	"github.com/st0o0/forseti/internal/run"
 )
 
 func newReadyServer(t *testing.T) *httptest.Server {
@@ -31,7 +33,6 @@ func newReadyServer(t *testing.T) *httptest.Server {
 	return srv
 }
 
-
 type mockSessions struct {
 	client       *pihole.Client
 	err          error
@@ -50,7 +51,7 @@ func (m *mockSessions) Invalidate(name string) {
 	m.invalids = append(m.invalids, name)
 }
 
-func (m *mockSessions) Acquire(name string)        { m.acquireCalls++ }
+func (m *mockSessions) Acquire(name string)         { m.acquireCalls++ }
 func (m *mockSessions) TryAcquire(name string) bool { return true }
 func (m *mockSessions) Release(name string)         { m.releaseCalls++ }
 
@@ -78,9 +79,9 @@ func (m *mockSettings) BuildDesiredList(settings *config.Settings) []reconcile.S
 }
 
 type mockContent struct {
-	report    *reconcile.ApplyReport
-	err       error
-	calls     int
+	report     *reconcile.ApplyReport
+	err        error
+	calls      int
 	lastClient *pihole.Client
 }
 
@@ -111,15 +112,25 @@ type mockRecorder struct {
 	reconcileCalls     int
 	settingsDriftCalls int
 	unreachableCalls   int
+	reachableCalls     int
 	lastTarget         string
-	lastSuccess        bool
+	lastStatus         string
+	lastResult         run.Result
 	lastDrift          map[string]int
+	healthStates       []string
 }
 
-func (m *mockRecorder) RecordReconcileResult(target string, duration time.Duration, success bool, changes map[string]map[string]int, drift map[string]int) {
+func (m *mockRecorder) RecordRun(r run.Result) {
+	if r.Status == run.Skipped {
+		return
+	}
 	m.reconcileCalls++
-	m.lastTarget = target
-	m.lastSuccess = success
+	m.lastTarget = r.Target
+	m.lastStatus = r.Status.MetricStatus()
+	m.lastResult = r
+}
+
+func (m *mockRecorder) RecordDrift(target string, drift map[string]int) {
 	m.lastDrift = drift
 }
 
@@ -127,11 +138,17 @@ func (m *mockRecorder) UpdateSettingsDrift(target string, drifted map[string]boo
 	m.settingsDriftCalls++
 }
 
-func (m *mockRecorder) MarkTargetUnreachable(target string) {
-	m.unreachableCalls++
+// Observe implements Reachability.
+func (m *mockRecorder) Observe(target, source string, err error) {
+	if err != nil {
+		m.unreachableCalls++
+	} else {
+		m.reachableCalls++
+	}
 }
 
-func (m *mockRecorder) RecordTargetHealth(target string, state string) {
+func (m *mockRecorder) RecordTargetState(target string, s run.TargetState) {
+	m.healthStates = append(m.healthStates, s.Health)
 }
 
 func newTestWorker() (*TargetWorker, *mockSessions, *mockSettings, *mockContent, *mockGravity, *mockRecorder) {
@@ -163,13 +180,14 @@ func newTestWorker() (*TargetWorker, *mockSessions, *mockSettings, *mockContent,
 	}
 
 	w := NewTargetWorker(rt, Dependencies{
-		Sessions:  sess,
-		Settings:  sett,
-		Content:   cont,
-		Gravity:   grav,
-		Recorder:  rec,
-		Interval:  5 * time.Minute,
-		Marker:    "[forseti]",
+		Sessions:     sess,
+		Settings:     sett,
+		Content:      cont,
+		Gravity:      grav,
+		Recorder:     rec,
+		Reachability: rec,
+		Interval:     5 * time.Minute,
+		Marker:       "[forseti]",
 	})
 
 	return w, sess, sett, cont, grav, rec
@@ -307,7 +325,7 @@ func TestSettingsChangeFTLRestart(t *testing.T) {
 	secondClient := pihole.NewClient(srv.URL, "pw", 0)
 
 	customSess := &countingSessions{
-		clients:  []*pihole.Client{firstClient, secondClient},
+		clients: []*pihole.Client{firstClient, secondClient},
 	}
 	w.deps.Sessions = customSess
 
@@ -353,7 +371,7 @@ func (c *countingSessions) Invalidate(name string) {
 	c.invalids = append(c.invalids, name)
 }
 
-func (c *countingSessions) Acquire(name string)        {}
+func (c *countingSessions) Acquire(name string)         {}
 func (c *countingSessions) TryAcquire(name string) bool { return true }
 func (c *countingSessions) Release(name string)         {}
 
@@ -557,3 +575,83 @@ func TestDriftGaugeResetsToZero(t *testing.T) {
 	}
 }
 
+func notReadyServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestReadinessFailureRecordsErrorAndDegradedHealth(t *testing.T) {
+	w, sess, _, cont, _, rec := newTestWorker()
+	sess.client = pihole.NewClient(notReadyServer(t).URL, "pw", 0)
+
+	if err := w.Reconcile(); err == nil {
+		t.Fatal("expected readiness error")
+	}
+
+	if cont.calls != 0 {
+		t.Errorf("content should not be called, got %d calls", cont.calls)
+	}
+	if rec.lastStatus != metrics.RunError {
+		t.Errorf("status = %q, want %q", rec.lastStatus, metrics.RunError)
+	}
+	if rec.unreachableCalls != 1 {
+		t.Errorf("MarkTargetUnreachable calls = %d, want 1", rec.unreachableCalls)
+	}
+	if len(rec.healthStates) != 1 || rec.healthStates[0] != "degraded" {
+		t.Errorf("health states = %v, want [degraded]", rec.healthStates)
+	}
+}
+
+func TestContentErrorRecordsErrorKeepsReachable(t *testing.T) {
+	w, _, _, cont, _, rec := newTestWorker()
+	cont.err = errors.New("boom")
+
+	_ = w.Reconcile()
+
+	if rec.lastStatus != metrics.RunError {
+		t.Errorf("status = %q, want %q", rec.lastStatus, metrics.RunError)
+	}
+	if rec.unreachableCalls != 0 {
+		t.Errorf("MarkTargetUnreachable calls = %d, want 0 (content outcome must not change reachability)", rec.unreachableCalls)
+	}
+	if len(rec.healthStates) != 1 || rec.healthStates[0] != "degraded" {
+		t.Errorf("health states = %v, want [degraded]", rec.healthStates)
+	}
+}
+
+func TestItemErrorsArePartial(t *testing.T) {
+	w, _, _, cont, _, rec := newTestWorker()
+	cont.report = &reconcile.ApplyReport{Errors: []error{errors.New("create adlist failed")}}
+
+	if err := w.Reconcile(); err != nil {
+		t.Fatalf("Reconcile error: %v", err)
+	}
+
+	if rec.lastStatus != metrics.RunPartial {
+		t.Errorf("status = %q, want %q", rec.lastStatus, metrics.RunPartial)
+	}
+	if rec.reachableCalls != 1 {
+		t.Errorf("MarkTargetReachable calls = %d, want 1", rec.reachableCalls)
+	}
+	if w.Health().State != Healthy {
+		t.Errorf("health = %v, want Healthy", w.Health().State)
+	}
+	if w.ShouldSkip(time.Now()) {
+		t.Error("partial run must not activate backoff")
+	}
+}
+
+func TestSuccessRecordsSuccessStatus(t *testing.T) {
+	w, _, _, _, _, rec := newTestWorker()
+
+	if err := w.Reconcile(); err != nil {
+		t.Fatalf("Reconcile error: %v", err)
+	}
+	if rec.lastStatus != metrics.RunSuccess {
+		t.Errorf("status = %q, want %q", rec.lastStatus, metrics.RunSuccess)
+	}
+}

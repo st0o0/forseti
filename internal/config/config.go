@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/url"
 	"os"
@@ -155,15 +156,24 @@ type MiscSettings struct {
 }
 
 type CheckSettings struct {
-	Load *bool `yaml:"load"`
-	Disk *int  `yaml:"disk"`
-	Shmem *int `yaml:"shmem"`
+	Load  *bool `yaml:"load"`
+	Disk  *int  `yaml:"disk"`
+	Shmem *int  `yaml:"shmem"`
 }
 
 type SyncConfig struct {
 	Interval  Duration `yaml:"interval"`
 	Primary   string   `yaml:"primary"`
 	Resources []string `yaml:"resources"`
+	// LocalDNSPurge controls whether replica-only local DNS records are
+	// deleted. Pi-hole local DNS entries have no comment field, so they
+	// cannot carry the managed marker. Defaults to true (mirror primary).
+	LocalDNSPurge *bool `yaml:"local_dns_purge"`
+}
+
+// PurgeLocalDNS reports whether sync deletes replica-only local DNS records.
+func (s SyncConfig) PurgeLocalDNS() bool {
+	return s.LocalDNSPurge == nil || *s.LocalDNSPurge
 }
 
 type Metrics struct {
@@ -245,6 +255,20 @@ type Target struct {
 	File     string        `yaml:"file"`
 }
 
+// LogValue keeps the password out of logs when a target is logged as a
+// whole: only name, role and host are rendered.
+func (t Target) LogValue() slog.Value {
+	host := t.URL
+	if u, err := url.Parse(t.URL); err == nil && u.Host != "" {
+		host = u.Host
+	}
+	attrs := []slog.Attr{slog.String("name", t.Name), slog.String("host", host)}
+	if t.Role != "" {
+		attrs = append(attrs, slog.String("role", t.Role))
+	}
+	return slog.GroupValue(attrs...)
+}
+
 type TargetOverride struct {
 	Settings Settings        `yaml:"settings"`
 	Groups   []Group         `yaml:"groups"`
@@ -258,13 +282,13 @@ type TargetOverride struct {
 }
 
 type ExcludeBlock struct {
-	Groups   []GroupExclude   `yaml:"groups"`
-	Adlists  []AdlistExclude  `yaml:"adlists"`
-	Deny     []DenyExclude    `yaml:"deny"`
-	Allow    []AllowExclude   `yaml:"allow"`
+	Groups   []GroupExclude    `yaml:"groups"`
+	Adlists  []AdlistExclude   `yaml:"adlists"`
+	Deny     []DenyExclude     `yaml:"deny"`
+	Allow    []AllowExclude    `yaml:"allow"`
 	LocalDNS []LocalDNSExclude `yaml:"local_dns"`
-	CNAME    []CNAMEExclude   `yaml:"cname"`
-	Clients  []ClientExclude  `yaml:"clients"`
+	CNAME    []CNAMEExclude    `yaml:"cname"`
+	Clients  []ClientExclude   `yaml:"clients"`
 }
 
 type GroupExclude struct {
@@ -371,6 +395,10 @@ type ResolvedTarget struct {
 	LocalDNS []LocalDNSEntry
 	CNAME    []CNAMEEntry
 	Clients  []ClientEntry
+	// Warnings collects non-fatal problems found while resolving this
+	// target (e.g. exclude entries that match nothing). They are logged by
+	// the caller once the configured logger is in place.
+	Warnings []string
 }
 
 func Load(path string) (*Config, []ResolvedTarget, error) {
@@ -697,8 +725,8 @@ func validate(cfg *Config) error {
 }
 
 var (
-	validBlockingModes   = map[string]bool{"NULL": true, "IP": true, "NXDOMAIN": true}
-	validListeningModes  = map[string]bool{"local": true, "all": true, "bind": true}
+	validBlockingModes  = map[string]bool{"NULL": true, "IP": true, "NXDOMAIN": true}
+	validListeningModes = map[string]bool{"local": true, "all": true, "bind": true}
 )
 
 func validateSettings(s *Settings) error {

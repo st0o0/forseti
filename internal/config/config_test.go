@@ -1,6 +1,8 @@
 package config
 
 import (
+	"bytes"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1502,5 +1504,99 @@ targets:
 	}
 	if !strings.Contains(err.Error(), "api.max_concurrent") {
 		t.Errorf("error should mention api.max_concurrent, got: %v", err)
+	}
+}
+
+func TestSyncLocalDNSPurge(t *testing.T) {
+	base := `
+mode: sync
+targets:
+  - name: primary
+    url: http://localhost:80
+    password: test
+    role: primary
+  - name: replica
+    url: http://localhost:81
+    password: test
+    role: replica
+sync:
+  primary: primary
+  resources: [local_dns]
+`
+	tests := []struct {
+		name  string
+		extra string
+		want  bool
+	}{
+		{"default mirrors", "", true},
+		{"explicit true", "  local_dns_purge: true\n", true},
+		{"explicit false", "  local_dns_purge: false\n", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, _, err := Load(writeTestConfig(t, base+tt.extra))
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if got := cfg.Sync.PurgeLocalDNS(); got != tt.want {
+				t.Errorf("PurgeLocalDNS() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDiff(t *testing.T) {
+	old := &Config{
+		Mode:    ModeSync,
+		Sync:    SyncConfig{Interval: Duration{5 * time.Minute}},
+		Targets: []Target{{Name: "a", Password: "x"}, {Name: "b"}},
+	}
+	cur := &Config{
+		Mode:    ModeSync,
+		Sync:    SyncConfig{Interval: Duration{time.Minute}},
+		Targets: []Target{{Name: "a", Password: "y"}, {Name: "c"}},
+	}
+	d := Diff(old, cur)
+
+	if strings.Join(d.Changed, ",") != "targets,sync" {
+		t.Errorf("changed = %v, want [targets sync]", d.Changed)
+	}
+	if strings.Join(d.Added, ",") != "c" || strings.Join(d.Removed, ",") != "b" {
+		t.Errorf("added=%v removed=%v", d.Added, d.Removed)
+	}
+}
+
+func TestTargetLogValueOmitsPassword(t *testing.T) {
+	tg := Target{Name: "pi", URL: "http://10.0.0.2:8080", Password: "s3cret", Role: "replica"}
+	var buf bytes.Buffer
+	slog.New(slog.NewTextHandler(&buf, nil)).Info("x", "target", tg)
+	out := buf.String()
+	if strings.Contains(out, "s3cret") {
+		t.Errorf("password leaked: %s", out)
+	}
+	if !strings.Contains(out, "target.name=pi") || !strings.Contains(out, "target.host=10.0.0.2:8080") {
+		t.Errorf("unexpected output: %s", out)
+	}
+}
+
+func TestExcludeWarningsCollected(t *testing.T) {
+	cfg := `
+targets:
+  - name: pi
+    url: http://localhost:80
+    password: test
+    file: pi.yml
+`
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "pi.yml"), []byte("exclude:\n  deny:\n    - domain: missing.example\n"), 0o644)
+	path := filepath.Join(dir, "forseti.yml")
+	_ = os.WriteFile(path, []byte(cfg), 0o644)
+
+	_, resolved, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(resolved[0].Warnings) != 1 || !strings.Contains(resolved[0].Warnings[0], "missing.example") {
+		t.Errorf("warnings = %v", resolved[0].Warnings)
 	}
 }

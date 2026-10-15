@@ -23,6 +23,8 @@ Named after [Forseti](https://en.wikipedia.org/wiki/Forseti), the Norse god of j
 - **Settings reconciliation** -- manage DNS cache, rate limits, blocking mode, privacy level, and more
 - **Gravity scheduling** -- per-target cron schedules and automatic gravity updates on adlist changes
 - **Built-in Prometheus metrics** -- `/metrics` endpoint with Pi-hole stats, reconciliation telemetry, settings drift, session health, and collector stale-serve tracking
+- **Readable logs** -- a startup summary, one line per run and cycle (also when nothing changed), and health/reachability transitions instead of repeated errors
+- **Status API** -- `/status` and `/status/history` show per-target health, last success and recent runs; example Grafana dashboard included
 - **Plan/Apply workflow** -- dry-run before committing changes
 - **Watch mode** -- daemon with periodic reconcile loop, config hot-reload, and metrics server
 - **Environment variable expansion** -- `${VAR}` syntax in YAML values for secrets management
@@ -51,7 +53,7 @@ docker run -d -v ./forseti.yml:/config/forseti.yml:ro \
 | `forseti plan --config <path>` | Dry-run: show what would change without applying |
 | `forseti apply --config <path>` | Reconcile desired state (one-shot) |
 | `forseti watch --config <path>` | Daemon mode with periodic reconcile, metrics server, and gravity scheduler |
-| `forseti healthcheck --config <path>` | Liveness probe -- login to all targets (5s timeout) |
+| `forseti healthcheck [--config <path> \| --addr <host:port>]` | Liveness probe: `GET /healthz` on the running daemon (3s timeout). Does not contact Pi-hole. |
 | `forseti version` | Print version |
 
 ## Configuration
@@ -199,10 +201,10 @@ Forseti does not keep its own record of "domains seen before" — each cycle der
 Per-domain detail is emitted as a structured log event (not a Prometheus label, to avoid unbounded metric cardinality):
 
 ```json
-{"time":"...","level":"INFO","msg":"new_blocked_domain","target":"pizero","domain":"click.example.com","first_seen":"2026-10-05T08:11:00Z","count_24h":14}
+{"time":"...","level":"INFO","msg":"new_blocked_domain","component":"newdomains","target":"pizero","domain":"click.example.com","first_seen":"2026-10-05T08:11:00Z","count_24h":14}
 ```
 
-Every newly detected domain is logged — there is no built-in count threshold. Filter or alert on `count_24h` downstream (e.g., in Grafana/LogQL) if you want to ignore one-off queries.
+Every newly detected domain is logged once per 24h window — there is no built-in count threshold. Later detection runs that still see the domain as new count it in the gauge but do not log it again (this de-duplication is in memory, so a restart may log a domain once more). Filter or alert on `count_24h` downstream (e.g., in Grafana/LogQL) if you want to ignore one-off queries.
 
 The aggregated count per target is exposed as `forseti_new_blocked_domains_24h{target="..."}`, with no `domain` label.
 
@@ -236,6 +238,9 @@ The aggregated count per target is exposed as `forseti_new_blocked_domains_24h{t
 | `interval` | duration | `5m` | Sync loop interval (min 10s) |
 | `primary` | string | -- | **required** Name of the primary target |
 | `resources[]` | []string | -- | **required** Resources to sync: `groups`, `adlists`, `deny`, `allow`, `local_dns`, `clients` |
+| `local_dns_purge` | bool | `true` | Delete replica local DNS records that do not exist on the primary. Set `false` to only add records. |
+
+Pi-hole local DNS records have no comment field, so they cannot carry the `[forseti-sync]` marker. By default sync mirrors local DNS from the primary, which deletes replica-only records. Config mode defaults to `local_dns_purge: false` instead, because there the YAML co-exists with records managed in the UI.
 
 #### `groups[]`
 
@@ -370,6 +375,86 @@ adlists:
     groups: [default]
 ```
 
+## Logging
+
+Forseti logs one line per event to stdout (`plan` and `apply` log to stderr so their output can be piped). Every line has a `component` (`main`, `config`, `http`, `session`, `worker`, `sync`, `reconcile`, `pihole`, `collector`, `newdomains`, `gravity`) and, where applicable, a `target`. `log_level` changes take effect on config reload; `log_format` changes need a restart. Set `TZ` (e.g. `TZ=Europe/Berlin`) to get local timestamps and gravity schedules.
+
+**Levels**: `error` = something failed and needs attention, `warn` = degraded or self-healing, `info` = lifecycle and changes, `debug` = per-request, per-item and retry detail.
+
+**Lifecycle events** (stable message strings, safe to alert on):
+
+| Message | Level | Key attributes |
+|---------|-------|----------------|
+| `forseti starting` | info | `version`, `mode`, `config`, `tz` |
+| `config loaded` | info | `mode`, `targets`, `interval`; sync: `primary`, `replicas`, `resources`; config: resource counts |
+| `config warning` | warn | `target`, `reason` |
+| `http server listening` | info | `addr`, `endpoints` |
+| `target connected` / `target unreachable` | info / warn | `target`, `source`, `error` — logged on change only |
+| `run finished` | debug (no changes) / info (changes) / warn (partial) / error (failed) | `target`, `role`, `status`, `stage`, `added`, `updated`, `deleted`, `failed`, `<resource>.<action>`, `errors` |
+| `cycle complete` | info | `mode`, `targets`, `ok`, `partial`, `failed`, `skipped`, `changes`, `next_run` — every cycle, also when nothing changed |
+| `target degraded` / `target down` / `target recovered` | warn / error / info | `target`, `consecutive_failures`, `retry_at`, `failures`, `downtime` |
+| `config reloaded` / `config reload failed` | info / error | `changed`, `targets_added`, `targets_removed` / `error` |
+| `gravity scheduled` / `gravity started` / `gravity finished` | info (finished with error: error) | `target`, `schedule`, `next_run`, `reason`, `status`, `duration` |
+| `setting applied` | info | `target`, `setting`, `from`, `to` (secrets shown as `[REDACTED]`) |
+| `shutting down` / `stopped` | info | `uptime` |
+
+A target becomes `degraded` on its first failed run and `down` after 5 consecutive failures; failing targets back off (`min(failures × interval, 30m)`). In sync mode, if the primary cannot be read, replica runs in that cycle are `skipped`.
+
+Example (sync mode, replica outage and recovery):
+
+```
+level=INFO msg="forseti starting" component=main version=0.2.0 mode=sync config=/config/forseti.yml tz=Europe/Berlin
+level=INFO msg="config loaded" component=main mode=sync targets=2 interval=5m0s primary=pihole-alpha replicas=[pihole-beta] resources="[groups adlists clients]"
+level=INFO msg="target connected" component=session target=pihole-alpha
+level=WARN msg="target unreachable" component=session target=pihole-beta source=worker error="... connection refused"
+level=ERROR msg="run finished" component=sync target=pihole-beta role=replica status=failed stage=session ... consecutive_failures=1
+level=WARN msg="target degraded" component=sync target=pihole-beta consecutive_failures=1 retry_at=...
+level=INFO msg="cycle complete" component=sync mode=sync targets=2 ok=1 partial=0 failed=1 skipped=0 changes=0 next_run=...
+level=INFO msg="target connected" component=session target=pihole-beta
+level=INFO msg="run finished" component=sync target=pihole-beta role=replica status=ok added=14 ... clients.added=12 adlists.added=2
+level=INFO msg="target recovered" component=sync target=pihole-beta from=degraded failures=1 downtime=5m0s
+```
+
+URL credentials and query values (e.g. `?token=`) are redacted in logs and errors; passwords are never logged.
+
+## Status API
+
+The metrics port also serves a read-only JSON view of recent activity, kept in memory (last 1440 runs per target and 1440 cycles; lost on restart, not an audit log):
+
+- `GET /status` — version, mode, uptime, last config reload, last cycle and next run, and per target: role, health, consecutive failures, last success, backoff, last error and last run with per-resource counts.
+- `GET /status/history?target=<name>&since=24h&limit=500` — runs of one target, oldest first. Without `target`: cycle summaries.
+
+```json
+{
+  "mode": "sync",
+  "cycle": { "interval_seconds": 300, "last": { "ok": 1, "failed": 1, "changes": 0 }, "next_run_at": "..." },
+  "targets": [
+    { "name": "pihole-beta", "role": "replica", "health": "degraded", "consecutive_failures": 1,
+      "last_success_at": "...", "backoff_until": "...",
+      "last_error": { "at": "...", "message": "... connection refused" },
+      "last_run": { "at": "...", "status": "failed", "stage": "session", "duration_ms": 3 } }
+  ]
+}
+```
+
+Responses never include passwords, session IDs or raw API bodies; error messages are redacted.
+
+## Grafana dashboard
+
+[`grafana/forseti.json`](grafana/forseti.json) is an example dashboard (import it and pick your Prometheus data source): time since last successful run, consecutive failures, health and reachability timelines, run outcomes per target over the last 24h, and changes / failed writes per resource type.
+
+A simple "sync is stale" alert:
+
+```promql
+time() - forseti_reconcile_last_success_timestamp > 3 * 300   # 3 missed 5m intervals
+```
+
+## Health check
+
+The metrics server also serves `GET /healthz`: `200 {"status":"ok"}` while the watch loop completes cycles, `503 {"status":"stalled"}` if no cycle finished within `max(3 × interval, interval + 2m)`. It reflects Forseti's own liveness, not Pi-hole reachability — use `forseti_target_reachable` / `forseti_target_health` for that. The image's Docker `HEALTHCHECK` runs `forseti healthcheck`, which probes this endpoint (port from `metrics.port`, default 9099) and keeps working while an invalid config edit is pending.
+
+Do not expose port 9099 publicly; `/metrics`, `/healthz` and `/status` are unauthenticated.
+
 ## Docker Compose
 
 ```yaml
@@ -403,10 +488,13 @@ Individual metric families can be disabled via `metrics.collectors.*` toggles in
 
 | Metric | Labels | Description |
 |--------|--------|-------------|
-| `forseti_reconcile_runs_total` | `target`, `status` | Reconcile cycle count (success/error) |
+| `forseti_reconcile_runs_total` | `target`, `status` | Reconcile/sync run count. `success`: no errors; `partial`: target reached but some item writes failed; `error`: run could not complete |
 | `forseti_reconcile_duration_seconds` | `target` | Reconcile cycle duration (histogram) |
-| `forseti_reconcile_changes_total` | `target`, `type`, `action` | Changes applied (add/update/delete per resource type) |
+| `forseti_reconcile_changes_total` | `target`, `type`, `action` | Changes successfully applied (add/update/delete per resource type); failed writes are not counted |
 | `forseti_reconcile_drift` | `target`, `type` | Current drift count per resource type |
+| `forseti_reconcile_item_errors_total` | `target`, `type` | Failed item writes per resource type (`other` if not tied to one) |
+| `forseti_reconcile_last_run_timestamp` | `target` | Unix time of the last completed (not skipped) run |
+| `forseti_reconcile_last_success_timestamp` | `target` | Unix time of the last `success` or `partial` run |
 
 ### Pi-hole stats
 
@@ -459,16 +547,17 @@ Individual metric families can be disabled via `metrics.collectors.*` toggles in
 | Metric | Labels | Note |
 |--------|--------|------|
 | `forseti_build_info` | `version`, `mode` | |
-| `forseti_target_reachable` | `target` | `1` = reachable, `0` = unreachable |
+| `forseti_target_reachable` | `target` | `1` = reachable, `0` = unreachable (session/readiness only, independent of run outcome) |
 | `forseti_config_reload_total` | `result` | |
 | `forseti_collector_fetches_total` | `target`, `status` | |
 | `forseti_collector_cache_hits_total` | `target` | |
 | `forseti_collector_cache_stale_total` | `target` | |
-| `forseti_target_health` | `target` | `0` = healthy, `1` = degraded, `2` = down |
+| `forseti_target_consecutive_failures` | `target` | Consecutive failed runs (0 after a success) |
+| `forseti_target_health` | `target` | `0` = healthy, `1` = degraded, `2` = down (5+ consecutive failures); updated after every run in both modes |
 
 ## Critical invariants
 
-- **Managed-marker safety**: Forseti only touches entries tagged `[forseti]` (config mode) or `[forseti-sync]` (sync mode) in the comment field. Manual UI entries are never modified or deleted.
+- **Managed-marker safety**: Forseti only touches entries tagged `[forseti]` (config mode) or `[forseti-sync]` (sync mode) in the comment field. Manual UI entries are never modified or deleted. Local DNS records have no comment field: they are only deleted when `local_dns_purge` is enabled (opt-in in config mode, default in sync mode).
 - **Reconcile order**: groups -> adlists -> deny -> allow -> local DNS -> CNAME -> clients. Groups must exist before anything references them.
 - **Gravity trigger**: automatic on adlist changes (if `gravity_on_change: true`) and on cron schedule per target. Never for domain/client/DNS changes alone.
 - **CNAME restart**: adding or removing CNAME records triggers an FTL restart (brief DNS outage).

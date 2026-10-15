@@ -1,11 +1,10 @@
 package worker
 
 import (
-	"time"
-
 	"github.com/st0o0/forseti/internal/config"
 	"github.com/st0o0/forseti/internal/pihole"
 	"github.com/st0o0/forseti/internal/reconcile"
+	"github.com/st0o0/forseti/internal/run"
 )
 
 type SessionManager interface {
@@ -31,9 +30,29 @@ type GravityTrigger interface {
 	TriggerAsync(target string, reason string)
 }
 
+// Recorder receives run outcomes and target state for metrics.
 type Recorder interface {
-	RecordReconcileResult(target string, duration time.Duration, success bool, changes map[string]map[string]int, drift map[string]int)
+	// RecordRun records a finished run; skipped runs are ignored.
+	RecordRun(r run.Result)
+	RecordDrift(target string, drift map[string]int)
 	UpdateSettingsDrift(target string, drifted map[string]bool)
-	MarkTargetUnreachable(target string)
-	RecordTargetHealth(target string, state string)
+	RecordTargetState(target string, s run.TargetState)
+}
+
+// Observer is notified after every run, including skipped ones, with the
+// target state that resulted from it.
+type Observer interface {
+	RunFinished(r run.Result, s run.TargetState)
+}
+
+// Reachability receives reachability observations (see targetstate.Tracker).
+type Reachability interface {
+	Observe(target, source string, err error)
+}
+
+// Runner performs the mode-specific step of a run with a ready client: it
+// fills res.Resources and item errors and returns a fatal error, optionally
+// wrapped with StageError to name the failing stage.
+type Runner interface {
+	Run(client *pihole.Client, res *run.Result) error
 }

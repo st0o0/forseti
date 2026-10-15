@@ -2,6 +2,7 @@ package pihole
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/st0o0/forseti/internal/logging"
 )
 
 type Client struct {
@@ -22,6 +25,9 @@ type Client struct {
 	sid            string
 	OnReauth       func()
 	GravityTimeout time.Duration
+	// Log receives per-request debug output. The session pool sets it to a
+	// logger carrying the target name; it defaults to component=pihole.
+	Log *slog.Logger
 }
 
 func NewClient(baseURL, password string, timeout time.Duration) *Client {
@@ -34,18 +40,39 @@ func NewClient(baseURL, password string, timeout time.Duration) *Client {
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
+		Log: logging.Component("pihole"),
 	}
 }
 
 type APIError struct {
 	StatusCode int
-	Message    string
-	Key        string
-	Hint       string
+	// Message holds the raw response body (or a fixed text for synthetic
+	// errors); it is matched by IsGravityCorrupted/IsTransient.
+	Message string
+	Key     string
+	Hint    string
+	// Detail is the parsed error message when the body was Pi-hole JSON.
+	Detail string
 }
 
+// maxErrorBody bounds how much of a non-JSON response body is rendered.
+const maxErrorBody = 200
+
+// Error renders the parsed key and message for Pi-hole JSON errors, and a
+// truncated, single-line body otherwise (e.g. an HTML page from a proxy).
 func (e *APIError) Error() string {
-	return fmt.Sprintf("pihole api: %d %s", e.StatusCode, e.Message)
+	if e.Key != "" {
+		msg := e.Detail
+		if msg == "" {
+			msg = e.Hint
+		}
+		return fmt.Sprintf("pihole api: %d %s: %s", e.StatusCode, e.Key, msg)
+	}
+	body := strings.Join(strings.Fields(e.Message), " ")
+	if len(body) > maxErrorBody {
+		body = body[:maxErrorBody] + "..."
+	}
+	return fmt.Sprintf("pihole api: %d %s", e.StatusCode, body)
 }
 
 func parseAPIError(statusCode int, body []byte) *APIError {
@@ -60,6 +87,7 @@ func parseAPIError(statusCode int, body []byte) *APIError {
 	if json.Unmarshal(body, &parsed) == nil && parsed.Error.Key != "" {
 		ae.Key = parsed.Error.Key
 		ae.Hint = parsed.Error.Hint
+		ae.Detail = parsed.Error.Message
 	}
 	return ae
 }
@@ -114,14 +142,14 @@ type authResponse struct {
 }
 
 func (c *Client) Login() error {
-	slog.Debug("authenticating", "url", c.baseURL)
+	c.Log.Debug("authenticating")
 	body := map[string]string{"password": c.password}
 	var resp authResponse
 	if err := c.doJSON(http.MethodPost, "/api/auth", body, &resp); err != nil {
 		return fmt.Errorf("login: %w", err)
 	}
 	c.sid = resp.Session.SID
-	slog.Debug("authenticated", "url", c.baseURL)
+	c.Log.Debug("authenticated")
 	return nil
 }
 
@@ -313,7 +341,7 @@ func (c *Client) DeleteAdlists(addresses []string) error {
 	if !IsNotFound(err) {
 		return err
 	}
-	slog.Debug("batchDelete returned 404, trying individual deletes", "count", len(addresses))
+	c.Log.Debug("batchDelete returned 404, trying individual deletes", "count", len(addresses))
 	for _, addr := range addresses {
 		if err := c.DeleteAdlist(addr); err != nil && !IsNotFound(err) {
 			return err
@@ -783,7 +811,7 @@ func (c *Client) TriggerGravity() error {
 		if c.password == "" {
 			return err
 		}
-		slog.Debug("session expired during gravity, re-authenticating", "url", c.baseURL)
+		c.Log.Debug("session expired during gravity, re-authenticating")
 		if loginErr := c.Login(); loginErr != nil {
 			return fmt.Errorf("gravity re-auth failed: %w", loginErr)
 		}
@@ -812,8 +840,7 @@ func (c *Client) doRequest(method, path string, body io.Reader) (*http.Response,
 }
 
 func (c *Client) doJSON(method, path string, reqBody any, respTarget any) error {
-	slog.Debug("api request", "method", method, "path", path)
-	resp, err := c.doJSONOnce(method, path, reqBody, respTarget)
+	resp, err := c.doJSONLogged(method, path, reqBody, respTarget)
 	if err != nil {
 		return err
 	}
@@ -826,14 +853,14 @@ func (c *Client) doJSON(method, path string, reqBody any, respTarget any) error 
 		return &APIError{StatusCode: http.StatusUnauthorized, Message: "unauthorized"}
 	}
 
-	slog.Debug("session expired, re-authenticating", "url", c.baseURL)
+	c.Log.Debug("session expired, re-authenticating")
 	if loginErr := c.Login(); loginErr != nil {
 		return fmt.Errorf("re-auth failed: %w", loginErr)
 	}
 	if c.OnReauth != nil {
 		c.OnReauth()
 	}
-	resp, err = c.doJSONOnce(method, path, reqBody, respTarget)
+	resp, err = c.doJSONLogged(method, path, reqBody, respTarget)
 	if err != nil {
 		return err
 	}
@@ -842,6 +869,21 @@ func (c *Client) doJSON(method, path string, reqBody any, respTarget any) error 
 	}
 
 	return nil
+}
+
+// doJSONLogged runs doJSONOnce and logs the request at debug level with the
+// response status and duration.
+func (c *Client) doJSONLogged(method, path string, reqBody any, respTarget any) (int, error) {
+	start := time.Now()
+	status, err := c.doJSONOnce(method, path, reqBody, respTarget)
+	if c.Log.Enabled(context.Background(), slog.LevelDebug) {
+		attrs := []any{"method", method, "path", path, "status", status, "duration", time.Since(start).Round(time.Millisecond)}
+		if err != nil {
+			attrs = append(attrs, "error", err)
+		}
+		c.Log.Debug("api request", attrs...)
+	}
+	return status, err
 }
 
 func (c *Client) doJSONOnce(method, path string, reqBody any, respTarget any) (statusCode int, _ error) {
