@@ -236,6 +236,9 @@ The aggregated count per target is exposed as `forseti_new_blocked_domains_24h{t
 | `interval` | duration | `5m` | Sync loop interval (min 10s) |
 | `primary` | string | -- | **required** Name of the primary target |
 | `resources[]` | []string | -- | **required** Resources to sync: `groups`, `adlists`, `deny`, `allow`, `local_dns`, `clients` |
+| `local_dns_purge` | bool | `true` | Delete replica local DNS records that do not exist on the primary. Set `false` to only add records. |
+
+Pi-hole local DNS records have no comment field, so they cannot carry the `[forseti-sync]` marker. By default sync mirrors local DNS from the primary, which deletes replica-only records. Config mode defaults to `local_dns_purge: false` instead, because there the YAML co-exists with records managed in the UI.
 
 #### `groups[]`
 
@@ -403,7 +406,7 @@ Individual metric families can be disabled via `metrics.collectors.*` toggles in
 
 | Metric | Labels | Description |
 |--------|--------|-------------|
-| `forseti_reconcile_runs_total` | `target`, `status` | Reconcile cycle count (success/error) |
+| `forseti_reconcile_runs_total` | `target`, `status` | Reconcile/sync run count. `success`: no errors; `partial`: target reached but some item writes failed; `error`: run could not complete |
 | `forseti_reconcile_duration_seconds` | `target` | Reconcile cycle duration (histogram) |
 | `forseti_reconcile_changes_total` | `target`, `type`, `action` | Changes applied (add/update/delete per resource type) |
 | `forseti_reconcile_drift` | `target`, `type` | Current drift count per resource type |
@@ -459,16 +462,16 @@ Individual metric families can be disabled via `metrics.collectors.*` toggles in
 | Metric | Labels | Note |
 |--------|--------|------|
 | `forseti_build_info` | `version`, `mode` | |
-| `forseti_target_reachable` | `target` | `1` = reachable, `0` = unreachable |
+| `forseti_target_reachable` | `target` | `1` = reachable, `0` = unreachable (session/readiness only, independent of run outcome) |
 | `forseti_config_reload_total` | `result` | |
 | `forseti_collector_fetches_total` | `target`, `status` | |
 | `forseti_collector_cache_hits_total` | `target` | |
 | `forseti_collector_cache_stale_total` | `target` | |
-| `forseti_target_health` | `target` | `0` = healthy, `1` = degraded, `2` = down |
+| `forseti_target_health` | `target` | `0` = healthy, `1` = degraded, `2` = down (config mode, updated after every cycle) |
 
 ## Critical invariants
 
-- **Managed-marker safety**: Forseti only touches entries tagged `[forseti]` (config mode) or `[forseti-sync]` (sync mode) in the comment field. Manual UI entries are never modified or deleted.
+- **Managed-marker safety**: Forseti only touches entries tagged `[forseti]` (config mode) or `[forseti-sync]` (sync mode) in the comment field. Manual UI entries are never modified or deleted. Local DNS records have no comment field: they are only deleted when `local_dns_purge` is enabled (opt-in in config mode, default in sync mode).
 - **Reconcile order**: groups -> adlists -> deny -> allow -> local DNS -> CNAME -> clients. Groups must exist before anything references them.
 - **Gravity trigger**: automatic on adlist changes (if `gravity_on_change: true`) and on cron schedule per target. Never for domain/client/DNS changes alone.
 - **CNAME restart**: adding or removing CNAME records triggers an FTL restart (brief DNS outage).

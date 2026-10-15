@@ -72,25 +72,65 @@ func NewScheduler(pool *session.Pool, targets []config.Target, recorder Recorder
 	return s, nil
 }
 
+// UpdateTargets replaces the scheduler's target set after a config reload.
+// Entries whose schedule is unchanged keep their next run time; new or
+// changed schedules are recomputed; removed targets are dropped. In-flight
+// gravity runs are not affected.
+func (s *Scheduler) UpdateTargets(targets []config.Target) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	existing := make(map[string]entry, len(s.entries))
+	for _, e := range s.entries {
+		existing[e.target.Name] = e
+	}
+
+	s.targetMap = make(map[string]config.Target, len(targets))
+	entries := make([]entry, 0, len(targets))
+	now := time.Now()
+	for _, t := range targets {
+		s.targetMap[t.Name] = t
+		if t.Gravity.Schedule == "" {
+			continue
+		}
+		if old, ok := existing[t.Name]; ok && old.target.Gravity.Schedule == t.Gravity.Schedule {
+			old.target = t
+			entries = append(entries, old)
+			continue
+		}
+		sched, err := ParseSchedule(t.Gravity.Schedule)
+		if err != nil {
+			slog.Warn("gravity schedule invalid, keeping previous", "target", t.Name, "schedule", t.Gravity.Schedule, "error", err)
+			if old, ok := existing[t.Name]; ok {
+				entries = append(entries, old)
+			}
+			continue
+		}
+		e := entry{target: t, schedule: sched, next: sched.Next(now)}
+		slog.Debug("gravity scheduled", "target", t.Name, "next_run", e.next.Format(time.RFC3339))
+		entries = append(entries, e)
+	}
+	s.entries = entries
+}
+
 func (s *Scheduler) Start(ctx context.Context) {
+	s.mu.Lock()
 	for _, e := range s.entries {
 		slog.Debug("gravity scheduled", "target", e.target.Name, "next_run", e.next.Format(time.RFC3339))
 	}
+	s.mu.Unlock()
 
-	var tickerCh <-chan time.Time
-	var ticker *time.Ticker
-	if len(s.entries) > 0 {
-		ticker = time.NewTicker(30 * time.Second)
-		tickerCh = ticker.C
-		defer ticker.Stop()
-	}
+	// The ticker always runs so that schedules added by a config reload are
+	// honoured; with no entries a tick is a no-op.
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			s.wg.Wait()
 			return
-		case now := <-tickerCh:
+		case now := <-ticker.C:
 			s.mu.Lock()
 			for i := range s.entries {
 				e := &s.entries[i]

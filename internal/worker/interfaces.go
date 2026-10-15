@@ -32,8 +32,9 @@ type GravityTrigger interface {
 }
 
 type Recorder interface {
-	RecordReconcileResult(target string, duration time.Duration, success bool, changes map[string]map[string]int, drift map[string]int)
+	RecordReconcileResult(target string, duration time.Duration, status string, changes map[string]map[string]int, drift map[string]int)
 	UpdateSettingsDrift(target string, drifted map[string]bool)
 	MarkTargetUnreachable(target string)
+	MarkTargetReachable(target string)
 	RecordTargetHealth(target string, state string)
 }

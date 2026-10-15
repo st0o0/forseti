@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/st0o0/forseti/internal/config"
+	"github.com/st0o0/forseti/internal/metrics"
 	"github.com/st0o0/forseti/internal/pihole"
 	"github.com/st0o0/forseti/internal/reconcile"
 )
@@ -111,15 +112,17 @@ type mockRecorder struct {
 	reconcileCalls     int
 	settingsDriftCalls int
 	unreachableCalls   int
+	reachableCalls     int
 	lastTarget         string
-	lastSuccess        bool
+	lastStatus         string
 	lastDrift          map[string]int
+	healthStates       []string
 }
 
-func (m *mockRecorder) RecordReconcileResult(target string, duration time.Duration, success bool, changes map[string]map[string]int, drift map[string]int) {
+func (m *mockRecorder) RecordReconcileResult(target string, duration time.Duration, status string, changes map[string]map[string]int, drift map[string]int) {
 	m.reconcileCalls++
 	m.lastTarget = target
-	m.lastSuccess = success
+	m.lastStatus = status
 	m.lastDrift = drift
 }
 
@@ -131,7 +134,12 @@ func (m *mockRecorder) MarkTargetUnreachable(target string) {
 	m.unreachableCalls++
 }
 
+func (m *mockRecorder) MarkTargetReachable(target string) {
+	m.reachableCalls++
+}
+
 func (m *mockRecorder) RecordTargetHealth(target string, state string) {
+	m.healthStates = append(m.healthStates, state)
 }
 
 func newTestWorker() (*TargetWorker, *mockSessions, *mockSettings, *mockContent, *mockGravity, *mockRecorder) {
@@ -557,3 +565,84 @@ func TestDriftGaugeResetsToZero(t *testing.T) {
 	}
 }
 
+
+func notReadyServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestReadinessFailureRecordsErrorAndDegradedHealth(t *testing.T) {
+	w, sess, _, cont, _, rec := newTestWorker()
+	sess.client = pihole.NewClient(notReadyServer(t).URL, "pw", 0)
+
+	if err := w.Reconcile(); err == nil {
+		t.Fatal("expected readiness error")
+	}
+
+	if cont.calls != 0 {
+		t.Errorf("content should not be called, got %d calls", cont.calls)
+	}
+	if rec.lastStatus != metrics.RunError {
+		t.Errorf("status = %q, want %q", rec.lastStatus, metrics.RunError)
+	}
+	if rec.unreachableCalls != 1 {
+		t.Errorf("MarkTargetUnreachable calls = %d, want 1", rec.unreachableCalls)
+	}
+	if len(rec.healthStates) != 1 || rec.healthStates[0] != "degraded" {
+		t.Errorf("health states = %v, want [degraded]", rec.healthStates)
+	}
+}
+
+func TestContentErrorRecordsErrorKeepsReachable(t *testing.T) {
+	w, _, _, cont, _, rec := newTestWorker()
+	cont.err = errors.New("boom")
+
+	_ = w.Reconcile()
+
+	if rec.lastStatus != metrics.RunError {
+		t.Errorf("status = %q, want %q", rec.lastStatus, metrics.RunError)
+	}
+	if rec.unreachableCalls != 0 {
+		t.Errorf("MarkTargetUnreachable calls = %d, want 0 (content outcome must not change reachability)", rec.unreachableCalls)
+	}
+	if len(rec.healthStates) != 1 || rec.healthStates[0] != "degraded" {
+		t.Errorf("health states = %v, want [degraded]", rec.healthStates)
+	}
+}
+
+func TestItemErrorsArePartial(t *testing.T) {
+	w, _, _, cont, _, rec := newTestWorker()
+	cont.report = &reconcile.ApplyReport{Errors: []error{errors.New("create adlist failed")}}
+
+	if err := w.Reconcile(); err != nil {
+		t.Fatalf("Reconcile error: %v", err)
+	}
+
+	if rec.lastStatus != metrics.RunPartial {
+		t.Errorf("status = %q, want %q", rec.lastStatus, metrics.RunPartial)
+	}
+	if rec.reachableCalls != 1 {
+		t.Errorf("MarkTargetReachable calls = %d, want 1", rec.reachableCalls)
+	}
+	if w.Health().State != Healthy {
+		t.Errorf("health = %v, want Healthy", w.Health().State)
+	}
+	if w.ShouldSkip(time.Now()) {
+		t.Error("partial run must not activate backoff")
+	}
+}
+
+func TestSuccessRecordsSuccessStatus(t *testing.T) {
+	w, _, _, _, _, rec := newTestWorker()
+
+	if err := w.Reconcile(); err != nil {
+		t.Fatalf("Reconcile error: %v", err)
+	}
+	if rec.lastStatus != metrics.RunSuccess {
+		t.Errorf("status = %q, want %q", rec.lastStatus, metrics.RunSuccess)
+	}
+}

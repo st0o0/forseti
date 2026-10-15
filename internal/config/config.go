@@ -164,6 +164,15 @@ type SyncConfig struct {
 	Interval  Duration `yaml:"interval"`
 	Primary   string   `yaml:"primary"`
 	Resources []string `yaml:"resources"`
+	// LocalDNSPurge controls whether replica-only local DNS records are
+	// deleted. Pi-hole local DNS entries have no comment field, so they
+	// cannot carry the managed marker. Defaults to true (mirror primary).
+	LocalDNSPurge *bool `yaml:"local_dns_purge"`
+}
+
+// PurgeLocalDNS reports whether sync deletes replica-only local DNS records.
+func (s SyncConfig) PurgeLocalDNS() bool {
+	return s.LocalDNSPurge == nil || *s.LocalDNSPurge
 }
 
 type Metrics struct {

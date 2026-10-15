@@ -1504,3 +1504,41 @@ targets:
 		t.Errorf("error should mention api.max_concurrent, got: %v", err)
 	}
 }
+
+func TestSyncLocalDNSPurge(t *testing.T) {
+	base := `
+mode: sync
+targets:
+  - name: primary
+    url: http://localhost:80
+    password: test
+    role: primary
+  - name: replica
+    url: http://localhost:81
+    password: test
+    role: replica
+sync:
+  primary: primary
+  resources: [local_dns]
+`
+	tests := []struct {
+		name  string
+		extra string
+		want  bool
+	}{
+		{"default mirrors", "", true},
+		{"explicit true", "  local_dns_purge: true\n", true},
+		{"explicit false", "  local_dns_purge: false\n", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, _, err := Load(writeTestConfig(t, base+tt.extra))
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if got := cfg.Sync.PurgeLocalDNS(); got != tt.want {
+				t.Errorf("PurgeLocalDNS() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

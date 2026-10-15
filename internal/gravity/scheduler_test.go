@@ -808,3 +808,81 @@ func TestGracefulShutdownWaitsForInFlight(t *testing.T) {
 		t.Errorf("recorded runs = %d, want 1", len(rec.runs))
 	}
 }
+
+func TestUpdateTargetsAddsChangesAndRemoves(t *testing.T) {
+	pool := session.NewPool()
+	sched, err := NewScheduler(pool, []config.Target{
+		{Name: "alpha", Gravity: config.GravityConfig{Schedule: "0 3 * * 0"}},
+		{Name: "beta", Gravity: config.GravityConfig{Schedule: "0 4 * * 0"}},
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewScheduler: %v", err)
+	}
+	alphaNext := sched.entries[0].next
+
+	sched.UpdateTargets([]config.Target{
+		{Name: "alpha", Gravity: config.GravityConfig{Schedule: "0 3 * * 0"}},  // unchanged
+		{Name: "gamma", Gravity: config.GravityConfig{Schedule: "30 2 * * *"}}, // added
+	})
+
+	if len(sched.entries) != 2 {
+		t.Fatalf("entries = %d, want 2", len(sched.entries))
+	}
+	byName := map[string]entry{}
+	for _, e := range sched.entries {
+		byName[e.target.Name] = e
+	}
+	if _, ok := byName["beta"]; ok {
+		t.Error("removed target beta still scheduled")
+	}
+	if !byName["alpha"].next.Equal(alphaNext) {
+		t.Error("unchanged schedule must keep its next run time")
+	}
+	if g, ok := byName["gamma"]; !ok || g.next.Before(time.Now()) {
+		t.Error("added target gamma must be scheduled in the future")
+	}
+	if _, ok := sched.targetMap["beta"]; ok {
+		t.Error("removed target beta still in target map")
+	}
+}
+
+func TestUpdateTargetsChangedSchedule(t *testing.T) {
+	pool := session.NewPool()
+	sched, _ := NewScheduler(pool, []config.Target{
+		{Name: "alpha", Gravity: config.GravityConfig{Schedule: "0 3 * * 0"}},
+	}, nil)
+
+	sched.UpdateTargets([]config.Target{
+		{Name: "alpha", Gravity: config.GravityConfig{Schedule: "0 4 * * *"}},
+	})
+
+	e := sched.entries[0]
+	if e.target.Gravity.Schedule != "0 4 * * *" {
+		t.Errorf("schedule = %q, want new schedule", e.target.Gravity.Schedule)
+	}
+	if e.next.Hour() != 4 || e.next.Minute() != 0 {
+		t.Errorf("next = %v, want 04:00", e.next)
+	}
+}
+
+func TestUpdateTargetsEnablesTriggerForNewTarget(t *testing.T) {
+	srv := newGravityTestServer()
+	defer srv.Close()
+
+	pool := session.NewPool()
+	rec := &mockRecorder{}
+	sched, _ := NewScheduler(pool, nil, rec)
+
+	if err := sched.TriggerNow("new", ReasonAdlistChange); err == nil {
+		t.Fatal("expected unknown target before reload")
+	}
+
+	sched.UpdateTargets([]config.Target{{Name: "new", URL: srv.URL, Password: "pw"}})
+
+	if err := sched.TriggerNow("new", ReasonAdlistChange); err != nil {
+		t.Fatalf("TriggerNow after reload: %v", err)
+	}
+	if len(rec.runs) != 1 {
+		t.Errorf("gravity runs = %d, want 1", len(rec.runs))
+	}
+}
