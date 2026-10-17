@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.10](https://github.com/st0o0/forseti/compare/v0.1.9...v0.1.10) (2026-10-17)
+
+
+### Documentation
+
+* remove em dashes and simplify wording ([05a156c](https://github.com/st0o0/forseti/commit/05a156cc97e82fe29525005042597061bb9135cb))
+
 ## [0.1.9](https://github.com/st0o0/forseti/compare/v0.1.8...v0.1.9) (2026-10-05)
 
 
