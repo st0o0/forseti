@@ -713,7 +713,7 @@ func TestEventLoopResponsiveDuringGravity(t *testing.T) {
 		case <-deadline:
 			close(alphaBlock)
 			cancel()
-			t.Fatal("beta gravity did not fire while alpha was blocked — event loop is stuck")
+			t.Fatal("beta gravity did not fire while alpha was blocked: event loop is stuck")
 		default:
 			time.Sleep(50 * time.Millisecond)
 		}

@@ -93,7 +93,7 @@ func BuildDesiredSettingsList(s *config.Settings) []SettingMapping {
 		})
 	}
 
-	// DNS — new fields
+	// DNS: new fields
 	if s.DNS.Port != nil {
 		mappings = append(mappings, SettingMapping{
 			ForsetiPath: "dns.port",
@@ -188,7 +188,7 @@ func BuildDesiredSettingsList(s *config.Settings) []SettingMapping {
 		})
 	}
 
-	// Blocking — new fields
+	// Blocking: new fields
 	if s.Blocking.Active != nil {
 		mappings = append(mappings, SettingMapping{
 			ForsetiPath: "blocking.active",
