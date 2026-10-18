@@ -186,3 +186,233 @@ targets:
 - Backoff timer activates (skipped cycles in logs)
 - After recovery: `target_health` returns to 0
 - Gate was properly released on every failed attempt
+
+## Metrics verification checklist
+
+After at least one reconcile cycle, verify these metrics exist at `/metrics`:
+
+### Always present
+
+| Metric | Check |
+|--------|-------|
+| `forseti_build_info` | Has `version` and `mode` labels |
+| `forseti_target_reachable{target="pihole-alpha"}` | Value = 1 |
+| `forseti_target_reachable{target="pihole-beta"}` | Value = 1 |
+| `forseti_target_health{target="pihole-alpha"}` | Value = 0 (healthy) |
+| `forseti_config_adlists` | Value >= 1 |
+| `forseti_config_deny_domains` | Value >= 1 |
+| `forseti_config_allow_domains` | Value >= 1 |
+| `forseti_collector_fetches_total` | Present with `status="success"` |
+
+### Stats (default enabled)
+
+| Metric | Check |
+|--------|-------|
+| `forseti_dns_queries{target="pihole-alpha"}` | Value >= 0 |
+| `forseti_dns_queries_blocked` | Present |
+| `forseti_blocked_percentage` | Value 0-100 |
+| `forseti_domains_blocked` | Value >= 0 |
+| `forseti_gravity_last_update_timestamp` | Value > 0 (unix timestamp) |
+| `forseti_clients_active` | Value >= 0 |
+| `forseti_queries_forwarded` | Present |
+| `forseti_queries_cached` | Present |
+
+### Blocking (default enabled)
+
+| Metric | Check |
+|--------|-------|
+| `forseti_blocking_status{target="pihole-alpha"}` | Value = 1 (enabled) |
+
+### DHCP (default enabled)
+
+| Metric | Check |
+|--------|-------|
+| `forseti_dhcp_leases_active` | Present per target |
+
+### Reconcile (default enabled)
+
+| Metric | Check |
+|--------|-------|
+| `forseti_reconcile_runs_total` | Present with `status="success"` |
+| `forseti_reconcile_duration_seconds` | Present |
+| `forseti_reconcile_last_run_timestamp` | Value > 0 |
+| `forseti_reconcile_last_success_timestamp` | Value > 0 |
+
+## Reconcile verification checklist
+
+After reconcile, verify resources on Pi-hole alpha via API.
+
+### Setup: Authenticate
+
+```bash
+SID=$(curl -s -X POST http://localhost:18080/api/auth \
+  -H 'Content-Type: application/json' \
+  -d '{"password":"alpha-dev-password"}' | jq -r '.session.sid')
+```
+
+### Groups
+
+| Check | Command | Expected |
+|-------|---------|----------|
+| Groups exist | `curl -s http://localhost:18080/api/groups -H "X-FTL-SID: $SID"` | Groups include "default" and "testing" |
+| Marker present | Check comment field | `[forseti]` in comment for managed groups |
+
+### Adlists (block)
+
+| Check | Command | Expected |
+|-------|---------|----------|
+| Block-lists exist | `curl -s "http://localhost:18080/api/lists?type=block" -H "X-FTL-SID: $SID"` | At least 2 adlists from config |
+| Marker present | Check comment field | `[forseti]` in comments |
+| StevenBlack list | Check addresses | `https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts` present |
+
+### Allowlists
+
+| Check | Command | Expected |
+|-------|---------|----------|
+| Allow-lists exist | `curl -s "http://localhost:18080/api/lists?type=allow" -H "X-FTL-SID: $SID"` | At least 1 allowlist from config |
+| Marker present | Check comment field | `[forseti]` in comments |
+| anudeepND list | Check addresses | Whitelist URL present |
+| Group assignment | Check groups field | Assigned to "default" group |
+
+### Deny domains
+
+| Check | Command | Expected |
+|-------|---------|----------|
+| Deny exact | `curl -s http://localhost:18080/api/domains/deny/exact -H "X-FTL-SID: $SID"` | `ads.example.com` and `tracking.example.com` present |
+| Marker present | Check comment field | `[forseti]` as comment |
+
+### Allow domains
+
+| Check | Command | Expected |
+|-------|---------|----------|
+| Allow exact | `curl -s http://localhost:18080/api/domains/allow/exact -H "X-FTL-SID: $SID"` | `allowed.example.com` and `safe.example.com` present |
+
+### Local DNS
+
+| Check | Command | Expected |
+|-------|---------|----------|
+| DNS records | `curl -s http://localhost:18080/api/config/dns/hosts -H "X-FTL-SID: $SID"` | Contains `192.168.1.50 nas.lan` and `192.168.1.60 printer.lan` |
+
+### Clients
+
+| Check | Command | Expected |
+|-------|---------|----------|
+| Clients exist | `curl -s http://localhost:18080/api/clients -H "X-FTL-SID: $SID"` | `192.168.1.0/24` present with `[forseti]` marker |
+
+### Manual entry preservation
+
+| Check | Steps | Expected |
+|-------|-------|----------|
+| Manual adlist preserved | Add adlist without `[forseti]` marker via Pi-hole UI, run reconcile | Manual adlist untouched |
+
+## New collector toggle scenarios
+
+These tests require specific toggles enabled. If the dev config does not have
+them enabled, add to `forseti.dev.yml` under `metrics.collectors`:
+
+```yaml
+metrics:
+  collectors:
+    top_domains: true
+    top_clients: true
+    system: true
+    history: true
+  top_stats_count: 10
+  history_interval: 1m
+```
+
+### Top domains (toggle: top_domains)
+
+| Check | Method | Expected |
+|-------|--------|----------|
+| Metric registered | `grep forseti_top_queried_domains /metrics` | Present with `target` and `domain` labels |
+| Metric registered | `grep forseti_top_blocked_domains /metrics` | Present with `target` and `domain` labels |
+| Count matches config | Count domain labels per target | At most `top_stats_count` entries |
+| Toggle disabled | Remove toggle, reload, check | Metrics not present |
+
+### Top clients (toggle: top_clients)
+
+| Check | Method | Expected |
+|-------|--------|----------|
+| Metric registered | `grep forseti_top_clients /metrics` | Present with `target` and `client` labels |
+| Count matches config | Count client labels per target | At most `top_stats_count` entries |
+
+### System info (toggle: system)
+
+| Check | Method | Expected |
+|-------|--------|----------|
+| CPU metric | `grep forseti_pihole_cpu_percent /metrics` | Value 0-100 per target |
+| Memory metric | `grep forseti_pihole_memory_percent /metrics` | Value 0-100 per target |
+| Load metrics | `grep forseti_pihole_load_1m /metrics` | Value >= 0 per target |
+| Load 5m | `grep forseti_pihole_load_5m /metrics` | Value >= 0 per target |
+| Load 15m | `grep forseti_pihole_load_15m /metrics` | Value >= 0 per target |
+| Temperature | `grep forseti_pihole_temperature_celsius /metrics` | Present if hardware reports temp, absent otherwise |
+
+### Query history (toggle: history)
+
+| Check | Method | Expected |
+|-------|--------|----------|
+| Total metric | `grep forseti_query_history_total /metrics` | Present per target |
+| Blocked metric | `grep forseti_query_history_blocked /metrics` | Present per target |
+| Tick-based | Wait > history_interval, check values change | Values update on tick interval |
+
+## Health and status endpoint scenarios
+
+### /healthz
+
+| Check | Method | Expected |
+|-------|--------|----------|
+| Healthy response | `curl -s http://localhost:9099/healthz` | HTTP 200 |
+| After stall | Stop reconcile (pause forseti), wait > 2x interval | HTTP 503 or degraded |
+
+### /status
+
+| Check | Method | Expected |
+|-------|--------|----------|
+| Status response | `curl -s http://localhost:9099/status` | JSON with per-target status |
+| Target info | Check response | Each target has `name`, `health`, `lastRun` |
+
+### /status/history
+
+| Check | Method | Expected |
+|-------|--------|----------|
+| History response | `curl -s http://localhost:9099/status/history` | JSON array of run results |
+| Entries present | Check array length | At least 1 entry after first reconcile |
+
+## Group name validation scenarios
+
+### Config mode
+
+| Check | Method | Expected |
+|-------|--------|----------|
+| CRLF rejected | Add group with `\n` in name to config YAML | Config validation fails with error |
+| Null rejected | Add group with `\x00` in name | Config validation fails |
+| Valid name | Normal group names | Config loads successfully |
+
+## CNAME sync scenarios (sync mode)
+
+These require a sync-mode config. Use `forseti.sync.yml` with `allowlists` and
+`cnames` in the resources list.
+
+| Check | Method | Expected |
+|-------|--------|----------|
+| CNAME in valid resources | Config with `cnames` in `sync.resources` | Config loads without error |
+| Allowlists in valid resources | Config with `allowlists` in `sync.resources` | Config loads without error |
+
+## Config validation scenarios
+
+### Allowlist validation
+
+| Check | Method | Expected |
+|-------|--------|----------|
+| Duplicate URL | Two allowlists with same URL in config | Validation error |
+| Undefined group | Allowlist referencing nonexistent group | Validation error |
+| Valid allowlist | Allowlist with valid URL and groups | Config loads |
+
+### New toggle config
+
+| Check | Method | Expected |
+|-------|--------|----------|
+| top_stats_count > 100 | Set to 200 | Validation error |
+| history_interval < 1m | Set to 30s | Validation error |
+| Defaults | No explicit values | top_stats_count=10, history_interval=5m |
