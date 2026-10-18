@@ -4,6 +4,13 @@ metrics:
   port: 9099
   path: /metrics
   scrape_interval: 30s
+  top_stats_count: 10
+  history_interval: 1m
+  collectors:
+    top_domains: true
+    top_clients: true
+    system: true
+    history: true
 
 targets:
   - name: pihole-alpha
