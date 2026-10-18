@@ -54,12 +54,16 @@ func newExpansionTestServer(calls *atomic.Int32) *httptest.Server {
 			calls.Add(1)
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"system": map[string]any{
-					"cpu": 15.5,
+					"cpu": map[string]any{
+						"%cpu": 15.5,
+						"load": map[string]any{
+							"raw": []any{0.5, 0.8, 1.2},
+						},
+					},
 					"memory": map[string]any{
-						"ram": map[string]any{"percent_used": 45.2},
+						"ram": map[string]any{"%used": 45.2},
 					},
 					"sensors": map[string]any{"cpu_temp": 52.3},
-					"load":    []any{0.5, 0.8, 1.2},
 				},
 			})
 		case r.URL.Path == "/api/history":

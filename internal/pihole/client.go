@@ -854,33 +854,37 @@ func (c *Client) GetHistory() ([]HistoryEntry, error) {
 func (c *Client) GetSystemInfo() (*SystemInfo, error) {
 	var resp struct {
 		System struct {
-			CPU    float64 `json:"cpu"`
 			Memory struct {
 				RAM struct {
-					PercentUsed float64 `json:"percent_used"`
+					PercentUsed float64 `json:"%used"`
 				} `json:"ram"`
 			} `json:"memory"`
-			Sensors struct {
+			CPU struct {
+				PercentCPU float64 `json:"%cpu"`
+				Load       struct {
+					Raw []float64 `json:"raw"`
+				} `json:"load"`
+			} `json:"cpu"`
+			Sensors *struct {
 				CPUTemp float64 `json:"cpu_temp"`
 			} `json:"sensors"`
-			Load []float64 `json:"load"`
 		} `json:"system"`
 	}
 	if err := c.doJSON(http.MethodGet, "/api/info/system", nil, &resp); err != nil {
 		return nil, err
 	}
 	info := &SystemInfo{
-		CPU:    resp.System.CPU,
+		CPU:    resp.System.CPU.PercentCPU,
 		Memory: resp.System.Memory.RAM.PercentUsed,
 	}
-	if resp.System.Sensors.CPUTemp > 0 {
+	if resp.System.Sensors != nil && resp.System.Sensors.CPUTemp > 0 {
 		info.Temperature = resp.System.Sensors.CPUTemp
 		info.HasTemp = true
 	}
-	if len(resp.System.Load) >= 3 {
-		info.Load1 = resp.System.Load[0]
-		info.Load5 = resp.System.Load[1]
-		info.Load15 = resp.System.Load[2]
+	if len(resp.System.CPU.Load.Raw) >= 3 {
+		info.Load1 = resp.System.CPU.Load.Raw[0]
+		info.Load5 = resp.System.CPU.Load.Raw[1]
+		info.Load15 = resp.System.CPU.Load.Raw[2]
 	}
 	return info, nil
 }
