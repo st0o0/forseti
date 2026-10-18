@@ -20,6 +20,10 @@ type PiholeAPI interface {
 	ListAdlists() ([]pihole.APIList, error)
 	CreateAdlist(address, comment string, enabled bool, groups []int) (*pihole.APIList, error)
 	DeleteAdlists(addresses []string) error
+	ListAllowlists() ([]pihole.APIList, error)
+	CreateAllowlist(address, comment string, enabled bool, groups []int) (*pihole.APIList, error)
+	DeleteAllowlists(addresses []string) error
+	UpdateAllowlist(address string, comment string, groups []int) error
 	ListDomains(domType, kind string) ([]pihole.APIDomain, error)
 	CreateDomain(domType, kind, domain, comment string, enabled bool, groups []int) (*pihole.APIDomain, error)
 	DeleteDomains(domains []string) error
@@ -31,7 +35,7 @@ type PiholeAPI interface {
 	DeleteClients(ips []string) error
 	UpdateAdlist(address string, comment string, groups []int) error
 	UpdateClient(ip string, comment string, groups []int) error
-	UpdateDomain(domain string, comment string, groups []int) error
+	UpdateDomain(domType, kind, domain string, comment string, groups []int) error
 	ListCNAMERecords() ([]pihole.APICNAMERecord, error)
 	AddCNAMERecord(domain, target string) error
 	DeleteCNAMERecord(domain, target string) error
@@ -66,6 +70,7 @@ type DiffReport struct {
 	Target       string
 	Groups       ResourceDiff
 	Adlists      ResourceDiff
+	Allowlists   ResourceDiff
 	Deny         ResourceDiff
 	Allow        ResourceDiff
 	LocalDNS     ResourceDiff
@@ -111,6 +116,15 @@ func Plan(rt *config.ResolvedTarget, api PiholeAPI, opts ReconcileOptions) (*Dif
 	}
 	report.Adlists = diffAdlists(rt.Adlists, adlists, marker, groupNameToID)
 	report.NeedsGravity = report.Adlists.HasChanges()
+
+	allowlists, err := retryList(rt.Name, "list allowlists", api.ListAllowlists)
+	if err != nil {
+		return nil, fmt.Errorf("list allowlists: %w", err)
+	}
+	report.Allowlists = diffAllowlists(rt.Allowlists, allowlists, marker, groupNameToID)
+	if report.Allowlists.HasChanges() {
+		report.NeedsGravity = true
+	}
 
 	for _, kind := range collectDenyKinds(rt.Deny) {
 		denyDomains, err := retryList(rt.Name, "list deny/"+kind, func() ([]pihole.APIDomain, error) {
@@ -232,6 +246,53 @@ func Apply(rt *config.ResolvedTarget, api PiholeAPI, opts ReconcileOptions) (*Ap
 		}
 	}
 	report.Diff.NeedsGravity = adlistsChanged
+
+	// Allowlists
+	allowlists, err := retryList(rt.Name, "list allowlists", api.ListAllowlists)
+	if err != nil {
+		return nil, fmt.Errorf("list allowlists: %w", err)
+	}
+	report.Diff.Allowlists = diffAllowlists(rt.Allowlists, allowlists, marker, groupNameToID)
+	logDiff(rt.Name, "allowlists", report.Diff.Allowlists)
+	allowlistsChanged := false
+	for _, entry := range report.Diff.Allowlists.Adds {
+		al := findAdlistByURL(rt.Allowlists, entry.Key)
+		groupIDs := resolveGroupIDs(al.Groups, groupNameToID)
+		if err := retryWrite(rt.Name, "create allowlist", func() error {
+			_, err := api.CreateAllowlist(entry.Key, buildComment(marker, al.Comment), true, groupIDs)
+			return err
+		}); err != nil {
+			report.Errors = append(report.Errors, itemErr("allowlists", "add", entry.Key, err))
+		} else {
+			allowlistsChanged = true
+		}
+	}
+	for _, entry := range report.Diff.Allowlists.Updates {
+		al := findAdlistByURL(rt.Allowlists, entry.Key)
+		groupIDs := resolveGroupIDs(al.Groups, groupNameToID)
+		if err := retryWrite(rt.Name, "update allowlist", func() error {
+			return api.UpdateAllowlist(entry.Key, buildComment(marker, al.Comment), groupIDs)
+		}); err != nil {
+			report.Errors = append(report.Errors, itemErr("allowlists", "update", entry.Key, err))
+		} else {
+			allowlistsChanged = true
+		}
+	}
+	if keys := collectKeys(report.Diff.Allowlists.Deletes); len(keys) > 0 {
+		if err := api.DeleteAllowlists(keys); err != nil {
+			if pihole.IsNotFound(err) {
+				logger().Debug("allowlist delete returned 404 (already gone)", "target", rt.Name)
+			} else {
+				report.Errors = append(report.Errors, batchErr("allowlists", len(keys), err))
+				allowlistsChanged = true
+			}
+		} else {
+			allowlistsChanged = true
+		}
+	}
+	if allowlistsChanged {
+		report.Diff.NeedsGravity = true
+	}
 
 	// Deny domains (per-kind)
 	for _, kind := range collectDenyKinds(rt.Deny) {
@@ -420,6 +481,37 @@ func diffAdlists(desired []config.Adlist, actual []pihole.APIList, marker string
 	for _, a := range actual {
 		if !desiredURLs[a.Address] && strings.Contains(a.Comment, marker) {
 			logger().Debug("adlist marked for delete", "address", redact.URL(a.Address), "id", a.ID, "comment", a.Comment)
+			diff.Deletes = append(diff.Deletes, DiffEntry{Action: ActionDelete, Key: a.Address, ID: a.ID})
+		}
+	}
+	return diff
+}
+
+func diffAllowlists(desired []config.Adlist, actual []pihole.APIList, marker string, groupNameToID map[string]int) ResourceDiff {
+	var diff ResourceDiff
+	actualByURL := make(map[string]pihole.APIList)
+	for _, a := range actual {
+		actualByURL[a.Address] = a
+	}
+
+	desiredURLs := make(map[string]bool)
+	for _, a := range desired {
+		desiredURLs[a.URL] = true
+		if existing, exists := actualByURL[a.URL]; exists {
+			desiredGroups := resolveGroupIDs(a.Groups, groupNameToID)
+			if !groupsEqual(desiredGroups, existing.Groups) || !strings.Contains(existing.Comment, marker) {
+				diff.Updates = append(diff.Updates, DiffEntry{Action: ActionUpdate, Key: a.URL, ID: existing.ID})
+			} else {
+				diff.Unchanged++
+			}
+		} else {
+			diff.Adds = append(diff.Adds, DiffEntry{Action: ActionAdd, Key: a.URL})
+		}
+	}
+
+	for _, a := range actual {
+		if !desiredURLs[a.Address] && strings.Contains(a.Comment, marker) {
+			logger().Debug("allowlist marked for delete", "address", redact.URL(a.Address), "id", a.ID, "comment", a.Comment)
 			diff.Deletes = append(diff.Deletes, DiffEntry{Action: ActionDelete, Key: a.Address, ID: a.ID})
 		}
 	}

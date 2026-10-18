@@ -99,6 +99,25 @@ type Server struct {
 	// new_domains (toggle: new_domains)
 	newBlockedDomains24h *prometheus.GaugeVec
 
+	// top_domains (toggle: top_domains)
+	topQueriedDomains *prometheus.GaugeVec
+	topBlockedDomains *prometheus.GaugeVec
+
+	// top_clients (toggle: top_clients)
+	topClients *prometheus.GaugeVec
+
+	// history (toggle: history)
+	queryHistoryTotal   *prometheus.GaugeVec
+	queryHistoryBlocked *prometheus.GaugeVec
+
+	// system (toggle: system)
+	systemCPU    *prometheus.GaugeVec
+	systemMemory *prometheus.GaugeVec
+	systemTemp   *prometheus.GaugeVec
+	systemLoad1  *prometheus.GaugeVec
+	systemLoad5  *prometheus.GaugeVec
+	systemLoad15 *prometheus.GaugeVec
+
 	mu               sync.Mutex
 	knownQueryTypes  map[string]map[string]bool
 	knownQueryStatus map[string]map[string]bool
@@ -373,6 +392,71 @@ func NewServer(port int, path string, toggles config.CollectorToggles) *Server {
 			Help: "Number of domains blocked for the first time in the last 24h",
 		}, []string{"target"})
 		reg.MustRegister(s.newBlockedDomains24h)
+	}
+
+	// Top domains
+	if toggles.IsEnabled("top_domains") {
+		s.topQueriedDomains = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_top_queried_domains",
+			Help: "Query count for top queried domains",
+		}, []string{"target", "domain"})
+		s.topBlockedDomains = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_top_blocked_domains",
+			Help: "Query count for top blocked domains",
+		}, []string{"target", "domain"})
+		reg.MustRegister(s.topQueriedDomains, s.topBlockedDomains)
+	}
+
+	// Top clients
+	if toggles.IsEnabled("top_clients") {
+		s.topClients = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_top_clients",
+			Help: "Query count for top querying clients",
+		}, []string{"target", "client"})
+		reg.MustRegister(s.topClients)
+	}
+
+	// History
+	if toggles.IsEnabled("history") {
+		s.queryHistoryTotal = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_query_history_total",
+			Help: "Total queries per history bucket",
+		}, []string{"target"})
+		s.queryHistoryBlocked = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_query_history_blocked",
+			Help: "Blocked queries per history bucket",
+		}, []string{"target"})
+		reg.MustRegister(s.queryHistoryTotal, s.queryHistoryBlocked)
+	}
+
+	// System
+	if toggles.IsEnabled("system") {
+		s.systemCPU = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_pihole_cpu_percent",
+			Help: "Pi-hole host CPU usage percentage",
+		}, []string{"target"})
+		s.systemMemory = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_pihole_memory_percent",
+			Help: "Pi-hole host memory usage percentage",
+		}, []string{"target"})
+		s.systemTemp = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_pihole_temperature_celsius",
+			Help: "Pi-hole host CPU temperature",
+		}, []string{"target"})
+		s.systemLoad1 = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_pihole_load_1m",
+			Help: "Pi-hole host 1-minute load average",
+		}, []string{"target"})
+		s.systemLoad5 = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_pihole_load_5m",
+			Help: "Pi-hole host 5-minute load average",
+		}, []string{"target"})
+		s.systemLoad15 = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "forseti_pihole_load_15m",
+			Help: "Pi-hole host 15-minute load average",
+		}, []string{"target"})
+		reg.MustRegister(s.systemCPU, s.systemMemory, s.systemTemp,
+			s.systemLoad1, s.systemLoad5, s.systemLoad15)
 	}
 
 	promHandler := promhttp.HandlerFor(reg, promhttp.HandlerOpts{})
@@ -708,6 +792,57 @@ func (s *Server) SetNewBlockedDomains24h(target string, count int) {
 		return
 	}
 	s.newBlockedDomains24h.WithLabelValues(target).Set(float64(count))
+}
+
+func (s *Server) UpdateTopDomains(target string, queried, blocked []pihole.TopEntry) {
+	if s.topQueriedDomains == nil {
+		return
+	}
+	s.topQueriedDomains.Reset()
+	for _, e := range queried {
+		s.topQueriedDomains.WithLabelValues(target, e.Name).Set(float64(e.Count))
+	}
+	s.topBlockedDomains.Reset()
+	for _, e := range blocked {
+		s.topBlockedDomains.WithLabelValues(target, e.Name).Set(float64(e.Count))
+	}
+}
+
+func (s *Server) UpdateTopClients(target string, clients []pihole.TopEntry) {
+	if s.topClients == nil {
+		return
+	}
+	s.topClients.Reset()
+	for _, e := range clients {
+		s.topClients.WithLabelValues(target, e.Name).Set(float64(e.Count))
+	}
+}
+
+func (s *Server) UpdateHistory(target string, entries []pihole.HistoryEntry) {
+	if s.queryHistoryTotal == nil {
+		return
+	}
+	if len(entries) > 0 {
+		last := entries[len(entries)-1]
+		s.queryHistoryTotal.WithLabelValues(target).Set(float64(last.Total))
+		s.queryHistoryBlocked.WithLabelValues(target).Set(float64(last.Blocked))
+	}
+}
+
+func (s *Server) UpdateSystemInfo(target string, info *pihole.SystemInfo) {
+	if s.systemCPU == nil {
+		return
+	}
+	s.systemCPU.WithLabelValues(target).Set(info.CPU)
+	s.systemMemory.WithLabelValues(target).Set(info.Memory)
+	if info.HasTemp {
+		s.systemTemp.WithLabelValues(target).Set(info.Temperature)
+	} else {
+		s.systemTemp.DeleteLabelValues(target)
+	}
+	s.systemLoad1.WithLabelValues(target).Set(info.Load1)
+	s.systemLoad5.WithLabelValues(target).Set(info.Load5)
+	s.systemLoad15.WithLabelValues(target).Set(info.Load15)
 }
 
 func updateGaugeMap(gauge *prometheus.GaugeVec, prev map[string]bool, target string, data map[string]int) map[string]bool {

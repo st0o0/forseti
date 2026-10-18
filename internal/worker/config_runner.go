@@ -69,6 +69,7 @@ func recordApplied(res *run.Result, report *reconcile.ApplyReport) {
 	}
 	planned("groups", report.Diff.Groups)
 	planned("adlists", report.Diff.Adlists)
+	planned("allowlists", report.Diff.Allowlists)
 	planned("deny", report.Diff.Deny)
 	planned("allow", report.Diff.Allow)
 	planned("local_dns", report.Diff.LocalDNS)
@@ -137,12 +138,13 @@ func (w *TargetWorker) reportSettingsDrift(diff *reconcile.SettingsDiff) {
 }
 
 func buildDriftMap(diff *reconcile.DiffReport) map[string]int {
-	m := make(map[string]int, 7)
+	m := make(map[string]int, 8)
 	count := func(name string, d reconcile.ResourceDiff) {
 		m[name] = len(d.Adds) + len(d.Updates) + len(d.Deletes)
 	}
 	count("groups", diff.Groups)
 	count("adlists", diff.Adlists)
+	count("allowlists", diff.Allowlists)
 	count("deny", diff.Deny)
 	count("allow", diff.Allow)
 	count("local_dns", diff.LocalDNS)

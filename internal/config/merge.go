@@ -14,15 +14,16 @@ func resolveTargets(cfg *Config, configDir string) ([]ResolvedTarget, error) {
 	resolved := make([]ResolvedTarget, 0, len(cfg.Targets))
 	for _, t := range cfg.Targets {
 		rt := ResolvedTarget{
-			Target:   t,
-			Settings: cfg.Settings,
-			Groups:   cloneSlice(cfg.Groups),
-			Adlists:  cloneSlice(cfg.Adlists),
-			Deny:     cloneSlice(cfg.Deny),
-			Allow:    cloneSlice(cfg.Allow),
-			LocalDNS: cloneSlice(cfg.LocalDNS),
-			CNAME:    cloneSlice(cfg.CNAME),
-			Clients:  cloneSlice(cfg.Clients),
+			Target:     t,
+			Settings:   cfg.Settings,
+			Groups:     cloneSlice(cfg.Groups),
+			Adlists:    cloneSlice(cfg.Adlists),
+			Allowlists: cloneSlice(cfg.Allowlists),
+			Deny:       cloneSlice(cfg.Deny),
+			Allow:      cloneSlice(cfg.Allow),
+			LocalDNS:   cloneSlice(cfg.LocalDNS),
+			CNAME:      cloneSlice(cfg.CNAME),
+			Clients:    cloneSlice(cfg.Clients),
 		}
 
 		if t.File != "" {
@@ -83,6 +84,7 @@ func mergeOverride(rt *ResolvedTarget, o *TargetOverride) {
 
 	rt.Groups = append(rt.Groups, o.Groups...)
 	rt.Adlists = append(rt.Adlists, o.Adlists...)
+	rt.Allowlists = append(rt.Allowlists, o.Allowlists...)
 
 	for i := range o.Deny {
 		if o.Deny[i].Kind == "" {

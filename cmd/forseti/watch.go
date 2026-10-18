@@ -138,10 +138,14 @@ func runWatch(args []string) int {
 	srv.SetScrapeTimeout(targets)
 	coll := collector.NewCollector(pool, targets, cfg.Metrics.ScrapeInterval.Duration, srv, cfg.Metrics.Collectors)
 	coll.SetReachability(tracker)
+	coll.SetTopStatsCount(cfg.Metrics.TopStatsCount)
 	srv.SetCollectFunc(coll.Collect)
 
 	newDomainsColl := collector.NewNewDomainsCollector(pool, targets, cfg.Metrics.NewDomainsInterval.Duration, srv, cfg.Metrics.Collectors)
 	newDomainsColl.SetReachability(tracker)
+
+	historyColl := collector.NewHistoryCollector(pool, targets, cfg.Metrics.HistoryInterval.Duration, srv, cfg.Metrics.Collectors)
+	historyColl.SetReachability(tracker)
 
 	gravSched, err := gravity.NewScheduler(pool, targets, srv)
 	if err != nil {
@@ -167,6 +171,7 @@ func runWatch(args []string) int {
 		srv.SetScrapeTimeout(newTargets)
 		coll.UpdateTargets(newTargets)
 		newDomainsColl.UpdateTargets(newTargets)
+		historyColl.UpdateTargets(newTargets)
 		gravSched.UpdateTargets(newTargets)
 		keep := make(map[string]bool, len(newTargets))
 		for _, t := range newTargets {
@@ -209,6 +214,7 @@ func runWatch(args []string) int {
 
 	go gravSched.Start(ctx)
 	go newDomainsColl.Start(ctx)
+	go historyColl.Start(ctx)
 
 	shutdown := func() int {
 		log.Info("shutting down")

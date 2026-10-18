@@ -61,6 +61,9 @@ func (r *ReplicaRunner) Run(replica *pihole.Client, res *run.Result) error {
 	if r.resources["adlists"] {
 		r.syncAdlists(replica, res, primary.adlists, replicaState.adlists, primaryIDToName, replicaNameToID)
 	}
+	if r.resources["allowlists"] {
+		r.syncAllowlists(replica, res, primary.allowlists, replicaState.allowlists, primaryIDToName, replicaNameToID)
+	}
 	if r.resources["deny"] {
 		r.syncDomains(replica, res, "deny", "exact", primary.deny, replicaState.deny, primaryIDToName, replicaNameToID)
 		r.syncDomains(replica, res, "deny", "regex", primary.denyRegex, replicaState.denyRegex, primaryIDToName, replicaNameToID)
@@ -71,6 +74,9 @@ func (r *ReplicaRunner) Run(replica *pihole.Client, res *run.Result) error {
 	}
 	if r.resources["local_dns"] {
 		r.syncDNS(replica, res, primary.dns, replicaState.dns)
+	}
+	if r.resources["cnames"] {
+		r.syncCNAMEs(replica, res, primary.cnames, replicaState.cnames)
 	}
 	if r.resources["clients"] {
 		r.syncClients(replica, res, primary.clients, replicaState.clients, primaryIDToName, replicaNameToID)
@@ -88,9 +94,17 @@ func (r *ReplicaRunner) record(res *run.Result, resource, action, key string, er
 	res.Record(resource, action, 1, err)
 }
 
+func containsInvalidChars(s string) bool {
+	return strings.ContainsAny(s, "\r\n\x00")
+}
+
 func (r *ReplicaRunner) syncGroups(replica *pihole.Client, res *run.Result, primary, replicaGroups []pihole.APIGroup) {
 	primaryByName := make(map[string]pihole.APIGroup)
 	for _, g := range primary {
+		if containsInvalidChars(g.Name) {
+			r.log.Warn("skipping group with invalid characters in name", "group", g.Name)
+			continue
+		}
 		primaryByName[strings.ToLower(g.Name)] = g
 	}
 
@@ -219,14 +233,75 @@ func (r *ReplicaRunner) syncClients(replica *pihole.Client, res *run.Result, pri
 	}
 }
 
+func (r *ReplicaRunner) syncAllowlists(replica *pihole.Client, res *run.Result, primary, replicaAllowlists []pihole.APIList, primaryIDToName map[int]string, replicaNameToID map[string]int) {
+	primaryByURL := make(map[string]pihole.APIList)
+	for _, a := range primary {
+		primaryByURL[a.Address] = a
+	}
+
+	replicaByURL := make(map[string]pihole.APIList)
+	for _, a := range replicaAllowlists {
+		replicaByURL[a.Address] = a
+	}
+
+	for url, a := range primaryByURL {
+		if _, exists := replicaByURL[url]; !exists {
+			groups := translateGroupIDs(a.Groups, primaryIDToName, replicaNameToID)
+			_, err := replica.CreateAllowlist(a.Address, r.marker, a.Enabled, groups)
+			r.record(res, "allowlists", "add", redact.URL(url), err)
+		}
+	}
+
+	for url, a := range replicaByURL {
+		if _, exists := primaryByURL[url]; !exists && strings.Contains(a.Comment, r.marker) {
+			r.record(res, "allowlists", "delete", redact.URL(url), replica.DeleteAllowlists([]string{url}))
+		}
+	}
+}
+
+func (r *ReplicaRunner) syncCNAMEs(replica *pihole.Client, res *run.Result, primary, replicaCNAMEs []pihole.APICNAMERecord) {
+	primaryKeys := make(map[string]pihole.APICNAMERecord)
+	for _, rec := range primary {
+		primaryKeys[rec.Domain+","+rec.Target] = rec
+	}
+
+	replicaKeys := make(map[string]pihole.APICNAMERecord)
+	for _, rec := range replicaCNAMEs {
+		replicaKeys[rec.Domain+","+rec.Target] = rec
+	}
+
+	changed := false
+	for key, rec := range primaryKeys {
+		if _, exists := replicaKeys[key]; !exists {
+			r.record(res, "cnames", "add", key, replica.AddCNAMERecord(rec.Domain, rec.Target))
+			changed = true
+		}
+	}
+
+	if r.purgeDNS {
+		for key, rec := range replicaKeys {
+			if _, exists := primaryKeys[key]; !exists {
+				r.record(res, "cnames", "delete", key, replica.DeleteCNAMERecord(rec.Domain, rec.Target))
+				changed = true
+			}
+		}
+	}
+
+	if changed {
+		r.log.Warn("CNAME changes will trigger FTL restart (brief DNS outage)", "target", res.Target)
+	}
+}
+
 type state struct {
 	groups     []pihole.APIGroup
 	adlists    []pihole.APIList
+	allowlists []pihole.APIList
 	deny       []pihole.APIDomain
 	denyRegex  []pihole.APIDomain
 	allow      []pihole.APIDomain
 	allowRegex []pihole.APIDomain
 	dns        []pihole.APIDNSRecord
+	cnames     []pihole.APICNAMERecord
 	clients    []pihole.APIClient
 }
 
@@ -242,6 +317,12 @@ func (st *state) load(client *pihole.Client, resources map[string]bool) error {
 		st.adlists, err = client.ListAdlists()
 		if err != nil {
 			return fmt.Errorf("list adlists: %w", err)
+		}
+	}
+	if resources["allowlists"] {
+		st.allowlists, err = client.ListAllowlists()
+		if err != nil {
+			return fmt.Errorf("list allowlists: %w", err)
 		}
 	}
 	if resources["deny"] {
@@ -268,6 +349,12 @@ func (st *state) load(client *pihole.Client, resources map[string]bool) error {
 		st.dns, err = client.ListDNSRecords()
 		if err != nil {
 			return fmt.Errorf("list dns: %w", err)
+		}
+	}
+	if resources["cnames"] {
+		st.cnames, err = client.ListCNAMERecords()
+		if err != nil {
+			return fmt.Errorf("list cnames: %w", err)
 		}
 	}
 	if resources["clients"] {

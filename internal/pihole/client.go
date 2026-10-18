@@ -301,6 +301,38 @@ type UpstreamStats struct {
 	ResponseVariance float64
 }
 
+// Top stats types
+
+type TopEntry struct {
+	Name  string
+	Count int
+}
+
+type TopDomains struct {
+	TopQueries []TopEntry
+	TopBlocked []TopEntry
+}
+
+type TopClients struct {
+	TopClients []TopEntry
+}
+
+type HistoryEntry struct {
+	Timestamp int64
+	Total     int
+	Blocked   int
+}
+
+type SystemInfo struct {
+	CPU         float64
+	Memory      float64
+	Temperature float64
+	HasTemp     bool
+	Load1       float64
+	Load5       float64
+	Load15      float64
+}
+
 // Adlists
 
 func (c *Client) ListAdlists() ([]APIList, error) {
@@ -352,6 +384,65 @@ func (c *Client) DeleteAdlists(addresses []string) error {
 
 func (c *Client) DeleteAdlist(address string) error {
 	return c.doJSON(http.MethodDelete, "/api/lists/"+url.PathEscape(address)+"?type=block", nil, nil)
+}
+
+// Allowlists
+
+func (c *Client) ListAllowlists() ([]APIList, error) {
+	var resp struct {
+		Lists []APIList `json:"lists"`
+	}
+	if err := c.doJSON(http.MethodGet, "/api/lists?type=allow", nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Lists, nil
+}
+
+func (c *Client) CreateAllowlist(address, comment string, enabled bool, groups []int) (*APIList, error) {
+	body := map[string]any{
+		"address": address,
+		"comment": comment,
+		"enabled": enabled,
+		"groups":  withoutDefault(groups),
+	}
+	var resp struct {
+		Lists []APIList `json:"lists"`
+	}
+	if err := c.doJSON(http.MethodPost, "/api/lists?type=allow", body, &resp); err != nil {
+		return nil, err
+	}
+	if len(resp.Lists) > 0 {
+		return &resp.Lists[0], nil
+	}
+	return &APIList{Address: address}, nil
+}
+
+func (c *Client) DeleteAllowlists(addresses []string) error {
+	items := make([]map[string]string, len(addresses))
+	for i, addr := range addresses {
+		items[i] = map[string]string{"item": addr}
+	}
+	err := c.doJSON(http.MethodPost, "/api/lists:batchDelete?type=allow", items, nil)
+	if !IsNotFound(err) {
+		return err
+	}
+	c.Log.Debug("batchDelete returned 404, trying individual deletes", "count", len(addresses))
+	for _, addr := range addresses {
+		if err := c.DeleteAllowlist(addr); err != nil && !IsNotFound(err) {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *Client) DeleteAllowlist(address string) error {
+	return c.doJSON(http.MethodDelete, "/api/lists/"+url.PathEscape(address)+"?type=allow", nil, nil)
+}
+
+func (c *Client) UpdateAllowlist(address string, comment string, groups []int) error {
+	body := map[string]any{"comment": comment, "groups": groups}
+	path := "/api/lists/" + url.PathEscape(address) + "?type=allow"
+	return c.doJSON(http.MethodPut, path, body, nil)
 }
 
 // Domains
@@ -474,9 +565,9 @@ func (c *Client) UpdateClient(ip string, comment string, groups []int) error {
 	return c.doJSON(http.MethodPut, path, body, nil)
 }
 
-func (c *Client) UpdateDomain(domain string, comment string, groups []int) error {
+func (c *Client) UpdateDomain(domType, kind, domain string, comment string, groups []int) error {
 	body := map[string]any{"comment": comment, "groups": groups}
-	path := "/api/domains/deny/exact/" + url.PathEscape(domain)
+	path := fmt.Sprintf("/api/domains/%s/%s/%s", domType, kind, url.PathEscape(domain))
 	return c.doJSON(http.MethodPut, path, body, nil)
 }
 
@@ -681,6 +772,117 @@ func (c *Client) GetBlockingStatus() (bool, error) {
 		return false, err
 	}
 	return resp.Blocking == "enabled", nil
+}
+
+// Top stats
+
+func (c *Client) GetTopDomains(count int) (*TopDomains, error) {
+	path := fmt.Sprintf("/api/stats/top_domains?count=%d", count)
+	var resp struct {
+		TopDomains []struct {
+			Domain string `json:"domain"`
+			Count  int    `json:"count"`
+		} `json:"top_domains"`
+		BlockedDomains []struct {
+			Domain string `json:"domain"`
+			Count  int    `json:"count"`
+		} `json:"blocked_domains"`
+	}
+	if err := c.doJSON(http.MethodGet, path, nil, &resp); err != nil {
+		return nil, err
+	}
+	result := &TopDomains{
+		TopQueries: make([]TopEntry, len(resp.TopDomains)),
+		TopBlocked: make([]TopEntry, len(resp.BlockedDomains)),
+	}
+	for i, d := range resp.TopDomains {
+		result.TopQueries[i] = TopEntry{Name: d.Domain, Count: d.Count}
+	}
+	for i, d := range resp.BlockedDomains {
+		result.TopBlocked[i] = TopEntry{Name: d.Domain, Count: d.Count}
+	}
+	return result, nil
+}
+
+func (c *Client) GetTopClients(count int) (*TopClients, error) {
+	path := fmt.Sprintf("/api/stats/top_clients?count=%d", count)
+	var resp struct {
+		TopClients []struct {
+			Name  string `json:"name"`
+			IP    string `json:"ip"`
+			Count int    `json:"count"`
+		} `json:"top_clients"`
+	}
+	if err := c.doJSON(http.MethodGet, path, nil, &resp); err != nil {
+		return nil, err
+	}
+	result := &TopClients{
+		TopClients: make([]TopEntry, len(resp.TopClients)),
+	}
+	for i, c := range resp.TopClients {
+		name := c.Name
+		if name == "" {
+			name = c.IP
+		}
+		result.TopClients[i] = TopEntry{Name: name, Count: c.Count}
+	}
+	return result, nil
+}
+
+func (c *Client) GetHistory() ([]HistoryEntry, error) {
+	var resp struct {
+		History []struct {
+			Timestamp int64 `json:"timestamp"`
+			Total     int   `json:"total"`
+			Blocked   int   `json:"blocked"`
+		} `json:"history"`
+	}
+	if err := c.doJSON(http.MethodGet, "/api/history", nil, &resp); err != nil {
+		return nil, err
+	}
+	entries := make([]HistoryEntry, len(resp.History))
+	for i, h := range resp.History {
+		entries[i] = HistoryEntry{
+			Timestamp: h.Timestamp,
+			Total:     h.Total,
+			Blocked:   h.Blocked,
+		}
+	}
+	return entries, nil
+}
+
+func (c *Client) GetSystemInfo() (*SystemInfo, error) {
+	var resp struct {
+		System struct {
+			CPU    float64 `json:"cpu"`
+			Memory struct {
+				RAM struct {
+					PercentUsed float64 `json:"percent_used"`
+				} `json:"ram"`
+			} `json:"memory"`
+			Sensors struct {
+				CPUTemp float64 `json:"cpu_temp"`
+			} `json:"sensors"`
+			Load []float64 `json:"load"`
+		} `json:"system"`
+	}
+	if err := c.doJSON(http.MethodGet, "/api/info/system", nil, &resp); err != nil {
+		return nil, err
+	}
+	info := &SystemInfo{
+		CPU:    resp.System.CPU,
+		Memory: resp.System.Memory.RAM.PercentUsed,
+	}
+	if resp.System.Sensors.CPUTemp > 0 {
+		info.Temperature = resp.System.Sensors.CPUTemp
+		info.HasTemp = true
+	}
+	if len(resp.System.Load) >= 3 {
+		info.Load1 = resp.System.Load[0]
+		info.Load5 = resp.System.Load[1]
+		info.Load15 = resp.System.Load[2]
+	}
+	return info, nil
 }
 
 // Config

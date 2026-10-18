@@ -12,15 +12,16 @@ import (
 
 func makeRT(cfg *config.Config, target config.Target) *config.ResolvedTarget {
 	return &config.ResolvedTarget{
-		Target:   target,
-		Settings: cfg.Settings,
-		Groups:   cfg.Groups,
-		Adlists:  cfg.Adlists,
-		Deny:     cfg.Deny,
-		Allow:    cfg.Allow,
-		LocalDNS: cfg.LocalDNS,
-		CNAME:    cfg.CNAME,
-		Clients:  cfg.Clients,
+		Target:     target,
+		Settings:   cfg.Settings,
+		Groups:     cfg.Groups,
+		Adlists:    cfg.Adlists,
+		Allowlists: cfg.Allowlists,
+		Deny:       cfg.Deny,
+		Allow:      cfg.Allow,
+		LocalDNS:   cfg.LocalDNS,
+		CNAME:      cfg.CNAME,
+		Clients:    cfg.Clients,
 	}
 }
 
@@ -31,49 +32,57 @@ func makeOpts(marker string) ReconcileOptions {
 type mockAPI struct {
 	groups     []pihole.APIGroup
 	adlists    []pihole.APIList
+	allowlists []pihole.APIList
 	domains    map[string][]pihole.APIDomain // "deny/exact" -> domains
 	dnsRecords []pihole.APIDNSRecord
 	clients    []pihole.APIClient
 
-	createdGroups   []string
-	createdAdlists  []string
-	createdDomains  []string
-	createdClients  []string
-	createdComments map[string]string // key -> comment passed to Create/Update
-	deletedGroups   []string
-	deletedAdlists2 []string
-	deletedDomains2 []string
-	deletedClients2 []string
-	addedDNS        []string
-	deletedDNS      []string
-	updatedAdlists  []string
-	updatedClients  []string
-	updatedDomains  []string
-	cnameRecords    []pihole.APICNAMERecord
-	addedCNAME      []string
-	deletedCNAME    []string
+	createdGroups     []string
+	createdAdlists    []string
+	createdAllowlists []string
+	createdDomains    []string
+	createdClients    []string
+	createdComments   map[string]string // key -> comment passed to Create/Update
+	deletedGroups     []string
+	deletedAdlists2   []string
+	deletedAllowlists []string
+	deletedDomains2   []string
+	deletedClients2   []string
+	addedDNS          []string
+	deletedDNS        []string
+	updatedAdlists    []string
+	updatedAllowlists []string
+	updatedClients    []string
+	updatedDomains    []string
+	cnameRecords      []pihole.APICNAMERecord
+	addedCNAME        []string
+	deletedCNAME      []string
 
-	listGroupsErr    error
-	listAdlistsErr   error
-	listDomainsErr   map[string]error // "deny/exact" -> error
-	listDNSErr       error
-	listClientsErr   error
-	createGroupErr   error
-	createAdlistErr  error
-	createDomainErr  error
-	createClientErr  error
-	deleteGroupsErr  error
-	deleteAdlistsErr error
-	deleteDomainsErr error
-	deleteClientsErr error
-	addDNSErr        error
-	deleteDNSErr     error
-	updateAdlistErr  error
-	updateClientErr  error
-	updateDomainErr  error
-	listCNAMEErr     error
-	addCNAMEErr      error
-	deleteCNAMEErr   error
+	listGroupsErr      error
+	listAdlistsErr     error
+	listAllowlistsErr  error
+	listDomainsErr     map[string]error // "deny/exact" -> error
+	listDNSErr         error
+	listClientsErr     error
+	createGroupErr     error
+	createAdlistErr    error
+	createAllowlistErr error
+	createDomainErr    error
+	createClientErr    error
+	deleteGroupsErr    error
+	deleteAdlistsErr   error
+	deleteAllowlistErr error
+	deleteDomainsErr   error
+	deleteClientsErr   error
+	addDNSErr          error
+	deleteDNSErr       error
+	updateAdlistErr    error
+	updateAllowlistErr error
+	updateClientErr    error
+	updateDomainErr    error
+	listCNAMEErr       error
+	addCNAMEErr        error
+	deleteCNAMEErr     error
 
 	nextGroupID int
 }
@@ -125,6 +134,30 @@ func (m *mockAPI) CreateAdlist(address, comment string, enabled bool, groups []i
 func (m *mockAPI) DeleteAdlists(addresses []string) error {
 	m.deletedAdlists2 = append(m.deletedAdlists2, addresses...)
 	return m.deleteAdlistsErr
+}
+
+func (m *mockAPI) ListAllowlists() ([]pihole.APIList, error) {
+	if m.listAllowlistsErr != nil {
+		return nil, m.listAllowlistsErr
+	}
+	return m.allowlists, nil
+}
+func (m *mockAPI) CreateAllowlist(address, comment string, enabled bool, groups []int) (*pihole.APIList, error) {
+	m.createdAllowlists = append(m.createdAllowlists, address)
+	m.createdComments["allowlist:"+address] = comment
+	if m.createAllowlistErr != nil {
+		return nil, m.createAllowlistErr
+	}
+	return &pihole.APIList{ID: 99, Address: address}, nil
+}
+func (m *mockAPI) DeleteAllowlists(addresses []string) error {
+	m.deletedAllowlists = append(m.deletedAllowlists, addresses...)
+	return m.deleteAllowlistErr
+}
+func (m *mockAPI) UpdateAllowlist(address string, comment string, groups []int) error {
+	m.updatedAllowlists = append(m.updatedAllowlists, address)
+	m.createdComments["allowlist:"+address] = comment
+	return m.updateAllowlistErr
 }
 
 func (m *mockAPI) ListDomains(domType, kind string) ([]pihole.APIDomain, error) {
@@ -190,8 +223,8 @@ func (m *mockAPI) UpdateClient(ip string, comment string, groups []int) error {
 	m.createdComments["client:"+ip] = comment
 	return m.updateClientErr
 }
-func (m *mockAPI) UpdateDomain(domain string, comment string, groups []int) error {
-	m.updatedDomains = append(m.updatedDomains, domain)
+func (m *mockAPI) UpdateDomain(domType, kind, domain string, comment string, groups []int) error {
+	m.updatedDomains = append(m.updatedDomains, domType+"/"+kind+":"+domain)
 	return m.updateDomainErr
 }
 func (m *mockAPI) ListCNAMERecords() ([]pihole.APICNAMERecord, error) {
@@ -1971,5 +2004,197 @@ func TestDiffClientsCommentMismatch(t *testing.T) {
 	)
 	if len(diff.Updates) != 1 {
 		t.Fatalf("expected 1 update for missing marker, got %d updates, %d unchanged", len(diff.Updates), diff.Unchanged)
+	}
+}
+
+// --- Allowlist diff tests ---
+
+func TestDiffAllowlists(t *testing.T) {
+	nameToID := map[string]int{"ads": 1, "tracking": 2}
+
+	t.Run("add new allowlist", func(t *testing.T) {
+		diff := diffAllowlists(
+			[]config.Adlist{{URL: "https://example.com/allow.txt", Groups: []string{"ads"}}},
+			nil,
+			"[forseti]",
+			nameToID,
+		)
+		if len(diff.Adds) != 1 || diff.Adds[0].Key != "https://example.com/allow.txt" {
+			t.Errorf("expected add, got %v", diff.Adds)
+		}
+	})
+
+	t.Run("delete orphan with marker", func(t *testing.T) {
+		diff := diffAllowlists(
+			nil,
+			[]pihole.APIList{{ID: 5, Address: "https://old.com/list.txt", Comment: "[forseti] old"}},
+			"[forseti]",
+			nameToID,
+		)
+		if len(diff.Deletes) != 1 || diff.Deletes[0].Key != "https://old.com/list.txt" {
+			t.Errorf("expected delete, got %v", diff.Deletes)
+		}
+	})
+
+	t.Run("preserve manual allowlist", func(t *testing.T) {
+		diff := diffAllowlists(
+			nil,
+			[]pihole.APIList{{ID: 6, Address: "https://manual.com/list.txt", Comment: "user added"}},
+			"[forseti]",
+			nameToID,
+		)
+		if len(diff.Deletes) != 0 {
+			t.Errorf("should not delete manual allowlist, got %v", diff.Deletes)
+		}
+	})
+
+	t.Run("update groups", func(t *testing.T) {
+		diff := diffAllowlists(
+			[]config.Adlist{{URL: "https://example.com/allow.txt", Groups: []string{"ads", "tracking"}}},
+			[]pihole.APIList{{ID: 10, Address: "https://example.com/allow.txt", Comment: "[forseti]", Groups: []int{1}}},
+			"[forseti]",
+			nameToID,
+		)
+		if len(diff.Updates) != 1 {
+			t.Fatalf("expected 1 update, got %d", len(diff.Updates))
+		}
+		if diff.Updates[0].ID != 10 {
+			t.Errorf("update ID = %d, want 10", diff.Updates[0].ID)
+		}
+	})
+
+	t.Run("unchanged when groups match", func(t *testing.T) {
+		diff := diffAllowlists(
+			[]config.Adlist{{URL: "https://example.com/allow.txt", Groups: []string{"ads"}}},
+			[]pihole.APIList{{ID: 10, Address: "https://example.com/allow.txt", Comment: "[forseti]", Groups: []int{1}}},
+			"[forseti]",
+			nameToID,
+		)
+		if diff.Unchanged != 1 {
+			t.Errorf("unchanged = %d, want 1", diff.Unchanged)
+		}
+		if diff.HasChanges() {
+			t.Error("should not have changes")
+		}
+	})
+
+	t.Run("update when marker missing", func(t *testing.T) {
+		diff := diffAllowlists(
+			[]config.Adlist{{URL: "https://example.com/allow.txt", Groups: []string{"ads"}}},
+			[]pihole.APIList{{ID: 10, Address: "https://example.com/allow.txt", Comment: "no marker", Groups: []int{1}}},
+			"[forseti]",
+			nameToID,
+		)
+		if len(diff.Updates) != 1 {
+			t.Fatalf("expected 1 update for missing marker, got %d", len(diff.Updates))
+		}
+	})
+}
+
+func TestApplyAllowlists(t *testing.T) {
+	t.Run("adds creates and triggers gravity", func(t *testing.T) {
+		mock := newMockAPI()
+		mock.groups = []pihole.APIGroup{{ID: 1, Name: "ads"}}
+
+		cfg := &config.Config{
+			Groups:     []config.Group{{Name: "ads"}},
+			Allowlists: []config.Adlist{{URL: "https://example.com/allow.txt", Groups: []string{"ads"}}},
+		}
+		target := config.Target{Name: "test"}
+		report, err := Apply(makeRT(cfg, target), mock, makeOpts("[forseti]"))
+		if err != nil {
+			t.Fatalf("Apply() error: %v", err)
+		}
+		if len(report.Errors) > 0 {
+			t.Errorf("unexpected errors: %v", report.Errors)
+		}
+		if len(mock.createdAllowlists) != 1 || mock.createdAllowlists[0] != "https://example.com/allow.txt" {
+			t.Errorf("expected allowlist created, got %v", mock.createdAllowlists)
+		}
+		if !report.Diff.NeedsGravity {
+			t.Error("expected NeedsGravity after allowlist add")
+		}
+	})
+
+	t.Run("updates allowlist groups", func(t *testing.T) {
+		mock := newMockAPI()
+		mock.groups = []pihole.APIGroup{{ID: 1, Name: "ads"}, {ID: 2, Name: "tracking"}}
+		mock.allowlists = []pihole.APIList{{ID: 10, Address: "https://example.com/allow.txt", Comment: "[forseti]", Groups: []int{1}}}
+
+		cfg := &config.Config{
+			Groups:     []config.Group{{Name: "ads"}, {Name: "tracking"}},
+			Allowlists: []config.Adlist{{URL: "https://example.com/allow.txt", Groups: []string{"ads", "tracking"}}},
+		}
+		target := config.Target{Name: "test"}
+		report, err := Apply(makeRT(cfg, target), mock, makeOpts("[forseti]"))
+		if err != nil {
+			t.Fatalf("Apply() error: %v", err)
+		}
+		if len(mock.updatedAllowlists) != 1 || mock.updatedAllowlists[0] != "https://example.com/allow.txt" {
+			t.Errorf("expected allowlist updated, got %v", mock.updatedAllowlists)
+		}
+		if !report.Diff.NeedsGravity {
+			t.Error("expected NeedsGravity after allowlist update")
+		}
+	})
+
+	t.Run("deletes orphaned allowlist", func(t *testing.T) {
+		mock := newMockAPI()
+		mock.groups = []pihole.APIGroup{{ID: 1, Name: "ads"}}
+		mock.allowlists = []pihole.APIList{{ID: 10, Address: "https://old.com/list.txt", Comment: "[forseti]", Groups: []int{1}}}
+
+		cfg := &config.Config{
+			Groups: []config.Group{{Name: "ads"}},
+		}
+		target := config.Target{Name: "test"}
+		_, err := Apply(makeRT(cfg, target), mock, makeOpts("[forseti]"))
+		if err != nil {
+			t.Fatalf("Apply() error: %v", err)
+		}
+		if len(mock.deletedAllowlists) != 1 || mock.deletedAllowlists[0] != "https://old.com/list.txt" {
+			t.Errorf("expected allowlist deleted, got %v", mock.deletedAllowlists)
+		}
+	})
+
+	t.Run("preserves manual allowlist", func(t *testing.T) {
+		mock := newMockAPI()
+		mock.groups = []pihole.APIGroup{{ID: 1, Name: "ads"}}
+		mock.allowlists = []pihole.APIList{{ID: 10, Address: "https://manual.com/list.txt", Comment: "user added", Groups: []int{1}}}
+
+		cfg := &config.Config{
+			Groups: []config.Group{{Name: "ads"}},
+		}
+		target := config.Target{Name: "test"}
+		report, err := Apply(makeRT(cfg, target), mock, makeOpts("[forseti]"))
+		if err != nil {
+			t.Fatalf("Apply() error: %v", err)
+		}
+		if len(mock.deletedAllowlists) != 0 {
+			t.Errorf("should not delete manual allowlist, got %v", mock.deletedAllowlists)
+		}
+		if report.Diff.Allowlists.HasChanges() {
+			t.Error("should have no allowlist changes for manual entry")
+		}
+	})
+}
+
+func TestPlanIncludesAllowlists(t *testing.T) {
+	mock := newMockAPI()
+	mock.groups = []pihole.APIGroup{{ID: 1, Name: "ads"}}
+
+	cfg := &config.Config{
+		Groups:     []config.Group{{Name: "ads"}},
+		Allowlists: []config.Adlist{{URL: "https://example.com/allow.txt", Groups: []string{"ads"}}},
+	}
+	target := config.Target{Name: "test"}
+	report, err := Plan(makeRT(cfg, target), mock, makeOpts("[forseti]"))
+	if err != nil {
+		t.Fatalf("Plan() error: %v", err)
+	}
+	if len(report.Allowlists.Adds) != 1 {
+		t.Errorf("expected 1 allowlist add in plan, got %d", len(report.Allowlists.Adds))
+	}
+	if !report.NeedsGravity {
+		t.Error("expected NeedsGravity in plan when allowlists change")
 	}
 }

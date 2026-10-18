@@ -26,6 +26,10 @@ const (
 	MinScrapeInterval         = 5 * time.Second
 	MinNewDomainsInterval     = 1 * time.Minute
 	DefaultNewDomainsInterval = 15 * time.Minute
+	MinHistoryInterval        = 1 * time.Minute
+	DefaultHistoryInterval    = 5 * time.Minute
+	DefaultTopStatsCount      = 10
+	MaxTopStatsCount          = 100
 )
 
 type Config struct {
@@ -38,8 +42,9 @@ type Config struct {
 	Sync      SyncConfig      `yaml:"sync"`
 	Settings  Settings        `yaml:"settings"`
 	Groups    []Group         `yaml:"groups"`
-	Adlists   []Adlist        `yaml:"adlists"`
-	Deny      []DenyEntry     `yaml:"deny"`
+	Adlists    []Adlist        `yaml:"adlists"`
+	Allowlists []Adlist        `yaml:"allowlists"`
+	Deny       []DenyEntry     `yaml:"deny"`
 	Allow     []AllowEntry    `yaml:"allow"`
 	LocalDNS  []LocalDNSEntry `yaml:"local_dns"`
 	CNAME     []CNAMEEntry    `yaml:"cname"`
@@ -181,6 +186,8 @@ type Metrics struct {
 	Path               string           `yaml:"path"`
 	ScrapeInterval     Duration         `yaml:"scrape_interval"`
 	NewDomainsInterval Duration         `yaml:"new_domains_interval"`
+	HistoryInterval    Duration         `yaml:"history_interval"`
+	TopStatsCount      int              `yaml:"top_stats_count"`
 	Collectors         CollectorToggles `yaml:"collectors"`
 }
 
@@ -195,35 +202,45 @@ type CollectorToggles struct {
 	SettingsDrift *bool `yaml:"settings_drift"`
 	DHCP          *bool `yaml:"dhcp"`
 	NewDomains    *bool `yaml:"new_domains"`
+	TopDomains    *bool `yaml:"top_domains"`
+	TopClients    *bool `yaml:"top_clients"`
+	History       *bool `yaml:"history"`
+	System        *bool `yaml:"system"`
 }
 
 func (ct CollectorToggles) IsEnabled(name string) bool {
-	var p *bool
 	switch name {
 	case "stats":
-		p = ct.Stats
+		return ct.Stats == nil || *ct.Stats
 	case "upstreams":
-		p = ct.Upstreams
+		return ct.Upstreams == nil || *ct.Upstreams
 	case "query_types":
-		p = ct.QueryTypes
+		return ct.QueryTypes == nil || *ct.QueryTypes
 	case "blocking":
-		p = ct.Blocking
+		return ct.Blocking == nil || *ct.Blocking
 	case "reconcile":
-		p = ct.Reconcile
+		return ct.Reconcile == nil || *ct.Reconcile
 	case "gravity":
-		p = ct.Gravity
+		return ct.Gravity == nil || *ct.Gravity
 	case "sessions":
-		p = ct.Sessions
+		return ct.Sessions == nil || *ct.Sessions
 	case "settings_drift":
-		p = ct.SettingsDrift
+		return ct.SettingsDrift == nil || *ct.SettingsDrift
 	case "dhcp":
-		p = ct.DHCP
+		return ct.DHCP == nil || *ct.DHCP
 	case "new_domains":
-		p = ct.NewDomains
+		return ct.NewDomains == nil || *ct.NewDomains
+	case "top_domains":
+		return ct.TopDomains != nil && *ct.TopDomains
+	case "top_clients":
+		return ct.TopClients != nil && *ct.TopClients
+	case "history":
+		return ct.History != nil && *ct.History
+	case "system":
+		return ct.System != nil && *ct.System
 	default:
 		return true
 	}
-	return p == nil || *p
 }
 
 type APIConfig struct {
@@ -270,10 +287,11 @@ func (t Target) LogValue() slog.Value {
 }
 
 type TargetOverride struct {
-	Settings Settings        `yaml:"settings"`
-	Groups   []Group         `yaml:"groups"`
-	Adlists  []Adlist        `yaml:"adlists"`
-	Deny     []DenyEntry     `yaml:"deny"`
+	Settings   Settings        `yaml:"settings"`
+	Groups     []Group         `yaml:"groups"`
+	Adlists    []Adlist        `yaml:"adlists"`
+	Allowlists []Adlist        `yaml:"allowlists"`
+	Deny       []DenyEntry     `yaml:"deny"`
 	Allow    []AllowEntry    `yaml:"allow"`
 	LocalDNS []LocalDNSEntry `yaml:"local_dns"`
 	CNAME    []CNAMEEntry    `yaml:"cname"`
@@ -387,10 +405,11 @@ func (d *Duration) UnmarshalYAML(value *yaml.Node) error {
 
 type ResolvedTarget struct {
 	Target
-	Settings Settings
-	Groups   []Group
-	Adlists  []Adlist
-	Deny     []DenyEntry
+	Settings   Settings
+	Groups     []Group
+	Adlists    []Adlist
+	Allowlists []Adlist
+	Deny       []DenyEntry
 	Allow    []AllowEntry
 	LocalDNS []LocalDNSEntry
 	CNAME    []CNAMEEntry
@@ -467,6 +486,12 @@ func applyDefaults(cfg *Config) {
 	if cfg.Metrics.NewDomainsInterval.Duration == 0 {
 		cfg.Metrics.NewDomainsInterval.Duration = DefaultNewDomainsInterval
 	}
+	if cfg.Metrics.HistoryInterval.Duration == 0 {
+		cfg.Metrics.HistoryInterval.Duration = DefaultHistoryInterval
+	}
+	if cfg.Metrics.TopStatsCount == 0 {
+		cfg.Metrics.TopStatsCount = DefaultTopStatsCount
+	}
 	if cfg.Reconcile.Marker == "" {
 		cfg.Reconcile.Marker = "[forseti]"
 	}
@@ -496,8 +521,8 @@ func applyDefaults(cfg *Config) {
 }
 
 var validSyncResources = map[string]bool{
-	"adlists": true, "deny": true, "allow": true,
-	"local_dns": true, "groups": true, "clients": true,
+	"adlists": true, "allowlists": true, "deny": true, "allow": true,
+	"local_dns": true, "cnames": true, "groups": true, "clients": true,
 }
 
 func validate(cfg *Config) error {
@@ -612,6 +637,14 @@ func validate(cfg *Config) error {
 	} else if cfg.Metrics.NewDomainsInterval.Duration < 0 {
 		errs = append(errs, fmt.Errorf("new_domains_interval must be at least %s", MinNewDomainsInterval))
 	}
+	if cfg.Metrics.HistoryInterval.Duration > 0 && cfg.Metrics.HistoryInterval.Duration < MinHistoryInterval {
+		errs = append(errs, fmt.Errorf("history_interval must be at least %s", MinHistoryInterval))
+	} else if cfg.Metrics.HistoryInterval.Duration < 0 {
+		errs = append(errs, fmt.Errorf("history_interval must be at least %s", MinHistoryInterval))
+	}
+	if cfg.Metrics.TopStatsCount < 0 || cfg.Metrics.TopStatsCount > MaxTopStatsCount {
+		errs = append(errs, fmt.Errorf("top_stats_count must be between 1 and %d, got %d", MaxTopStatsCount, cfg.Metrics.TopStatsCount))
+	}
 
 	groupNames := make(map[string]bool)
 	for i, g := range cfg.Groups {
@@ -621,6 +654,9 @@ func validate(cfg *Config) error {
 			errs = append(errs, fmt.Errorf("group[%d]: duplicate group name %q", i, g.Name))
 		} else {
 			groupNames[g.Name] = true
+		}
+		if strings.ContainsAny(g.Name, "\r\n\x00") {
+			errs = append(errs, fmt.Errorf("group[%d]: name %q contains invalid characters (CR, LF, or null)", i, g.Name))
 		}
 	}
 
@@ -636,6 +672,22 @@ func validate(cfg *Config) error {
 		for _, g := range a.Groups {
 			if !groupNames[g] {
 				errs = append(errs, fmt.Errorf("adlist[%d]: references undefined group %q", i, g))
+			}
+		}
+	}
+
+	allowlistURLs := make(map[string]bool)
+	for i, a := range cfg.Allowlists {
+		if a.URL == "" {
+			errs = append(errs, fmt.Errorf("allowlist[%d]: url is required", i))
+		} else if allowlistURLs[a.URL] {
+			errs = append(errs, fmt.Errorf("allowlist[%d]: duplicate allowlist URL %q", i, a.URL))
+		} else {
+			allowlistURLs[a.URL] = true
+		}
+		for _, g := range a.Groups {
+			if !groupNames[g] {
+				errs = append(errs, fmt.Errorf("allowlist[%d]: references undefined group %q", i, g))
 			}
 		}
 	}
@@ -829,6 +881,22 @@ func validateEffective(rt *ResolvedTarget) error {
 		for _, g := range a.Groups {
 			if !groupNames[g] {
 				errs = append(errs, fmt.Errorf("adlist[%d]: references undefined group %q", i, g))
+			}
+		}
+	}
+
+	allowlistURLs := make(map[string]bool)
+	for i, a := range rt.Allowlists {
+		if a.URL == "" {
+			errs = append(errs, fmt.Errorf("allowlist[%d]: url is required", i))
+		} else if allowlistURLs[a.URL] {
+			errs = append(errs, fmt.Errorf("allowlist[%d]: duplicate allowlist URL %q", i, a.URL))
+		} else {
+			allowlistURLs[a.URL] = true
+		}
+		for _, g := range a.Groups {
+			if !groupNames[g] {
+				errs = append(errs, fmt.Errorf("allowlist[%d]: references undefined group %q", i, g))
 			}
 		}
 	}

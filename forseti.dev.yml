@@ -62,6 +62,12 @@ adlists:
       - default
       - testing
 
+allowlists:
+  - url: https://raw.githubusercontent.com/anudeepND/whitelist/master/domains/whitelist.txt
+    comment: "Common false positives"
+    groups:
+      - default
+
 deny:
   - domain: ads.example.com
   - domain: tracking.example.com
