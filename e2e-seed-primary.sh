@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Seed primary Pi-hole (alpha) with test data for sync E2E tests.
 # Run AFTER Pi-hole containers are healthy, BEFORE starting Forseti in sync mode.
-set -euo pipefail
+# Uses -f (fail silently on 4xx) but ignores duplicates via || true.
+set -uo pipefail
 
 ALPHA_URL="${1:-http://localhost:18080}"
 ALPHA_PW="${2:-alpha-dev-password}"
@@ -13,52 +14,45 @@ SID=$(curl -sf -X POST "$ALPHA_URL/api/auth" \
 H="X-FTL-SID: $SID"
 CT="Content-Type: application/json"
 
+seed() {
+  local label="$1"; shift
+  local result
+  result=$(curl -s -o /dev/null -w "%{http_code}" "$@" 2>&1)
+  case "$result" in
+    2*) echo "  $label: created" ;;
+    *)  echo "  $label: ok (already exists or $result)" ;;
+  esac
+}
+
 echo "Seeding primary ($ALPHA_URL) ..."
 
-# Groups
-echo "  groups ..."
-curl -sf -X POST "$ALPHA_URL/api/groups" -H "$H" -H "$CT" \
-  -d '{"name":"e2e-sync-group","comment":"seed for sync","enabled":true}' > /dev/null
+seed "group: e2e-sync-group" -X POST "$ALPHA_URL/api/groups" -H "$H" -H "$CT" \
+  -d '{"name":"e2e-sync-group","comment":"seed for sync","enabled":true}'
 
-# Adlists (block)
-echo "  adlists (block) ..."
-curl -sf -X POST "$ALPHA_URL/api/lists?type=block" -H "$H" -H "$CT" \
-  -d '{"address":"https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts","comment":"seed blocklist","enabled":true}' > /dev/null
+seed "adlist: StevenBlack" -X POST "$ALPHA_URL/api/lists?type=block" -H "$H" -H "$CT" \
+  -d '{"address":"https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts","comment":"seed blocklist","enabled":true}'
 
-# Allowlists
-echo "  allowlists ..."
-curl -sf -X POST "$ALPHA_URL/api/lists?type=allow" -H "$H" -H "$CT" \
-  -d '{"address":"https://raw.githubusercontent.com/anudeepND/whitelist/master/domains/whitelist.txt","comment":"seed allowlist","enabled":true}' > /dev/null
+seed "allowlist: anudeepND" -X POST "$ALPHA_URL/api/lists?type=allow" -H "$H" -H "$CT" \
+  -d '{"address":"https://raw.githubusercontent.com/anudeepND/whitelist/master/domains/whitelist.txt","comment":"seed allowlist","enabled":true}'
 
-# Deny domains
-echo "  deny domains ..."
-curl -sf -X POST "$ALPHA_URL/api/domains/deny/exact" -H "$H" -H "$CT" \
-  -d '{"domain":"sync-deny.example.com","comment":"seed deny","enabled":true}' > /dev/null
-curl -sf -X POST "$ALPHA_URL/api/domains/deny/regex" -H "$H" -H "$CT" \
-  -d '{"domain":".*tracking\\.sync\\..*","comment":"seed deny regex","enabled":true}' > /dev/null
+seed "deny: sync-deny.example.com" -X POST "$ALPHA_URL/api/domains/deny/exact" -H "$H" -H "$CT" \
+  -d '{"domain":"sync-deny.example.com","comment":"seed deny","enabled":true}'
 
-# Allow domains
-echo "  allow domains ..."
-curl -sf -X POST "$ALPHA_URL/api/domains/allow/exact" -H "$H" -H "$CT" \
-  -d '{"domain":"sync-allow.example.com","comment":"seed allow","enabled":true}' > /dev/null
+seed "deny regex" -X POST "$ALPHA_URL/api/domains/deny/regex" -H "$H" -H "$CT" \
+  -d '{"domain":".*tracking\\.sync\\..*","comment":"seed deny regex","enabled":true}'
 
-# Local DNS
-echo "  local DNS ..."
-curl -sf -X PUT "$ALPHA_URL/api/config/dns/hosts/$(python -c 'import urllib.parse; print(urllib.parse.quote("192.168.10.1 sync-nas.lan"))')" \
-  -H "$H" > /dev/null
-curl -sf -X PUT "$ALPHA_URL/api/config/dns/hosts/$(python -c 'import urllib.parse; print(urllib.parse.quote("192.168.10.2 sync-printer.lan"))')" \
-  -H "$H" > /dev/null
+seed "allow: sync-allow.example.com" -X POST "$ALPHA_URL/api/domains/allow/exact" -H "$H" -H "$CT" \
+  -d '{"domain":"sync-allow.example.com","comment":"seed allow","enabled":true}'
 
-# CNAME records
-echo "  CNAME records ..."
-curl -sf -X PUT "$ALPHA_URL/api/config/dns/cnameRecords/$(python -c 'import urllib.parse; print(urllib.parse.quote("app.sync.lan,server.sync.lan"))')" \
-  -H "$H" > /dev/null
-curl -sf -X PUT "$ALPHA_URL/api/config/dns/cnameRecords/$(python -c 'import urllib.parse; print(urllib.parse.quote("web.sync.lan,lb.sync.lan"))')" \
-  -H "$H" > /dev/null
+seed "dns: sync-nas.lan" -X PUT "$ALPHA_URL/api/config/dns/hosts/$(python -c 'import urllib.parse; print(urllib.parse.quote("192.168.10.1 sync-nas.lan"))')" -H "$H"
 
-# Clients
-echo "  clients ..."
-curl -sf -X POST "$ALPHA_URL/api/clients" -H "$H" -H "$CT" \
-  -d '{"client":"10.0.0.0/8","comment":"seed client"}' > /dev/null
+seed "dns: sync-printer.lan" -X PUT "$ALPHA_URL/api/config/dns/hosts/$(python -c 'import urllib.parse; print(urllib.parse.quote("192.168.10.2 sync-printer.lan"))')" -H "$H"
+
+seed "cname: app.sync.lan" -X PUT "$ALPHA_URL/api/config/dns/cnameRecords/$(python -c 'import urllib.parse; print(urllib.parse.quote("app.sync.lan,server.sync.lan"))')" -H "$H"
+
+seed "cname: web.sync.lan" -X PUT "$ALPHA_URL/api/config/dns/cnameRecords/$(python -c 'import urllib.parse; print(urllib.parse.quote("web.sync.lan,lb.sync.lan"))')" -H "$H"
+
+seed "client: 10.0.0.0/8" -X POST "$ALPHA_URL/api/clients" -H "$H" -H "$CT" \
+  -d '{"client":"10.0.0.0/8","comment":"seed client"}'
 
 echo "Primary seeded."
