@@ -1,0 +1,4 @@
+services:
+  forseti:
+    volumes:
+      - ./forseti.sync.yml:/config/forseti.yml:ro

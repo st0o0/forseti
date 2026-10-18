@@ -1,7 +1,17 @@
 # E2E Test Scenarios
 
-Scenario coverage for the per-target API concurrency gate.
-Run these after changes to `collector`, `session`, `worker`, `gravity`, or `metrics`.
+Scenario coverage for Forseti's config mode and sync mode.
+Run these after changes to `collector`, `session`, `worker`, `gravity`, `metrics`,
+`reconcile`, `sync`, or `pihole` client.
+
+## Quick reference
+
+| Mode | Docker command | Config file |
+|------|---------------|-------------|
+| Config | `docker compose -f docker-compose.dev.yml --env-file .env.dev up -d --build` | forseti.dev.yml |
+| Sync | `docker compose -f docker-compose.dev.yml -f docker-compose.sync.yml --env-file .env.dev up -d --build` | forseti.sync.yml |
+
+Sync mode requires seeding the primary first: `bash e2e-seed-primary.sh`
 
 ## Unit test scenarios
 
@@ -416,3 +426,187 @@ These require a sync-mode config. Use `forseti.sync.yml` with `allowlists` and
 | top_stats_count > 100 | Set to 200 | Validation error |
 | history_interval < 1m | Set to 30s | Validation error |
 | Defaults | No explicit values | top_stats_count=10, history_interval=5m |
+
+---
+
+## Sync Mode E2E Scenarios
+
+These tests verify primary-to-replica synchronization. Run them as a separate
+Docker stack session after completing the config-mode tests.
+
+### Setup
+
+```bash
+# 1. Tear down any running stack
+docker compose -f docker-compose.dev.yml --env-file .env.dev down -v
+
+# 2. Start Pi-hole containers only (no Forseti yet)
+docker compose -f docker-compose.dev.yml --env-file .env.dev up -d pihole-alpha pihole-beta
+
+# 3. Wait for both Pi-holes to be healthy
+#    Poll http://localhost:18080/admin/ and http://localhost:18081/admin/
+
+# 4. Seed the primary with test data
+bash e2e-seed-primary.sh
+
+# 5. Start Forseti in sync mode
+docker compose -f docker-compose.dev.yml -f docker-compose.sync.yml --env-file .env.dev up -d --build forseti
+```
+
+### Setup: Authenticate to both Pi-holes
+
+```bash
+ALPHA_SID=$(curl -s -X POST http://localhost:18080/api/auth \
+  -H 'Content-Type: application/json' \
+  -d '{"password":"alpha-dev-password"}' | jq -r '.session.sid')
+
+BETA_SID=$(curl -s -X POST http://localhost:18081/api/auth \
+  -H 'Content-Type: application/json' \
+  -d '{"password":"beta-dev-password"}' | jq -r '.session.sid')
+```
+
+### Scenario: Sync groups
+
+| Check | Command | Expected |
+|-------|---------|----------|
+| Primary has group | `curl -s http://localhost:18080/api/groups -H "X-FTL-SID: $ALPHA_SID"` | `e2e-sync-group` present |
+| Replica synced | `curl -s http://localhost:18081/api/groups -H "X-FTL-SID: $BETA_SID"` | `e2e-sync-group` present with `[forseti-sync]` marker |
+| Default group untouched | Check replica groups | `Default` group (id=0) still present, no marker |
+
+### Scenario: Sync adlists (block)
+
+| Check | Command | Expected |
+|-------|---------|----------|
+| Primary has adlist | `curl -s "http://localhost:18080/api/lists?type=block" -H "X-FTL-SID: $ALPHA_SID"` | StevenBlack hosts URL present |
+| Replica synced | `curl -s "http://localhost:18081/api/lists?type=block" -H "X-FTL-SID: $BETA_SID"` | Same URL present with `[forseti-sync]` marker |
+
+### Scenario: Sync allowlists
+
+| Check | Command | Expected |
+|-------|---------|----------|
+| Primary has allowlist | `curl -s "http://localhost:18080/api/lists?type=allow" -H "X-FTL-SID: $ALPHA_SID"` | anudeepND whitelist URL present |
+| Replica synced | `curl -s "http://localhost:18081/api/lists?type=allow" -H "X-FTL-SID: $BETA_SID"` | Same URL present with `[forseti-sync]` marker |
+
+### Scenario: Sync deny domains
+
+| Check | Command | Expected |
+|-------|---------|----------|
+| Primary deny exact | `curl -s http://localhost:18080/api/domains/deny/exact -H "X-FTL-SID: $ALPHA_SID"` | `sync-deny.example.com` present |
+| Replica deny exact | `curl -s http://localhost:18081/api/domains/deny/exact -H "X-FTL-SID: $BETA_SID"` | `sync-deny.example.com` with `[forseti-sync]` |
+| Primary deny regex | `curl -s http://localhost:18080/api/domains/deny/regex -H "X-FTL-SID: $ALPHA_SID"` | `.*tracking\.sync\..*` present |
+| Replica deny regex | `curl -s http://localhost:18081/api/domains/deny/regex -H "X-FTL-SID: $BETA_SID"` | Same regex with `[forseti-sync]` |
+
+### Scenario: Sync allow domains
+
+| Check | Command | Expected |
+|-------|---------|----------|
+| Primary allow exact | `curl -s http://localhost:18080/api/domains/allow/exact -H "X-FTL-SID: $ALPHA_SID"` | `sync-allow.example.com` present |
+| Replica allow exact | `curl -s http://localhost:18081/api/domains/allow/exact -H "X-FTL-SID: $BETA_SID"` | `sync-allow.example.com` with `[forseti-sync]` |
+
+### Scenario: Sync local DNS
+
+| Check | Command | Expected |
+|-------|---------|----------|
+| Primary DNS | `curl -s http://localhost:18080/api/config/dns/hosts -H "X-FTL-SID: $ALPHA_SID"` | `192.168.10.1 sync-nas.lan` and `192.168.10.2 sync-printer.lan` |
+| Replica DNS | `curl -s http://localhost:18081/api/config/dns/hosts -H "X-FTL-SID: $BETA_SID"` | Same entries present |
+
+### Scenario: Sync CNAME records
+
+| Check | Command | Expected |
+|-------|---------|----------|
+| Primary CNAME | `curl -s http://localhost:18080/api/config/dns/cnameRecords -H "X-FTL-SID: $ALPHA_SID"` | `app.sync.lan,server.sync.lan` and `web.sync.lan,lb.sync.lan` |
+| Replica CNAME | `curl -s http://localhost:18081/api/config/dns/cnameRecords -H "X-FTL-SID: $BETA_SID"` | Same CNAME entries present |
+| FTL restart log | `docker logs forseti` | `CNAME changes will trigger FTL restart` message for beta |
+
+### Scenario: Sync clients
+
+| Check | Command | Expected |
+|-------|---------|----------|
+| Primary client | `curl -s http://localhost:18080/api/clients -H "X-FTL-SID: $ALPHA_SID"` | `10.0.0.0/8` present |
+| Replica client | `curl -s http://localhost:18081/api/clients -H "X-FTL-SID: $BETA_SID"` | `10.0.0.0/8` present with `[forseti-sync]` |
+
+### Scenario: Sync marker isolation
+
+| Check | Steps | Expected |
+|-------|-------|----------|
+| Manual replica entry preserved | Add adlist directly on beta without marker, wait for sync | Manual adlist still present, not deleted |
+| Manual replica group preserved | Add group directly on beta without marker, wait for sync | Manual group still present |
+
+### Scenario: Orphan cleanup
+
+| Check | Steps | Expected |
+|-------|-------|----------|
+| Remove from primary | Delete `sync-deny.example.com` from alpha | After next sync: domain removed from beta (had `[forseti-sync]` marker) |
+| Manual entry kept | Manual entry on beta without marker | Not deleted during orphan cleanup |
+
+### Scenario: Sync metrics
+
+| Check | Method | Expected |
+|-------|--------|----------|
+| Sync runs | `grep forseti_reconcile_runs_total /metrics` | Present with `status="success"` for both targets |
+| Sync duration | `grep forseti_reconcile_duration /metrics` | Present per target |
+| Target health | `grep forseti_target_health /metrics` | Both targets health=0 after successful sync |
+
+### Scenario: Sync recovery
+
+| Check | Steps | Expected |
+|-------|-------|----------|
+| Replica down | `docker pause forseti-pihole-beta` | Sync cycle logs error for beta, alpha snapshot still succeeds |
+| Replica recovers | `docker unpause forseti-pihole-beta` | Next sync cycle succeeds, beta back to healthy |
+| Primary down | `docker pause forseti-pihole-alpha` | All replicas skipped (primary snapshot failed) |
+| Primary recovers | `docker unpause forseti-pihole-alpha` | Next cycle succeeds normally |
+
+### Scenario: local_dns_purge behavior
+
+| Check | Steps | Expected |
+|-------|-------|----------|
+| Purge enabled (default) | Add DNS record only on beta, sync runs | Record deleted from beta |
+| Purge disabled | Set `sync.local_dns_purge: false`, reload, add DNS only on beta | Record kept on beta |
+
+---
+
+## Config Mode E2E: Detailed Reconcile Scenarios
+
+Additional config-mode scenarios beyond the basic reconcile checks.
+
+### Scenario: Adlist update (group change)
+
+| Check | Steps | Expected |
+|-------|-------|----------|
+| Initial state | Config has adlist in group "default" | Adlist created with default group |
+| Change groups | Update config: add "testing" group to adlist, wait for reconcile | Adlist updated in-place (PUT), groups now include both |
+| Verify in-place | Check adlist ID | Same ID (not delete+recreate) |
+
+### Scenario: Allowlist lifecycle
+
+| Check | Steps | Expected |
+|-------|-------|----------|
+| Add allowlist | Start with allowlist in config | Created with `[forseti]` marker |
+| Update groups | Change allowlist groups in config | Updated in-place via PUT |
+| Remove from config | Remove allowlist from config, wait for reconcile | Deleted from Pi-hole |
+| Manual preserved | Add allowlist directly on Pi-hole (no marker) | Not deleted by Forseti |
+
+### Scenario: Gravity trigger
+
+| Check | Steps | Expected |
+|-------|-------|----------|
+| Adlist change triggers | Add new adlist to config | `gravity started` log after reconcile, `reason=adlist_change` |
+| Allowlist change triggers | Add new allowlist to config | `gravity started` log, `reason=adlist_change` |
+| Domain change: no gravity | Add new deny domain | No gravity trigger (domains don't trigger gravity) |
+
+### Scenario: Config hot-reload
+
+| Check | Steps | Expected |
+|-------|-------|----------|
+| Add new deny domain | Edit mounted config file, add deny domain | `config reloaded` in logs, domain appears on next reconcile |
+| Add new allowlist | Edit config, add allowlist entry | Allowlist created after reload |
+| Change toggle | Edit config, disable a collector toggle | Metric disappears after reload |
+| Invalid config | Edit config to invalid YAML | `config reload failed` in logs, old config continues working |
+
+### Scenario: Multiple targets diverge
+
+| Check | Steps | Expected |
+|-------|-------|----------|
+| Alpha has extra entry | Add entry only on alpha via API | Forseti detects drift, plan shows delete |
+| Beta missing entry | Delete forseti-managed entry on beta via API | Forseti detects drift, re-creates on next cycle |
+| Both targets reconcile | Wait for full cycle | Both targets converge to desired state |
