@@ -1,6 +1,6 @@
 ## Why
 
-Forseti's error handling treats all API failures as equal — a 404 on delete (item already gone) is logged the same as a 500 (server down), and transient errors like Pi-hole's "Database not available" during FTL restart immediately fail the entire reconcile with no retry. Production logs show recurring patterns: 404 on adlist delete, connection refused after settings changes, gravity timeouts, and database unavailability during FTL restarts. These are all recoverable situations that Forseti currently treats as hard failures.
+Forseti's error handling treats all API failures as equal - a 404 on delete (item already gone) is logged the same as a 500 (server down), and transient errors like Pi-hole's "Database not available" during FTL restart immediately fail the entire reconcile with no retry. Production logs show recurring patterns: 404 on adlist delete, connection refused after settings changes, gravity timeouts, and database unavailability during FTL restarts. These are all recoverable situations that Forseti currently treats as hard failures.
 
 ## What Changes
 
@@ -21,8 +21,8 @@ Forseti's error handling treats all API failures as equal — a 404 on delete (i
 
 ## Impact
 
-- `internal/pihole/client.go` — gravity timeout, helper to check APIError status codes
-- `internal/reconcile/reconciler.go` — 404 handling on deletes, retry on transient list errors
-- `cmd/forseti/main.go` — session invalidation after WaitForReady
+- `internal/pihole/client.go` - gravity timeout, helper to check APIError status codes
+- `internal/reconcile/reconciler.go` - 404 handling on deletes, retry on transient list errors
+- `cmd/forseti/main.go` - session invalidation after WaitForReady
 - New and extended tests in `client_test.go`, `reconciler_test.go`, `scheduler_test.go`
 - No API changes, no config schema changes, no breaking changes

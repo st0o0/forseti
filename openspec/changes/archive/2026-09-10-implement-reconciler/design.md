@@ -35,7 +35,7 @@ DiffReport
 ```
 
 ### Marker matching
-An entry is "managed" if its comment field contains the marker string (e.g., `[forseti]`). Matching uses `strings.Contains` — the marker can appear anywhere in the comment.
+An entry is "managed" if its comment field contains the marker string (e.g., `[forseti]`). Matching uses `strings.Contains` - the marker can appear anywhere in the comment.
 
 ### Reconcile order enforced structurally
 The `reconcile` function processes resource types in a hardcoded slice order. No dynamic ordering or dependency resolution needed since the order is fixed by spec.

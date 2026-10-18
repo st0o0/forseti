@@ -12,7 +12,7 @@
 - [x] 2.1 Implement deep merge for settings (scalar overwrite at leaf level)
 - [x] 2.2 Implement append merge for content lists (groups, adlists, deny, allow, local_dns, cname, clients)
 - [x] 2.3 Implement exclude logic: remove entries by natural key per resource type (domain, url, match, name)
-- [x] 2.4 Integrate merge into `config.Load()` — produce effective config per target after loading
+- [x] 2.4 Integrate merge into `config.Load()` - produce effective config per target after loading
 - [x] 2.5 Run validation on effective (merged) config per target (duplicates, group refs, domain format)
 - [x] 2.6 Write tests for merge engine: append, deep merge, exclude, exclude-nonexistent warning, duplicate-after-merge error
 
@@ -25,14 +25,14 @@
 
 ## 4. Pi-hole Config API Client
 
-- [x] 4.1 Add `GetConfig()` method to pihole client — `GET /api/config`, parse response into a nested map or struct
-- [x] 4.2 Add `PatchConfig(path string, value any)` method — `PUT /api/config/<path>/<value>` for setting individual config values
+- [x] 4.1 Add `GetConfig()` method to pihole client - `GET /api/config`, parse response into a nested map or struct
+- [x] 4.2 Add `PatchConfig(path string, value any)` method - `PUT /api/config/<path>/<value>` for setting individual config values
 - [x] 4.3 Add settings field mapping: Forseti path → Pi-hole API path (table-driven)
 - [x] 4.4 Write tests for GetConfig and PatchConfig with mock HTTP responses
 
 ## 5. Settings Reconciliation
 
-- [x] 5.1 Implement `reconcileSettings()` — read actual via GetConfig, diff against effective settings, return list of changes
+- [x] 5.1 Implement `reconcileSettings()` - read actual via GetConfig, diff against effective settings, return list of changes
 - [x] 5.2 Integrate settings diff into plan output (setting name, current value, desired value)
 - [x] 5.3 Integrate settings apply into the reconcile loop (apply changes via PatchConfig, before content reconciliation)
 - [x] 5.4 Add settings reconciliation to the `PiholeAPI` interface or keep it separate from content reconciliation
@@ -42,6 +42,6 @@
 
 - [x] 6.1 Update `reconcileAll()` in cmd/forseti to pass effective config per target
 - [x] 6.2 Update plan command output to show per-target effective config differences and settings diffs
-- [x] 6.3 Update sync mode to work with resolved targets (sync mode does not use settings or overrides — verify no regressions)
+- [x] 6.3 Update sync mode to work with resolved targets (sync mode does not use settings or overrides - verify no regressions)
 - [x] 6.4 Update collector and gravity scheduler to work with resolved targets
 - [x] 6.5 End-to-end test: multi-target config with overrides, plan output, apply with settings changes

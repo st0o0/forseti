@@ -11,7 +11,7 @@
 
 ## 3. Update tests
 
-- [x] 3.1 Update `TestTriggerSuccessful`, `TestTriggerWithSessionError`, `TestTriggerGravityError`, `TestTriggerWithNilRecorder` — these call `triggerLocked` directly and expect synchronous completion; add a short wait or use WaitGroup
+- [x] 3.1 Update `TestTriggerSuccessful`, `TestTriggerWithSessionError`, `TestTriggerGravityError`, `TestTriggerWithNilRecorder` - these call `triggerLocked` directly and expect synchronous completion; add a short wait or use WaitGroup
 - [x] 3.2 Add test: verify event loop remains responsive while gravity blocks (start scheduler, block gravity handler, verify a second target's cron trigger fires without waiting)
 - [x] 3.3 Add test: verify graceful shutdown waits for in-flight gravity
 
@@ -19,4 +19,4 @@
 
 - [x] 4.1 Run `go test -count=1 ./internal/gravity/...` and `go test ./...`
 - [x] 4.2 Run `golangci-lint run`
-- [x] 4.3 Docker test: rebuild and verify with `docker-compose.gravity-test.yml` — confirm no `database is locked` errors with concurrent gravity + reconcile
+- [x] 4.3 Docker test: rebuild and verify with `docker-compose.gravity-test.yml` - confirm no `database is locked` errors with concurrent gravity + reconcile

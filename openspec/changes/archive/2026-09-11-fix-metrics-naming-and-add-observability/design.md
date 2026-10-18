@@ -32,7 +32,7 @@ Rename all violating metrics directly. No dual-emission period, no deprecated al
 
 Add an `OnReauth func()` field to `pihole.Client`. The session pool sets this callback when creating clients, wiring it to the metrics counter. The client calls it in `doJSON` after a successful 401 re-authentication.
 
-**Why**: The reauth logic lives in `Client.doJSON` (line ~503), not in the Pool. The Pool doesn't know when reauths happen. A callback keeps the client decoupled from the metrics package — the client doesn't import metrics, it just calls a function.
+**Why**: The reauth logic lives in `Client.doJSON` (line ~503), not in the Pool. The Pool doesn't know when reauths happen. A callback keeps the client decoupled from the metrics package - the client doesn't import metrics, it just calls a function.
 
 **Alternative considered**: Having the Pool wrap every client call to detect reauths. Rejected because it would require proxying the entire Client interface. Also considered: returning reauth count from API calls. Rejected because it changes every call signature.
 
@@ -40,7 +40,7 @@ Add an `OnReauth func()` field to `pihole.Client`. The session pool sets this ca
 
 The three new Collector metrics (`duration`, `fetches`, `cache_hits`) are registered on `metrics.Server` like all other metrics. The Collector calls recording methods on Server after each Collect() cycle.
 
-**Why**: Consistent with the existing pattern — all metrics live on Server, subsystems call Server methods to record. Keeps the Collector free of direct prometheus imports.
+**Why**: Consistent with the existing pattern - all metrics live on Server, subsystems call Server methods to record. Keeps the Collector free of direct prometheus imports.
 
 **Alternative considered**: Self-contained prometheus.Collector interface on the Collector struct. Rejected because it breaks the established pattern and splits metric registration across packages.
 
@@ -56,7 +56,7 @@ The three new Collector metrics (`duration`, `fetches`, `cache_hits`) are regist
 
 **[OnReauth callback adds a field to Client]** → Minimal risk. The field is optional (nil check before call). No change to Client's public API surface beyond the new field.
 
-**[Collector duration includes cache-hit fast path]** → The histogram will show bimodal distribution: fast (all cached) vs slow (API fetches). This is actually useful — it reveals whether scrape_interval and TTL are well-tuned.
+**[Collector duration includes cache-hit fast path]** → The histogram will show bimodal distribution: fast (all cached) vs slow (API fetches). This is actually useful - it reveals whether scrape_interval and TTL are well-tuned.
 
 ## Migration Plan
 
@@ -66,4 +66,4 @@ The three new Collector metrics (`duration`, `fetches`, `cache_hits`) are regist
 
 ## Open Questions
 
-None — all decisions are resolved.
+None - all decisions are resolved.

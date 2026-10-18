@@ -3,7 +3,7 @@
 Settings reconciliation in `internal/reconcile/settings.go` maps Forseti YAML config values to Pi-hole v6 API paths and applies diffs. Two bugs cause permanent settings drift in production:
 
 1. Boolean fields (Go `*bool`) are sent as JSON `true`/`false`, but Pi-hole v6 expects integers `0`/`1` for these fields. The API returns HTTP 400.
-2. `ApplySettings` returns on the first `PatchConfig` error, skipping all remaining settings — unlike every other Apply function which collects errors and continues.
+2. `ApplySettings` returns on the first `PatchConfig` error, skipping all remaining settings - unlike every other Apply function which collects errors and continues.
 3. `settingsNeedUpdate()` uses `fmt.Sprintf("%v")` to compare values. After `json.Unmarshal`, Pi-hole returns integers as `float64`, so `"0" != "false"` even when logically equivalent.
 
 ## Goals / Non-Goals
@@ -25,7 +25,7 @@ Settings reconciliation in `internal/reconcile/settings.go` maps Forseti YAML co
 
 The coercion (`true→1`, `false→0`) happens at the point where `SettingMapping.Value` is set, not downstream in the API client.
 
-**Why over PatchConfig coercion:** `PatchConfig` is a generic API method used by other subsystems too. Adding bool→int logic there would be a leaky abstraction — not all Pi-hole API fields treat bools as ints. The settings mapping layer knows which fields are boolean and is the right place to own the type contract.
+**Why over PatchConfig coercion:** `PatchConfig` is a generic API method used by other subsystems too. Adding bool→int logic there would be a leaky abstraction - not all Pi-hole API fields treat bools as ints. The settings mapping layer knows which fields are boolean and is the right place to own the type contract.
 
 **Why over changing `*bool` to `*int` in config:** Users write `true`/`false` in YAML. Changing to `*int` would break the config format and require users to write `0`/`1`, which is less readable. The Go struct keeps `*bool` for ergonomic YAML; the mapping layer translates.
 
@@ -54,4 +54,4 @@ Then compare with `fmt.Sprintf("%v")` on the normalized values, or use `reflect.
 
 **[Risk] `float64` normalization loses precision for large numbers** → Pi-hole config values are small integers (port numbers, cache sizes, thresholds). No Pi-hole setting uses floats. The truncation from `float64` to `int` is safe for this domain.
 
-**[Risk] `errors.Join` changes the error format** → The watch loop logs the error from `ApplySettings`. With multiple errors joined, the log line becomes longer. This is acceptable — more information is better than silently skipping settings.
+**[Risk] `errors.Join` changes the error format** → The watch loop logs the error from `ApplySettings`. With multiple errors joined, the log line becomes longer. This is acceptable - more information is better than silently skipping settings.

@@ -3,8 +3,8 @@
 ### Requirement: Client count metrics
 The metrics server SHALL register and populate:
 
-- `pihole_clients_active{target}` — currently active clients (24h window)
-- `pihole_clients_seen{target}` — cumulative unique clients ever seen
+- `pihole_clients_active{target}` - currently active clients (24h window)
+- `pihole_clients_seen{target}` - cumulative unique clients ever seen
 
 #### Scenario: Client metrics populated
 - **WHEN** UpdateStats is called with Stats containing clients active=15, total=42
@@ -38,9 +38,9 @@ The metrics server SHALL register `pihole_dns_replies_by_type{target, reply_type
 ### Requirement: Upstream resolver metrics
 The metrics server SHALL provide an `UpdateUpstreams(target string, upstreams []UpstreamStats)` method that registers and populates:
 
-- `pihole_upstream_queries{target, upstream, name, port}` — queries routed to each upstream
-- `pihole_upstream_response_seconds{target, upstream, name, port}` — average response time
-- `pihole_upstream_response_variance{target, upstream, name, port}` — response time variance
+- `pihole_upstream_queries{target, upstream, name, port}` - queries routed to each upstream
+- `pihole_upstream_response_seconds{target, upstream, name, port}` - average response time
+- `pihole_upstream_response_variance{target, upstream, name, port}` - response time variance
 
 #### Scenario: Upstream metrics populated
 - **WHEN** UpdateUpstreams is called with two upstreams (1.1.1.1:53 avg 25ms, 8.8.8.8:53 avg 30ms)

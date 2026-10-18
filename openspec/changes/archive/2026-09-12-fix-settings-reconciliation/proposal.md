@@ -22,7 +22,7 @@ _(none)_
 
 ## Impact
 
-- `internal/reconcile/settings.go` — `BuildDesiredSettingsList`, `settingsNeedUpdate`, `ApplySettings`
-- `internal/reconcile/settings_test.go` — new tests for error handling, type coercion, type-aware comparison
-- `internal/pihole/client.go` — possible coercion location in `PatchConfig`
+- `internal/reconcile/settings.go` - `BuildDesiredSettingsList`, `settingsNeedUpdate`, `ApplySettings`
+- `internal/reconcile/settings_test.go` - new tests for error handling, type coercion, type-aware comparison
+- `internal/pihole/client.go` - possible coercion location in `PatchConfig`
 - Existing specs `pihole-settings` and `reconciler` need delta specs reflecting the corrected behavior

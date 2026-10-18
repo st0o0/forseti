@@ -3,9 +3,9 @@
 ### Requirement: Forseti config metrics
 The system SHALL expose static config gauges:
 
-- `forseti_config_adlists` — number of configured adlists
-- `forseti_config_deny_domains` — number of configured deny domains
-- `forseti_config_allow_domains` — number of configured allow domains
+- `forseti_config_adlists` - number of configured adlists
+- `forseti_config_deny_domains` - number of configured deny domains
+- `forseti_config_allow_domains` - number of configured allow domains
 
 #### Scenario: Config loaded
 - **WHEN** config defines 10 adlists and 5 deny domains
@@ -14,11 +14,11 @@ The system SHALL expose static config gauges:
 ### Requirement: Forseti reconciliation metrics
 The system SHALL expose reconciliation telemetry:
 
-- `forseti_reconcile_runs_total{target, status}` — counter of reconcile cycles (status: success/error)
-- `forseti_reconcile_duration_seconds{target}` — histogram of reconcile cycle duration
-- `forseti_reconcile_changes_total{target, type, action}` — counter of changes applied (type: adlist/deny/allow/dns/group/client, action: add/delete)
-- `forseti_reconcile_drift{target, type}` — gauge of items that differ from desired state at each cycle
-- `forseti_target_reachable{target}` — gauge (1 = reachable, 0 = unreachable)
+- `forseti_reconcile_runs_total{target, status}` - counter of reconcile cycles (status: success/error)
+- `forseti_reconcile_duration_seconds{target}` - histogram of reconcile cycle duration
+- `forseti_reconcile_changes_total{target, type, action}` - counter of changes applied (type: adlist/deny/allow/dns/group/client, action: add/delete)
+- `forseti_reconcile_drift{target, type}` - gauge of items that differ from desired state at each cycle
+- `forseti_target_reachable{target}` - gauge (1 = reachable, 0 = unreachable)
 
 #### Scenario: Successful reconcile updates metrics
 - **WHEN** a reconcile cycle completes successfully against target `pihole-router` with 2 adlists added
@@ -31,12 +31,12 @@ The system SHALL expose reconciliation telemetry:
 ### Requirement: Pi-hole stats metrics
 The system SHALL scrape Pi-hole stats endpoints and expose per-target metrics:
 
-- `pihole_dns_queries{target}` — total queries
-- `pihole_dns_queries_blocked{target}` — total blocked queries
-- `pihole_blocked_percentage{target}` — block percentage
-- `pihole_gravity_last_update{target}` — unix timestamp of last gravity update
-- `pihole_status{target}` — Pi-hole status (1 = enabled, 0 = disabled)
-- `pihole_domains_blocked{target}` — unique domains on blocklists
+- `pihole_dns_queries{target}` - total queries
+- `pihole_dns_queries_blocked{target}` - total blocked queries
+- `pihole_blocked_percentage{target}` - block percentage
+- `pihole_gravity_last_update{target}` - unix timestamp of last gravity update
+- `pihole_status{target}` - Pi-hole status (1 = enabled, 0 = disabled)
+- `pihole_domains_blocked{target}` - unique domains on blocklists
 
 Extended metrics are defined in the `pihole-prometheus-metrics` and `pihole-stats-collection` specs.
 

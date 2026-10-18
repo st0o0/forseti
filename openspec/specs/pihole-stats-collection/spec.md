@@ -40,7 +40,7 @@ The client SHALL provide a `GetBlockingStatus() (bool, error)` method that calls
 - **THEN** GetBlockingStatus() SHALL return false
 
 ### Requirement: Collector serves stale cache when target is busy
-When the collector cannot acquire the target's concurrency gate (target is busy with reconciliation or gravity), it SHALL serve the most recent cached stats for that target instead of attempting an API call. This applies regardless of cache TTL — stale data is preferred over no data.
+When the collector cannot acquire the target's concurrency gate (target is busy with reconciliation or gravity), it SHALL serve the most recent cached stats for that target instead of attempting an API call. This applies regardless of cache TTL  - stale data is preferred over no data.
 
 #### Scenario: Target busy during scrape
 - **WHEN** the reconciler holds the gate for target "pizero" and a Prometheus scrape triggers collection

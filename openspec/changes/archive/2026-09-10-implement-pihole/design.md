@@ -38,7 +38,7 @@ API response types mirror the Pi-hole v6 API JSON structure:
 Wrap all non-2xx responses in a structured `APIError{StatusCode, Message}` that implements `error`. This gives callers enough context to distinguish auth failures from not-found from server errors.
 
 ### No batch create
-Per the spec, Pi-hole v6 has no batch create — only batch delete. Create methods handle single items. The reconciler will loop over creates.
+Per the spec, Pi-hole v6 has no batch create - only batch delete. Create methods handle single items. The reconciler will loop over creates.
 
 ### Stats as a flat struct
 `Stats` struct captures the summary fields needed for Prometheus metrics. No need for the full Pi-hole stats hierarchy.

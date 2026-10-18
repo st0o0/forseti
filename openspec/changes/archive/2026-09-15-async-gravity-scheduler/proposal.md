@@ -16,10 +16,10 @@ _(none)_
 
 ### Modified Capabilities
 
-- `gravity-loop-prevention`: Gravity execution becomes non-blocking — the "no concurrent gravity per target" requirement is preserved, but the scheduler event-loop is no longer blocked during execution.
+- `gravity-loop-prevention`: Gravity execution becomes non-blocking - the "no concurrent gravity per target" requirement is preserved, but the scheduler event-loop is no longer blocked during execution.
 
 ## Impact
 
-- `internal/gravity/scheduler.go` — `triggerLocked`, `processAsync`, `Start` (WaitGroup)
-- `internal/gravity/scheduler_test.go` — tests that call `triggerLocked` directly need adjustment for async behavior
+- `internal/gravity/scheduler.go` - `triggerLocked`, `processAsync`, `Start` (WaitGroup)
+- `internal/gravity/scheduler_test.go` - tests that call `triggerLocked` directly need adjustment for async behavior
 - No API changes, no config changes, no breaking changes

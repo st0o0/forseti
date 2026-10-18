@@ -39,11 +39,11 @@ Alternative: new dedicated type. Rejected because the fields are identical and t
 
 Add `ListAllowlists`, `CreateAllowlist`, `UpdateAllowlist`, `DeleteAllowlists` as separate methods rather than parameterizing adlist methods with a `listType` argument. Keeps the `PiholeAPI` interface explicit and avoids a breaking change to existing adlist method signatures.
 
-Alternative: generic `ListLists(listType)`. Rejected because it complicates the interface and every caller must pass the type — more error-prone.
+Alternative: generic `ListLists(listType)`. Rejected because it complicates the interface and every caller must pass the type - more error-prone.
 
 ### D4: Top-N metrics use configurable limit with GaugeVec
 
-`forseti_top_queried_domains{target, domain}` as GaugeVec. The `count` parameter to `/api/stats/top_domains` defaults to 10, configurable per toggle config. Higher values increase label cardinality — the config should document the trade-off.
+`forseti_top_queried_domains{target, domain}` as GaugeVec. The `count` parameter to `/api/stats/top_domains` defaults to 10, configurable per toggle config. Higher values increase label cardinality - the config should document the trade-off.
 
 Alternative: histogram. Rejected because domain names are categorical, not numeric distributions.
 
@@ -59,19 +59,19 @@ Alternative: collect-on-scrape. Rejected because history responses are larger an
 
 ### D7: UpdateDomain takes type and kind parameters
 
-Change `UpdateDomain(domain, comment string, groups []int) error` to `UpdateDomain(domType, kind, domain, comment string, groups []int) error`. This is a breaking change to the `PiholeAPI` interface but only internal callers exist. All existing call sites pass deny/exact — update them in the same commit.
+Change `UpdateDomain(domain, comment string, groups []int) error` to `UpdateDomain(domType, kind, domain, comment string, groups []int) error`. This is a breaking change to the `PiholeAPI` interface but only internal callers exist. All existing call sites pass deny/exact - update them in the same commit.
 
 ### D8: Group name sanitization at config parse time
 
-Validate group names in `config.validate()` — reject names containing CR, LF, or null bytes. Fail-fast at config load rather than at API call time. This catches the issue for both config and sync modes.
+Validate group names in `config.validate()` - reject names containing CR, LF, or null bytes. Fail-fast at config load rather than at API call time. This catches the issue for both config and sync modes.
 
 ### D9: CNAME sync follows DNS record pattern
 
-CNAME records have no comment field and no group association — same as local DNS A/AAAA records. Use the same key-based add/delete pattern (no marker, purge-flag controlled). Add `cnames` to `validSyncResources` and `state`.
+CNAME records have no comment field and no group association - same as local DNS A/AAAA records. Use the same key-based add/delete pattern (no marker, purge-flag controlled). Add `cnames` to `validSyncResources` and `state`.
 
 ## Risks / Trade-offs
 
 - **Label cardinality** (top_domains/top_clients): high `count` values create many time series. Mitigation: default to 10, document the risk, cap at 100.
-- **Pi-hole API version drift**: new endpoints may change between v6.x releases. Mitigation: graceful 404 handling — if an endpoint returns 404, log a warning and skip the collector for that scrape cycle.
+- **Pi-hole API version drift**: new endpoints may change between v6.x releases. Mitigation: graceful 404 handling - if an endpoint returns 404, log a warning and skip the collector for that scrape cycle.
 - **Rebase conflicts**: observability-overhaul touches worker, sync, collector. Mitigation: rebase early, resolve once.
 - **System metrics overlap with node_exporter**: users running both get duplicate host metrics. Mitigation: opt-in toggle, document in README.

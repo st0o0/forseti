@@ -26,23 +26,23 @@ This change is deliberately narrow: it fixes signals in place. The structural re
 
 ### Run status as a string, not a bool
 `metrics.ReconcileResult.Success bool` becomes `Status string` with constants `metrics.RunSuccess`, `RunPartial`, `RunError`. `worker.Recorder.RecordReconcileResult` takes the status instead of `success bool`.
-- *Alternative*: keep `Success` and add `Partial bool` — two booleans with an invalid combination; rejected.
+- *Alternative*: keep `Success` and add `Partial bool` - two booleans with an invalid combination; rejected.
 
 ### Reachability set explicitly, never from run outcome
 `RecordReconcile` stops touching `forseti_target_reachable`. A new `MarkTargetReachable(target)` is called by the worker after a successful readiness check and by sync after a replica session plus state read succeed; `MarkTargetUnreachable` stays on session/readiness failure. The collector keeps setting 1 on a successful scrape. All writers now agree on one meaning: "target answered".
 
 ### Worker: single failure helper
-Introduce `w.fail(start, err)` used by every error exit (session, readiness, settings, content). It records run status `error`, calls `recordFailure`, and publishes `RecordTargetHealth`. Session/readiness failures additionally mark the target unreachable. The success path records `success` or `partial` (`len(report.Errors) > 0`); both call `recordSuccess`. Settings failures that `reconcileSettings` currently swallows (diff/apply error returns `client, nil`) stay non-fatal — unchanged behaviour.
+Introduce `w.fail(start, err)` used by every error exit (session, readiness, settings, content). It records run status `error`, calls `recordFailure`, and publishes `RecordTargetHealth`. Session/readiness failures additionally mark the target unreachable. The success path records `success` or `partial` (`len(report.Errors) > 0`); both call `recordSuccess`. Settings failures that `reconcileSettings` currently swallows (diff/apply error returns `client, nil`) stay non-fatal - unchanged behaviour.
 
 ### Sync: per-resource results instead of counters
 Each `syncX` helper returns a small `resourceResult{added, deleted int; errs []error}`. `syncReplica` collects them into `SyncReport` (now with `Changes map[string]map[string]int` keyed by the config-mode type names) and appends errors. Status: `error` on session/state-read failure, `partial` if any errors, else `success`. A failed re-fetch of replica groups after group sync is an item error (subsequent group translation may be incomplete), not a run error.
-- *Alternative*: pass a `*SyncReport` into each helper — fewer return values but hides mutation; rejected for testability.
+- *Alternative*: pass a `*SyncReport` into each helper - fewer return values but hides mutation; rejected for testability.
 
 ### Sync gating
 `syncReplica` wraps its whole body in `pool.Acquire(name)` / `defer pool.Release(name)`, as the worker does. The primary is gated only while its state is loaded in `SyncAll`, so replicas are not serialised behind the primary. Primary session failure marks the primary unreachable; replica runs are not recorded for that cycle (classification as `skipped` comes with the follow-up run model).
 
 ### `sync.local_dns_purge` as `*bool`, default true
-`SyncConfig.LocalDNSPurge *bool`; nil means true, applied in `syncDNS` deletion loop. A pointer keeps "omitted" distinguishable so the default can be documented and changed later without ambiguity. Default `true` preserves current behaviour (no breaking change); config-mode `local_dns_purge` defaults to `false` — the asymmetry is intentional (sync mirrors a source of truth, config mode co-exists with manual entries) and documented in README.
+`SyncConfig.LocalDNSPurge *bool`; nil means true, applied in `syncDNS` deletion loop. A pointer keeps "omitted" distinguishable so the default can be documented and changed later without ambiguity. Default `true` preserves current behaviour (no breaking change); config-mode `local_dns_purge` defaults to `false` - the asymmetry is intentional (sync mirrors a source of truth, config mode co-exists with manual entries) and documented in README.
 
 ### Reload: advance mtime before loading
 `tryReloadConfig` records the observed mtime before calling `config.Load`, so a failing modification is attempted and reported exactly once. The failure metric therefore increments once per bad modification.

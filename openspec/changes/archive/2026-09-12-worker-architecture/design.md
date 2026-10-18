@@ -1,6 +1,6 @@
 ## Context
 
-Forseti's watch mode runs a monolithic `reconcileAll` function that handles session management, settings reconciliation, content reconciliation, gravity triggering, and metrics recording — all inline, sequentially per target, with no cross-cycle state. The function is untestable because it directly depends on concrete types (session pool, metrics server, gravity scheduler) with no interfaces.
+Forseti's watch mode runs a monolithic `reconcileAll` function that handles session management, settings reconciliation, content reconciliation, gravity triggering, and metrics recording - all inline, sequentially per target, with no cross-cycle state. The function is untestable because it directly depends on concrete types (session pool, metrics server, gravity scheduler) with no interfaces.
 
 Recent fixes (error-path-hardening, gravity-loop-fix) added workarounds within this structure. The architecture needs restructuring to make the orchestration testable and maintainable.
 
@@ -122,7 +122,7 @@ The existing metrics.Server implements this interface. Tests use a mock.
 
 - **More indirection** → Worker adds a layer between main and the reconcile logic. Justified by testability gains. The actual reconcile algorithm (Plan/Apply/diff) is unchanged.
 - **State management complexity** → Workers have mutable state (health, backoff). Mitigated by keeping state transitions simple and well-tested.
-- **Hot-reload edge cases** → Target rename (same URL, different name) looks like remove+add. Acceptable — the new worker will re-login.
+- **Hot-reload edge cases** → Target rename (same URL, different name) looks like remove+add. Acceptable - the new worker will re-login.
 
 ## Open Questions
 

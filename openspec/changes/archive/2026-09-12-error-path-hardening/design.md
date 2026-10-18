@@ -1,6 +1,6 @@
 ## Context
 
-Forseti currently treats all Pi-hole API errors uniformly — every non-2xx response becomes an `APIError` that propagates up as a failure. In production, FTL restarts (triggered by settings changes or CNAME records) create a window where the API returns 404s, 400 "Database not available", or connection refused. These are all transient conditions that resolve within seconds, but Forseti logs them as errors and moves on without retry.
+Forseti currently treats all Pi-hole API errors uniformly - every non-2xx response becomes an `APIError` that propagates up as a failure. In production, FTL restarts (triggered by settings changes or CNAME records) create a window where the API returns 404s, 400 "Database not available", or connection refused. These are all transient conditions that resolve within seconds, but Forseti logs them as errors and moves on without retry.
 
 The `APIError` type already carries `StatusCode` and `Message`, but no caller inspects them for recovery decisions.
 
@@ -31,9 +31,9 @@ The `APIError` type already carries `StatusCode` and `Message`, but no caller in
 
 **Decision**: Wrap list calls (`ListAdlists`, `ListDomains`, etc.) in a retry loop with 3 attempts, 1s/2s/4s backoff. Retry on connection refused and on `APIError` with 400 + "database_error" key.
 
-**Why only lists?** Lists are read-only and safe to retry. Creates and deletes are not idempotent (batch delete could partially succeed). The production failures show list operations hitting "Database not available" — that's the transient window after FTL restart.
+**Why only lists?** Lists are read-only and safe to retry. Creates and deletes are not idempotent (batch delete could partially succeed). The production failures show list operations hitting "Database not available" - that's the transient window after FTL restart.
 
-**Alternative considered**: Retry at HTTP client level. Rejected because not all 400s are transient — only the specific "database_error" key indicates FTL restart.
+**Alternative considered**: Retry at HTTP client level. Rejected because not all 400s are transient - only the specific "database_error" key indicates FTL restart.
 
 ### 3. Transient error detection
 
@@ -54,7 +54,7 @@ The `APIError` type already carries `StatusCode` and `Message`, but no caller in
 
 **Decision**: `TriggerGravity` creates a derived `http.Client` with a 5-minute timeout (configurable via `GravityTimeout` field on `Client`). This only affects the gravity call, not other API operations.
 
-**Why a separate client?** The default client timeout (30s) is correct for all other API calls. Gravity downloads all adlists and rebuilds the database — on a Pi Zero with large lists, this can take minutes.
+**Why a separate client?** The default client timeout (30s) is correct for all other API calls. Gravity downloads all adlists and rebuilds the database - on a Pi Zero with large lists, this can take minutes.
 
 ## Risks / Trade-offs
 

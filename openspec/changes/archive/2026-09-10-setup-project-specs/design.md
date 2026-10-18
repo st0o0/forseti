@@ -1,6 +1,6 @@
 ## Context
 
-Forseti is a greenfield Go project with a complete CI/CD scaffold but stub-only code. All domain knowledge — Pi-hole v6 API details, reconcile logic, config format, metrics design — lives in a single design document (`pihole-gitops-controller.md`) in the repo root. There is no `CLAUDE.md` and the OpenSpec config is the default template.
+Forseti is a greenfield Go project with a complete CI/CD scaffold but stub-only code. All domain knowledge - Pi-hole v6 API details, reconcile logic, config format, metrics design - lives in a single design document (`pihole-gitops-controller.md`) in the repo root. There is no `CLAUDE.md` and the OpenSpec config is the default template.
 
 This change is purely documentation redistribution. No application code is created or modified.
 
@@ -24,13 +24,13 @@ This change is purely documentation redistribution. No application code is creat
 
 ### CLAUDE.md scope: compact reference, not knowledge dump
 
-Keep CLAUDE.md under ~60 lines. It loads on every conversation — bloat costs tokens. Include: architecture sketch (package → responsibility), build/test/lint commands, commit conventions, and the 5 critical invariants (marker purge, reconcile order, gravity trigger, session limit, CNAME restart). Everything else lives in specs where it's accessed on demand.
+Keep CLAUDE.md under ~60 lines. It loads on every conversation - bloat costs tokens. Include: architecture sketch (package → responsibility), build/test/lint commands, commit conventions, and the 5 critical invariants (marker purge, reconcile order, gravity trigger, session limit, CNAME restart). Everything else lives in specs where it's accessed on demand.
 
 Alternative considered: Put all domain knowledge in CLAUDE.md. Rejected because it would be 200+ lines loaded every time, most of which is only relevant during specific implementation work.
 
 ### Spec depth: structural over behavioral
 
-Specs describe shape, constraints, and key scenarios — enough to prevent wrong turns. They do not enumerate every error path or edge case. This fits a project at skeleton stage where the implementation will surface details that specs written now would get wrong.
+Specs describe shape, constraints, and key scenarios - enough to prevent wrong turns. They do not enumerate every error path or edge case. This fits a project at skeleton stage where the implementation will surface details that specs written now would get wrong.
 
 Alternative considered: Full behavioral specs with acceptance-test-ready scenarios. Rejected because the Pi-hole API behavior is best discovered during implementation, and over-specified specs become maintenance burden.
 
@@ -42,7 +42,7 @@ Alternative considered: Keep as `docs/original-design.md`. Rejected because it w
 
 ### Config.yaml context: terse project summary
 
-The OpenSpec config context field gets a compact summary: tech stack, domain, conventions, package structure. This is injected into every artifact generation prompt — same token-efficiency argument as CLAUDE.md.
+The OpenSpec config context field gets a compact summary: tech stack, domain, conventions, package structure. This is injected into every artifact generation prompt - same token-efficiency argument as CLAUDE.md.
 
 ## Risks / Trade-offs
 

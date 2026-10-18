@@ -1,6 +1,6 @@
 ## Why
 
-The config package (`internal/config`) is currently an empty stub. It is the foundation for every other package — the reconciler, API client, and metrics server all depend on a parsed and validated configuration. Implementing it first unblocks all downstream work.
+The config package (`internal/config`) is currently an empty stub. It is the foundation for every other package - the reconciler, API client, and metrics server all depend on a parsed and validated configuration. Implementing it first unblocks all downstream work.
 
 ## What Changes
 
@@ -15,7 +15,7 @@ The config package (`internal/config`) is currently an empty stub. It is the fou
 
 ### New Capabilities
 
-None. This change implements the existing `config` spec — no new capabilities introduced.
+None. This change implements the existing `config` spec - no new capabilities introduced.
 
 ### Modified Capabilities
 
@@ -23,7 +23,7 @@ None. The `config` spec requirements are unchanged.
 
 ## Impact
 
-- `internal/config/config.go` — full implementation replacing the empty stub
-- `internal/config/config_test.go` — new test file
-- `go.mod` / `go.sum` — `gopkg.in/yaml.v3` dependency will be restored by `go mod tidy`
+- `internal/config/config.go` - full implementation replacing the empty stub
+- `internal/config/config_test.go` - new test file
+- `go.mod` / `go.sum` - `gopkg.in/yaml.v3` dependency will be restored by `go mod tidy`
 - All downstream packages (`pihole`, `reconcile`, `metrics`, `cmd/forseti`) will import config types

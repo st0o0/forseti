@@ -8,10 +8,10 @@
 
 - [x] 2.1 Create `internal/worker/worker.go` with `TargetWorker` struct: fields for config, state (health, consecutiveFails, lastError, lastSuccess, backoffUntil, gravityCorrupted), and interface dependencies
 - [x] 2.2 Implement `NewTargetWorker(rt config.ResolvedTarget, deps Dependencies) *TargetWorker`
-- [x] 2.3 Implement `Reconcile() error` — the core orchestration: get session → settings → wait ready → refresh session → content → gravity → record metrics
-- [x] 2.4 Implement `UpdateConfig(rt config.ResolvedTarget)` — update resolved target config, preserve state
-- [x] 2.5 Implement `ShouldSkip(now time.Time) bool` — check backoff timer
-- [x] 2.6 Implement `Health() TargetHealth` — return current health state and metadata
+- [x] 2.3 Implement `Reconcile() error` - the core orchestration: get session → settings → wait ready → refresh session → content → gravity → record metrics
+- [x] 2.4 Implement `UpdateConfig(rt config.ResolvedTarget)` - update resolved target config, preserve state
+- [x] 2.5 Implement `ShouldSkip(now time.Time) bool` - check backoff timer
+- [x] 2.6 Implement `Health() TargetHealth` - return current health state and metadata
 
 ## 3. Health and backoff
 
@@ -45,7 +45,7 @@
 
 ## 6. Validation
 
-- [x] 6.1 Run `go test ./...` — all tests pass (including existing tests)
-- [x] 6.2 Run `golangci-lint run` — no new lint violations
-- [x] 6.3 Run `go vet ./...` — clean
+- [x] 6.1 Run `go test ./...` - all tests pass (including existing tests)
+- [x] 6.2 Run `golangci-lint run` - no new lint violations
+- [x] 6.3 Run `go vet ./...` - clean
 - [x] 6.4 Manual smoke test: verify watch mode starts and reconciles correctly

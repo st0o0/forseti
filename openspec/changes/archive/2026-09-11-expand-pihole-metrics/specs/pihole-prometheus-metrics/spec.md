@@ -3,10 +3,10 @@
 ### Requirement: Summary-derived query metrics
 The metrics server SHALL register and populate the following gauges from Stats data:
 
-- `pihole_queries_forwarded{target}` — forwarded query count
-- `pihole_queries_cached{target}` — cached query count
-- `pihole_unique_domains{target}` — distinct domains queried
-- `pihole_request_frequency{target}` — DNS requests per second
+- `pihole_queries_forwarded{target}` - forwarded query count
+- `pihole_queries_cached{target}` - cached query count
+- `pihole_unique_domains{target}` - distinct domains queried
+- `pihole_request_frequency{target}` - DNS requests per second
 
 #### Scenario: Summary metrics populated
 - **WHEN** UpdateStats is called with Stats containing forwarded=8000, cached=3000, unique_domains=5678, frequency=1.5
@@ -15,8 +15,8 @@ The metrics server SHALL register and populate the following gauges from Stats d
 ### Requirement: Client count metrics
 The metrics server SHALL register and populate:
 
-- `pihole_clients_active{target}` — currently active clients (24h window)
-- `pihole_clients_total{target}` — cumulative unique clients ever seen
+- `pihole_clients_active{target}` - currently active clients (24h window)
+- `pihole_clients_total{target}` - cumulative unique clients ever seen
 
 #### Scenario: Client metrics populated
 - **WHEN** UpdateStats is called with Stats containing clients active=15, total=42
@@ -50,9 +50,9 @@ The metrics server SHALL register `pihole_reply_types{target, reply_type}` as a 
 ### Requirement: Upstream resolver metrics
 The metrics server SHALL provide an `UpdateUpstreams(target string, upstreams []UpstreamStats)` method that registers and populates:
 
-- `pihole_upstream_queries_total{target, upstream, name, port}` — queries routed to each upstream
-- `pihole_upstream_response_seconds{target, upstream, name, port}` — average response time
-- `pihole_upstream_response_variance{target, upstream, name, port}` — response time variance
+- `pihole_upstream_queries_total{target, upstream, name, port}` - queries routed to each upstream
+- `pihole_upstream_response_seconds{target, upstream, name, port}` - average response time
+- `pihole_upstream_response_variance{target, upstream, name, port}` - response time variance
 
 #### Scenario: Upstream metrics populated
 - **WHEN** UpdateUpstreams is called with two upstreams (1.1.1.1:53 avg 25ms, 8.8.8.8:53 avg 30ms)

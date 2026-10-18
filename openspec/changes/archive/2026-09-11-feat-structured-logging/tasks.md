@@ -21,4 +21,4 @@
 
 - [x] 4.1 Run `go test -race ./...` and confirm all tests pass
 - [x] 4.2 Run `go vet ./...` and `golangci-lint run`
-- [x] 4.3 Grep for residual `log.Printf` / `log.Println` — expect zero hits
+- [x] 4.3 Grep for residual `log.Printf` / `log.Println` - expect zero hits

@@ -11,7 +11,7 @@ The system SHALL authenticate against Pi-hole v6 using `POST /api/auth` which re
 
 #### Scenario: Auth lifecycle
 - **WHEN** the client starts a reconcile operation
-- **THEN** it SHALL authenticate, perform all API calls with the session header, and logout when done — even if operations fail
+- **THEN** it SHALL authenticate, perform all API calls with the session header, and logout when done  - even if operations fail
 
 #### Scenario: Session cleanup on error
 - **WHEN** an API call fails mid-reconcile
@@ -39,7 +39,7 @@ The client SHALL support allow and deny domains through the `/api/domains/{type}
 - **THEN** the client SHALL POST to `/api/domains/deny/exact` with the domain and marker comment
 
 ### Requirement: Group CRUD operations
-The client SHALL support group management through `/api/groups` endpoints. Groups are first-class entities — adlists, domains, and clients reference groups by ID.
+The client SHALL support group management through `/api/groups` endpoints. Groups are first-class entities  - adlists, domains, and clients reference groups by ID.
 
 #### Scenario: Create group before dependents
 - **WHEN** the reconciler creates a new group
@@ -61,7 +61,7 @@ The client SHALL manage local DNS A records through `/api/config/dns/hosts`. Ent
 
 #### Scenario: CNAME change triggers restart
 - **WHEN** a CNAME record is added or removed
-- **THEN** Pi-hole FTL restarts automatically, causing a brief DNS outage — the client SHALL log a warning
+- **THEN** Pi-hole FTL restarts automatically, causing a brief DNS outage  - the client SHALL log a warning
 
 ### Requirement: Stats retrieval for metrics
 The client SHALL retrieve Pi-hole statistics from `/api/stats/summary`, `/api/stats/upstreams`, and `/api/dns/blocking` for exposure as Prometheus metrics. Extended parsing requirements are defined in the `pihole-stats-collection` spec.

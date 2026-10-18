@@ -37,7 +37,7 @@ Lifecycle events SHALL use fixed, lowercase message strings without interpolated
 | `config reload failed` | error | error |
 | `gravity scheduled` | info | target, schedule, next_run |
 | `gravity started` / `gravity finished` | info (finished with error: error) | target, reason, duration |
-| `shutting down` | info | — |
+| `shutting down` | info |  - |
 | `stopped` | info | uptime |
 
 The `new_blocked_domain` event keeps its existing name for compatibility.

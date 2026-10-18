@@ -3,12 +3,12 @@
 ### Requirement: Pi-hole stats metrics
 The system SHALL scrape Pi-hole stats endpoints and expose per-target metrics under the `forseti_*` namespace:
 
-- `forseti_dns_queries{target}` — total queries
-- `forseti_dns_queries_blocked{target}` — total blocked queries
-- `forseti_blocked_percentage{target}` — block percentage
-- `forseti_gravity_last_update_timestamp{target}` — unix timestamp of last gravity update
-- `forseti_blocking_status{target}` — blocking status (1 = enabled, 0 = disabled)
-- `forseti_domains_blocked{target}` — unique domains on blocklists
+- `forseti_dns_queries{target}` - total queries
+- `forseti_dns_queries_blocked{target}` - total blocked queries
+- `forseti_blocked_percentage{target}` - block percentage
+- `forseti_gravity_last_update_timestamp{target}` - unix timestamp of last gravity update
+- `forseti_blocking_status{target}` - blocking status (1 = enabled, 0 = disabled)
+- `forseti_domains_blocked{target}` - unique domains on blocklists
 
 Extended metrics are defined in the `pihole-prometheus-metrics` spec.
 

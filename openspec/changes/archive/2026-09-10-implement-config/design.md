@@ -20,7 +20,7 @@ The dev config file (`forseti.dev.yml`) already exists as a reference for the ex
 ## Decisions
 
 ### Env expansion before YAML parsing
-Expand `${VAR}` references via `os.ExpandEnv` on the raw file bytes before feeding to `yaml.v3`. This is simpler than a custom YAML unmarshaler and handles variables in any position (keys, values, nested). Alternative: custom YAML node walker — rejected because it adds complexity for no benefit.
+Expand `${VAR}` references via `os.ExpandEnv` on the raw file bytes before feeding to `yaml.v3`. This is simpler than a custom YAML unmarshaler and handles variables in any position (keys, values, nested). Alternative: custom YAML node walker - rejected because it adds complexity for no benefit.
 
 ### Flat struct hierarchy
 ```
@@ -35,10 +35,10 @@ Config
 ├── LocalDNS[]  (domain, ip)
 └── Clients[]   (match, comment, groups[])
 ```
-Structs are exported so other packages can import them directly. No interfaces — this is a data-only package.
+Structs are exported so other packages can import them directly. No interfaces - this is a data-only package.
 
 ### Validation as a separate pass
-`Load` calls `parse` then `validate` as distinct steps. Validation collects all errors (not fail-fast) and returns them joined. This gives the user a complete picture of what's wrong. Alternative: validate during unmarshal — rejected because it couples parsing with business rules and makes testing harder.
+`Load` calls `parse` then `validate` as distinct steps. Validation collects all errors (not fail-fast) and returns them joined. This gives the user a complete picture of what's wrong. Alternative: validate during unmarshal - rejected because it couples parsing with business rules and makes testing harder.
 
 ### Duration fields as `time.Duration`
 `interval` and `scrape_interval` are unmarshaled as `time.Duration` via a custom `UnmarshalYAML` on a wrapper type. YAML values like `30s`, `5m` are parsed by `time.ParseDuration`.

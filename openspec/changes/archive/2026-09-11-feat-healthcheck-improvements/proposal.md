@@ -1,6 +1,6 @@
 ## Why
 
-The `forseti healthcheck` subcommand prints `"ok"` without verifying anything. It does not load the config, connect to any Pi-hole target, or check the session pool. In Kubernetes or Docker health probes this gives false confidence — a container reports healthy while the Pi-hole API is unreachable or sessions are expired. A meaningful healthcheck should verify that forseti can reach its targets.
+The `forseti healthcheck` subcommand prints `"ok"` without verifying anything. It does not load the config, connect to any Pi-hole target, or check the session pool. In Kubernetes or Docker health probes this gives false confidence - a container reports healthy while the Pi-hole API is unreachable or sessions are expired. A meaningful healthcheck should verify that forseti can reach its targets.
 
 ## What Changes
 
@@ -22,5 +22,5 @@ _(none)_
 ## Impact
 
 - `cmd/forseti/main.go`: healthcheck case gains config loading, target probing, and exit code logic
-- `internal/pihole/client.go`: no changes needed — `Login()` already serves as a connectivity check
+- `internal/pihole/client.go`: no changes needed - `Login()` already serves as a connectivity check
 - Dockerfile HEALTHCHECK: may need `--config` path added to the CMD

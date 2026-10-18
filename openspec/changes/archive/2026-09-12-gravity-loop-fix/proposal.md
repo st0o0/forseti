@@ -20,7 +20,7 @@ Production logs show Forseti stuck in an infinite gravity loop: every 5-minute r
 
 ## Impact
 
-- `internal/reconcile/reconciler.go` — NeedsGravity logic, delete tracking
-- `internal/pihole/client.go` — adlist delete fallback by ID
-- `internal/gravity/scheduler.go` — duplicate trigger prevention, corruption detection
+- `internal/reconcile/reconciler.go` - NeedsGravity logic, delete tracking
+- `internal/pihole/client.go` - adlist delete fallback by ID
+- `internal/gravity/scheduler.go` - duplicate trigger prevention, corruption detection
 - No config changes, no breaking changes

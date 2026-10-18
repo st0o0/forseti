@@ -1,6 +1,6 @@
 ## Context
 
-The reconciler uses `ResourceDiff` with `Adds`, `Deletes`, and `Unchanged` fields. Diff functions compare keys (URL for adlists, IP for clients, domain for domains) and check marker ownership for deletions. When a key exists on both sides, it's counted as `Unchanged` — even if attributes like group assignments differ. The Pi-hole v6 REST API supports PUT for updating existing resources, but the client only implements POST (create) and batch DELETE.
+The reconciler uses `ResourceDiff` with `Adds`, `Deletes`, and `Unchanged` fields. Diff functions compare keys (URL for adlists, IP for clients, domain for domains) and check marker ownership for deletions. When a key exists on both sides, it's counted as `Unchanged` - even if attributes like group assignments differ. The Pi-hole v6 REST API supports PUT for updating existing resources, but the client only implements POST (create) and batch DELETE.
 
 ## Goals / Non-Goals
 
@@ -39,7 +39,7 @@ Why: The map is already built in `Plan()` and `Apply()` from the groups list. Th
 
 New methods: `UpdateAdlist(id int, groups []int)`, `UpdateClient(id int, groups []int)`, `UpdateDomain(id int, groups []int)`. Each does `PUT /api/<resource>/<id>` with a `{"groups": [...]}` body.
 
-Why: Pi-hole v6 API convention — PUT to the resource path with ID for partial updates.
+Why: Pi-hole v6 API convention - PUT to the resource path with ID for partial updates.
 
 ### 5. Apply processes updates after adds, before deletes
 

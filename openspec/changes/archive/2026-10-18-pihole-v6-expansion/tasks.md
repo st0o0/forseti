@@ -6,19 +6,19 @@
 ## 2. Pi-hole Client: Allow-List API
 
 - [x] 2.1 Add API response/request types for allow-lists (reuse `APIList` with `type=allow`)
-- [x] 2.2 Implement `ListAllowlists()` — `GET /api/lists?type=allow`
-- [x] 2.3 Implement `CreateAllowlist()` — `POST /api/lists?type=allow`
-- [x] 2.4 Implement `UpdateAllowlist()` — `PUT /api/lists/{address}?type=allow`
-- [x] 2.5 Implement `DeleteAllowlists()` — `POST /api/lists:batchDelete?type=allow` with DELETE fallback
+- [x] 2.2 Implement `ListAllowlists()` - `GET /api/lists?type=allow`
+- [x] 2.3 Implement `CreateAllowlist()` - `POST /api/lists?type=allow`
+- [x] 2.4 Implement `UpdateAllowlist()` - `PUT /api/lists/{address}?type=allow`
+- [x] 2.5 Implement `DeleteAllowlists()` - `POST /api/lists:batchDelete?type=allow` with DELETE fallback
 - [x] 2.6 Add unit tests for allow-list client methods
 
 ## 3. Pi-hole Client: New Stats & System Endpoints
 
 - [x] 3.1 Add response types for top domains, top clients, history, and system info
-- [x] 3.2 Implement `GetTopDomains(count)` — `GET /api/stats/top_domains?count={n}`
-- [x] 3.3 Implement `GetTopClients(count)` — `GET /api/stats/top_clients?count={n}`
-- [x] 3.4 Implement `GetHistory()` — `GET /api/history`
-- [x] 3.5 Implement `GetSystemInfo()` — `GET /api/info/system`
+- [x] 3.2 Implement `GetTopDomains(count)` - `GET /api/stats/top_domains?count={n}`
+- [x] 3.3 Implement `GetTopClients(count)` - `GET /api/stats/top_clients?count={n}`
+- [x] 3.4 Implement `GetHistory()` - `GET /api/history`
+- [x] 3.5 Implement `GetSystemInfo()` - `GET /api/info/system`
 - [x] 3.6 Add unit tests for new stats/system client methods
 
 ## 4. Pi-hole Client: UpdateDomain Parameterization

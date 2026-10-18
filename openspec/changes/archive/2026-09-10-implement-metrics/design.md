@@ -21,10 +21,10 @@ The metrics spec defines a comprehensive set of Prometheus metrics. The package 
 All metric vec references live on the `Server` struct. Methods like `RecordReconcile` accept target name and results, then update the correct metric labels.
 
 ### Histogram for duration, counters for events, gauges for state
-- `forseti_reconcile_duration_seconds` — histogram with default buckets
-- `forseti_reconcile_runs_total`, `forseti_reconcile_changes_total` — counters
-- `forseti_reconcile_drift_total`, `forseti_target_reachable`, config gauges — gauges
-- `pihole_*` — all gauges (scraped from Pi-hole, not accumulated)
+- `forseti_reconcile_duration_seconds` - histogram with default buckets
+- `forseti_reconcile_runs_total`, `forseti_reconcile_changes_total` - counters
+- `forseti_reconcile_drift_total`, `forseti_target_reachable`, config gauges - gauges
+- `pihole_*` - all gauges (scraped from Pi-hole, not accumulated)
 
 ### Config metrics set once at startup
 `forseti_config_*_total` gauges are set when the config is loaded. They don't change during runtime.
