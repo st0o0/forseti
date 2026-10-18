@@ -1600,3 +1600,198 @@ targets:
 		t.Errorf("warnings = %v", resolved[0].Warnings)
 	}
 }
+
+func TestValidationDuplicateAllowlistURL(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+allowlists:
+  - url: https://example.com/allow.txt
+  - url: https://example.com/allow.txt
+`
+	path := writeTestConfig(t, cfg)
+	_, _, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for duplicate allowlist URL")
+	}
+	if !strings.Contains(err.Error(), "duplicate allowlist URL") {
+		t.Errorf("error should mention duplicate allowlist URL, got: %v", err)
+	}
+}
+
+func TestValidationAllowlistUndefinedGroup(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+allowlists:
+  - url: https://example.com/allow.txt
+    groups: [nonexistent]
+`
+	path := writeTestConfig(t, cfg)
+	_, _, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for undefined group in allowlist")
+	}
+	if !strings.Contains(err.Error(), "references undefined group") {
+		t.Errorf("error should mention undefined group, got: %v", err)
+	}
+}
+
+func TestValidationGroupNameCRLF(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+groups:
+  - name: "bad\ngroup"
+`
+	path := writeTestConfig(t, cfg)
+	_, _, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for group name with LF")
+	}
+	if !strings.Contains(err.Error(), "invalid characters") {
+		t.Errorf("error should mention invalid characters, got: %v", err)
+	}
+}
+
+func TestValidationGroupNameNull(t *testing.T) {
+	cfg := "targets:\n  - name: test\n    url: http://localhost:80\n    password: test\ngroups:\n  - name: \"bad\\x00group\"\n"
+	path := writeTestConfig(t, cfg)
+	_, _, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for group name with null byte")
+	}
+	if !strings.Contains(err.Error(), "invalid characters") {
+		t.Errorf("error should mention invalid characters, got: %v", err)
+	}
+}
+
+func TestValidationTopStatsCountTooHigh(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+metrics:
+  top_stats_count: 200
+`
+	path := writeTestConfig(t, cfg)
+	_, _, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for top_stats_count > 100")
+	}
+	if !strings.Contains(err.Error(), "top_stats_count") {
+		t.Errorf("error should mention top_stats_count, got: %v", err)
+	}
+}
+
+func TestValidationHistoryIntervalTooShort(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+metrics:
+  history_interval: 30s
+`
+	path := writeTestConfig(t, cfg)
+	_, _, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for history_interval < 1m")
+	}
+	if !strings.Contains(err.Error(), "history_interval") {
+		t.Errorf("error should mention history_interval, got: %v", err)
+	}
+}
+
+func TestNewTogglesDefaultDisabled(t *testing.T) {
+	var ct CollectorToggles
+	for _, name := range []string{"top_domains", "top_clients", "history", "system"} {
+		if ct.IsEnabled(name) {
+			t.Errorf("toggle %q should default to disabled", name)
+		}
+	}
+}
+
+func TestNewTogglesExplicitlyEnabled(t *testing.T) {
+	tr := true
+	ct := CollectorToggles{
+		TopDomains: &tr,
+		TopClients: &tr,
+		History:    &tr,
+		System:     &tr,
+	}
+	for _, name := range []string{"top_domains", "top_clients", "history", "system"} {
+		if !ct.IsEnabled(name) {
+			t.Errorf("toggle %q should be enabled when set to true", name)
+		}
+	}
+}
+
+func TestDefaultTopStatsCount(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+`
+	path := writeTestConfig(t, cfg)
+	c, _, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if c.Metrics.TopStatsCount != DefaultTopStatsCount {
+		t.Errorf("TopStatsCount = %d, want %d", c.Metrics.TopStatsCount, DefaultTopStatsCount)
+	}
+}
+
+func TestDefaultHistoryInterval(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+`
+	path := writeTestConfig(t, cfg)
+	c, _, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if c.Metrics.HistoryInterval.Duration != DefaultHistoryInterval {
+		t.Errorf("HistoryInterval = %v, want %v", c.Metrics.HistoryInterval.Duration, DefaultHistoryInterval)
+	}
+}
+
+func TestAllowlistsInResolvedTarget(t *testing.T) {
+	cfg := `
+targets:
+  - name: test
+    url: http://localhost:80
+    password: test
+groups:
+  - name: default
+allowlists:
+  - url: https://example.com/allow.txt
+    groups: [default]
+`
+	path := writeTestConfig(t, cfg)
+	_, resolved, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if len(resolved) != 1 {
+		t.Fatalf("expected 1 resolved target, got %d", len(resolved))
+	}
+	if len(resolved[0].Allowlists) != 1 {
+		t.Errorf("expected 1 allowlist, got %d", len(resolved[0].Allowlists))
+	}
+	if resolved[0].Allowlists[0].URL != "https://example.com/allow.txt" {
+		t.Errorf("allowlist URL = %q, want https://example.com/allow.txt", resolved[0].Allowlists[0].URL)
+	}
+}

@@ -30,13 +30,14 @@ type Reachability interface {
 }
 
 type Collector struct {
-	pool    *session.Pool
-	targets []config.Target
-	ttl     time.Duration
-	metrics *metrics.Server
-	toggles config.CollectorToggles
-	log     *slog.Logger
-	reach   Reachability
+	pool           *session.Pool
+	targets        []config.Target
+	ttl            time.Duration
+	metrics        *metrics.Server
+	toggles        config.CollectorToggles
+	topStatsCount  int
+	log            *slog.Logger
+	reach          Reachability
 
 	mu    sync.RWMutex
 	cache map[string]*cachedStats
@@ -44,14 +45,21 @@ type Collector struct {
 
 func NewCollector(pool *session.Pool, targets []config.Target, ttl time.Duration, m *metrics.Server, toggles config.CollectorToggles) *Collector {
 	return &Collector{
-		pool:    pool,
-		targets: targets,
-		ttl:     ttl,
-		metrics: m,
-		toggles: toggles,
-		log:     logging.Component("collector"),
-		reach:   targetstate.New(m),
-		cache:   make(map[string]*cachedStats),
+		pool:          pool,
+		targets:       targets,
+		ttl:           ttl,
+		metrics:       m,
+		toggles:       toggles,
+		topStatsCount: config.DefaultTopStatsCount,
+		log:           logging.Component("collector"),
+		reach:         targetstate.New(m),
+		cache:         make(map[string]*cachedStats),
+	}
+}
+
+func (c *Collector) SetTopStatsCount(n int) {
+	if n > 0 {
+		c.topStatsCount = n
 	}
 }
 
@@ -149,11 +157,26 @@ func (c *Collector) collectTarget(_ context.Context, target config.Target) {
 		leases []pihole.APIDHCPLease
 		err    error
 	}
+	type topDomainsResult struct {
+		data *pihole.TopDomains
+		err  error
+	}
+	type topClientsResult struct {
+		data *pihole.TopClients
+		err  error
+	}
+	type systemResult struct {
+		data *pihole.SystemInfo
+		err  error
+	}
 
 	statsCh := make(chan statsResult, 1)
 	blockingCh := make(chan blockingResult, 1)
 	upstreamsCh := make(chan upstreamsResult, 1)
 	dhcpCh := make(chan dhcpResult, 1)
+	topDomainsCh := make(chan topDomainsResult, 1)
+	topClientsCh := make(chan topClientsResult, 1)
+	systemCh := make(chan systemResult, 1)
 
 	if c.toggles.IsEnabled("stats") {
 		go func() {
@@ -189,6 +212,33 @@ func (c *Collector) collectTarget(_ context.Context, target config.Target) {
 		}()
 	} else {
 		dhcpCh <- dhcpResult{}
+	}
+
+	if c.toggles.IsEnabled("top_domains") {
+		go func() {
+			d, err := client.GetTopDomains(c.topStatsCount)
+			topDomainsCh <- topDomainsResult{d, err}
+		}()
+	} else {
+		topDomainsCh <- topDomainsResult{}
+	}
+
+	if c.toggles.IsEnabled("top_clients") {
+		go func() {
+			d, err := client.GetTopClients(c.topStatsCount)
+			topClientsCh <- topClientsResult{d, err}
+		}()
+	} else {
+		topClientsCh <- topClientsResult{}
+	}
+
+	if c.toggles.IsEnabled("system") {
+		go func() {
+			s, err := client.GetSystemInfo()
+			systemCh <- systemResult{s, err}
+		}()
+	} else {
+		systemCh <- systemResult{}
 	}
 
 	select {
@@ -238,6 +288,46 @@ func (c *Collector) collectTarget(_ context.Context, target config.Target) {
 				c.log.Debug("dhcp leases error", "target", target.Name, "error", dr.err)
 			} else {
 				c.metrics.UpdateDHCPLeases(target.Name, len(dr.leases))
+			}
+		}
+
+		tdr := <-topDomainsCh
+		tcr := <-topClientsCh
+		syr := <-systemCh
+
+		if c.toggles.IsEnabled("top_domains") {
+			if tdr.err != nil {
+				if pihole.IsNotFound(tdr.err) {
+					c.log.Debug("top_domains endpoint not available", "target", target.Name)
+				} else {
+					c.log.Debug("top domains error", "target", target.Name, "error", tdr.err)
+				}
+			} else if tdr.data != nil {
+				c.metrics.UpdateTopDomains(target.Name, tdr.data.TopQueries, tdr.data.TopBlocked)
+			}
+		}
+
+		if c.toggles.IsEnabled("top_clients") {
+			if tcr.err != nil {
+				if pihole.IsNotFound(tcr.err) {
+					c.log.Debug("top_clients endpoint not available", "target", target.Name)
+				} else {
+					c.log.Debug("top clients error", "target", target.Name, "error", tcr.err)
+				}
+			} else if tcr.data != nil {
+				c.metrics.UpdateTopClients(target.Name, tcr.data.TopClients)
+			}
+		}
+
+		if c.toggles.IsEnabled("system") {
+			if syr.err != nil {
+				if pihole.IsNotFound(syr.err) {
+					c.log.Debug("system info endpoint not available", "target", target.Name)
+				} else {
+					c.log.Debug("system info error", "target", target.Name, "error", syr.err)
+				}
+			} else if syr.data != nil {
+				c.metrics.UpdateSystemInfo(target.Name, syr.data)
 			}
 		}
 

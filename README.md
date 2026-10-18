@@ -14,8 +14,8 @@ Named after [Forseti](https://en.wikipedia.org/wiki/Forseti), the Norse god of j
 
 ## Features
 
-- **Declarative config** -- adlists, allow/deny lists, local DNS, CNAME records, groups, clients, and Pi-hole settings defined in one YAML file
-- **Sync mode** -- replicate a primary Pi-hole to any number of replicas (NebulaSync replacement)
+- **Declarative config** -- adlists, allowlists, allow/deny domains, local DNS, CNAME records, groups, clients, and Pi-hole settings defined in one YAML file
+- **Sync mode** -- replicate a primary Pi-hole to any number of replicas, including CNAME records (NebulaSync replacement)
 - **Multi-instance** -- manage any number of Pi-hole v6 targets from one config
 - **Per-target API control** -- configurable timeouts and concurrency limits per target, preventing overload on resource-constrained hardware
 - **Managed-marker safety** -- only touches entries it created (`[forseti]` / `[forseti-sync]` tag), manual UI changes are left alone
@@ -93,6 +93,10 @@ adlists:
   - url: https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts
     groups: [default]
 
+allowlists:
+  - url: https://raw.githubusercontent.com/anudeepND/whitelist/master/domains/whitelist.txt
+    groups: [default]
+
 deny:
   - domain: ads.example.com
   - domain: "*.tracking.example.com"
@@ -150,7 +154,7 @@ targets:
 sync:
   interval: 5m
   primary: primary
-  resources: [groups, adlists, deny, allow, local_dns, clients]
+  resources: [groups, adlists, allowlists, deny, allow, local_dns, cnames, clients]
 ```
 
 ### Full configuration reference
@@ -174,6 +178,8 @@ Fields marked with `*` are pointers -- omit them to keep Pi-hole's existing valu
 | `path` | string | `/metrics` | Metrics endpoint path |
 | `scrape_interval` | duration | `30s` | Collect-on-scrape cache TTL (min 5s) |
 | `new_domains_interval` | duration | `15m` | How often to check for newly blocked domains (min 1m), independent of `scrape_interval` |
+| `history_interval` | duration | `5m` | How often to fetch query history from Pi-hole (min 1m) |
+| `top_stats_count` | int | `10` | Number of entries for top domains/clients metrics (max 100) |
 
 #### `metrics.collectors`
 
@@ -191,6 +197,10 @@ All toggles are `*bool`, default enabled (omit = true). Set `false` to disable a
 | `settings_drift` | Per-setting drift detection |
 | `dhcp` | Active DHCP lease count |
 | `new_domains` | Newly blocked domain count (see below) |
+| `top_domains` | Top queried and top blocked domains (opt-in, default disabled) |
+| `top_clients` | Top querying clients (opt-in, default disabled) |
+| `history` | Time-bucketed query history (opt-in, default disabled) |
+| `system` | Pi-hole host CPU, memory, temperature, load (opt-in, default disabled) |
 
 #### New blocked domain detection (`metrics.collectors.new_domains`)
 
@@ -237,7 +247,7 @@ The aggregated count per target is exposed as `forseti_new_blocked_domains_24h{t
 |-----|------|---------|-------------|
 | `interval` | duration | `5m` | Sync loop interval (min 10s) |
 | `primary` | string | -- | **required** Name of the primary target |
-| `resources[]` | []string | -- | **required** Resources to sync: `groups`, `adlists`, `deny`, `allow`, `local_dns`, `clients` |
+| `resources[]` | []string | -- | **required** Resources to sync: `groups`, `adlists`, `allowlists`, `deny`, `allow`, `local_dns`, `cnames`, `clients` |
 | `local_dns_purge` | bool | `true` | Delete replica local DNS records that do not exist on the primary. Set `false` to only add records. |
 
 Pi-hole local DNS records have no comment field, so they cannot carry the `[forseti-sync]` marker. By default sync mirrors local DNS from the primary, which deletes replica-only records. Config mode defaults to `local_dns_purge: false` instead, because there the YAML co-exists with records managed in the UI.
@@ -256,6 +266,14 @@ Pi-hole local DNS records have no comment field, so they cannot carry the `[fors
 | `url` | string | **required** Blocklist URL (unique) |
 | `comment` | string | Optional description |
 | `groups[]` | []string | Group names this adlist belongs to |
+
+#### `allowlists[]`
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `url` | string | **required** Allowlist URL (unique) |
+| `comment` | string | Optional description |
+| `groups[]` | []string | Group names this allowlist belongs to |
 
 #### `deny[]` / `allow[]`
 
@@ -358,7 +376,7 @@ All settings fields are optional pointers. Omit a field to leave Pi-hole's curre
 
 #### Per-target overrides
 
-A target can reference an override file via `targets[].file`. The override YAML can add or replace `settings`, `groups`, `adlists`, `deny`, `allow`, `local_dns`, `cname`, and `clients` for that specific target.
+A target can reference an override file via `targets[].file`. The override YAML can add or replace `settings`, `groups`, `adlists`, `allowlists`, `deny`, `allow`, `local_dns`, `cname`, and `clients` for that specific target.
 
 It can also exclude entries from the base config:
 
@@ -508,6 +526,32 @@ Individual metric families can be disabled via `metrics.collectors.*` toggles in
 | `forseti_clients_seen` | `target` |
 | `forseti_blocking_status` | `target` |
 
+### Top stats (opt-in)
+
+| Metric | Labels |
+|--------|--------|
+| `forseti_top_queried_domains` | `target`, `domain` |
+| `forseti_top_blocked_domains` | `target`, `domain` |
+| `forseti_top_clients` | `target`, `client` |
+
+### Query history (opt-in)
+
+| Metric | Labels |
+|--------|--------|
+| `forseti_query_history_total` | `target` |
+| `forseti_query_history_blocked` | `target` |
+
+### Pi-hole host system (opt-in)
+
+| Metric | Labels |
+|--------|--------|
+| `forseti_pihole_cpu_percent` | `target` |
+| `forseti_pihole_memory_percent` | `target` |
+| `forseti_pihole_temperature_celsius` | `target` |
+| `forseti_pihole_load_1m` | `target` |
+| `forseti_pihole_load_5m` | `target` |
+| `forseti_pihole_load_15m` | `target` |
+
 ### Query details
 
 | Metric | Labels |
@@ -558,8 +602,8 @@ Individual metric families can be disabled via `metrics.collectors.*` toggles in
 ## Critical invariants
 
 - **Managed-marker safety**: Forseti only touches entries tagged `[forseti]` (config mode) or `[forseti-sync]` (sync mode) in the comment field. Manual UI entries are never modified or deleted. Local DNS records have no comment field: they are only deleted when `local_dns_purge` is enabled (opt-in in config mode, default in sync mode).
-- **Reconcile order**: groups -> adlists -> deny -> allow -> local DNS -> CNAME -> clients. Groups must exist before anything references them.
-- **Gravity trigger**: automatic on adlist changes (if `gravity_on_change: true`) and on cron schedule per target. Never for domain/client/DNS changes alone.
+- **Reconcile order**: groups -> adlists -> allowlists -> deny -> allow -> local DNS -> CNAME -> clients. Groups must exist before anything references them.
+- **Gravity trigger**: automatic on adlist or allowlist changes (if `gravity_on_change: true`) and on cron schedule per target. Never for domain/client/DNS changes alone.
 - **CNAME restart**: adding or removing CNAME records triggers an FTL restart (brief DNS outage).
 - **Session pool**: 1 persistent session per target with auto-reauth on 401. Pi-hole allows max 16 concurrent sessions.
 - **API concurrency gate**: all subsystems (reconciler, collector, gravity) share a per-target semaphore. The collector serves stale cached data when the target is busy instead of timing out. Configure `api.max_concurrent: 1` for resource-constrained targets to serialize all API access.

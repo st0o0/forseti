@@ -207,6 +207,7 @@ func printDiffReport(r *reconcile.DiffReport) {
 	fmt.Printf("\n--- %s ---\n", r.Target)
 	printResourceLine("groups", r.Groups)
 	printResourceLine("adlists", r.Adlists)
+	printResourceLine("allowlists", r.Allowlists)
 	printResourceLine("deny", r.Deny)
 	printResourceLine("allow", r.Allow)
 	printResourceLine("local_dns", r.LocalDNS)
@@ -232,7 +233,7 @@ func printSettingsDiff(target string, diff *reconcile.SettingsDiff) {
 }
 
 func hasDiff(r *reconcile.DiffReport) bool {
-	return r.Groups.HasChanges() || r.Adlists.HasChanges() ||
+	return r.Groups.HasChanges() || r.Adlists.HasChanges() || r.Allowlists.HasChanges() ||
 		r.Deny.HasChanges() || r.Allow.HasChanges() ||
 		r.LocalDNS.HasChanges() || r.CNAME.HasChanges() || r.Clients.HasChanges()
 }
