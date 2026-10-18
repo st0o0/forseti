@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.2.0](https://github.com/st0o0/forseti/compare/v0.1.9...v0.2.0) (2026-10-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* rebuild logging around a shared run model and stable lifecycle events
+* report accurate sync results, health and reachability; complete hot-reload
+
+### Features
+
+* add /status run history, freshness metrics and Grafana dashboard ([0c7573d](https://github.com/st0o0/forseti/commit/0c7573d192dcd0b8109d0bdec04b73521f1c151f))
+* add Pi-hole v6.7 expansion - allowlists, new metrics, CNAME sync ([e3359a7](https://github.com/st0o0/forseti/commit/e3359a7b2b9b934df2b8f87d24056df515b67993))
+* add sync-mode E2E infrastructure and expand test plan ([3efc13c](https://github.com/st0o0/forseti/commit/3efc13cbba89ef8ec6efda4fb9e02794a73c39cc))
+* expand e2e test plan for allowlists, new collectors, CNAME sync ([b81d60c](https://github.com/st0o0/forseti/commit/b81d60caf7babf81f39f66f6fd61f508d821069d))
+* rebuild logging around a shared run model and stable lifecycle events ([6cfe999](https://github.com/st0o0/forseti/commit/6cfe9992a2ba3ad249714a330d2e781a59ddee7b))
+
+
+### Bug Fixes
+
+* match Pi-hole v6.7 /api/info/system response structure ([8ea4ce4](https://github.com/st0o0/forseti/commit/8ea4ce415bad15737ca0554fbe295c70fbc0b78b))
+* report accurate sync results, health and reachability; complete hot-reload ([7e1f3ea](https://github.com/st0o0/forseti/commit/7e1f3ea11e7c06e31ddc103cd789b609c4a1a41e))
+
+
+### Documentation
+
+* **openspec:** add Purpose and Requirements sections to all main specs ([b09a8ed](https://github.com/st0o0/forseti/commit/b09a8edc6d5967fb4c060d88286e5977dc5eb8f9))
+* remove all em dashes from repo ([cfa0058](https://github.com/st0o0/forseti/commit/cfa0058bd4f521a168059146439506da2837af48))
+* remove em dashes and simplify wording ([05a156c](https://github.com/st0o0/forseti/commit/05a156cc97e82fe29525005042597061bb9135cb))
+
 ## [0.1.9](https://github.com/st0o0/forseti/compare/v0.1.8...v0.1.9) (2026-10-05)
 
 
