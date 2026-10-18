@@ -236,12 +236,16 @@ func TestGetSystemInfoWithTemp(t *testing.T) {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"system": map[string]any{
-				"cpu": 12.5,
+				"cpu": map[string]any{
+					"%cpu": 12.5,
+					"load": map[string]any{
+						"raw": []float64{0.5, 0.8, 1.2},
+					},
+				},
 				"memory": map[string]any{
-					"ram": map[string]any{"percent_used": 45.3},
+					"ram": map[string]any{"%used": 45.3},
 				},
 				"sensors": map[string]any{"cpu_temp": 52.0},
-				"load":    []float64{0.5, 0.8, 1.2},
 			},
 		})
 	})
@@ -271,12 +275,15 @@ func TestGetSystemInfoNoTemp(t *testing.T) {
 	c := authedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"system": map[string]any{
-				"cpu": 5.0,
-				"memory": map[string]any{
-					"ram": map[string]any{"percent_used": 30.0},
+				"cpu": map[string]any{
+					"%cpu": 5.0,
+					"load": map[string]any{
+						"raw": []float64{0.1, 0.2, 0.3},
+					},
 				},
-				"sensors": map[string]any{"cpu_temp": 0.0},
-				"load":    []float64{0.1, 0.2, 0.3},
+				"memory": map[string]any{
+					"ram": map[string]any{"%used": 30.0},
+				},
 			},
 		})
 	})
