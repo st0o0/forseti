@@ -25,7 +25,7 @@ Multi-target reconciliation is a core feature. Testing with two instances from t
 The production Dockerfile already builds a static binary. Reusing it in Compose avoids a separate dev Dockerfile. For faster iteration, developers can also run `go run ./cmd/forseti` directly on the host against the exposed Pi-hole ports.
 
 ### Ephemeral Pi-hole data
-No Docker volumes for Pi-hole data. Each `dev-up` starts fresh instances. This is intentional — Forseti is a reconciler, so starting from a clean state is the correct test scenario.
+No Docker volumes for Pi-hole data. Each `dev-up` starts fresh instances. This is intentional - Forseti is a reconciler, so starting from a clean state is the correct test scenario.
 
 ### Port mapping scheme
 | Service | Web UI | DNS |

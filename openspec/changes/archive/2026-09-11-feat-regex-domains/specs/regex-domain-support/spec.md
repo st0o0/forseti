@@ -45,7 +45,7 @@ The reconciler SHALL fetch and diff domains independently per kind. Exact and re
 #### Scenario: Exact and regex entries reconciled independently
 
 - **WHEN** desired state contains exact `ads.example.com` and regex `(^|\\.)tracking\\.` in deny, and Pi-hole has no deny entries
-- **THEN** the diff SHALL produce two additions: one exact, one regex — each created via the correct Pi-hole API kind endpoint
+- **THEN** the diff SHALL produce two additions: one exact, one regex - each created via the correct Pi-hole API kind endpoint
 
 #### Scenario: Regex entry not deleted when missing from exact diff
 

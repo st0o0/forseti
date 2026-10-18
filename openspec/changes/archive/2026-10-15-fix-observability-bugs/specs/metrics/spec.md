@@ -3,13 +3,13 @@
 ### Requirement: Forseti reconciliation metrics
 The system SHALL expose reconciliation telemetry:
 
-- `forseti_reconcile_runs_total{target, status}` — counter of reconcile/sync runs per target (status: `success`, `partial`, `error`)
-- `forseti_reconcile_duration_seconds{target}` — histogram of run duration
-- `forseti_reconcile_changes_total{target, type, action}` — counter of changes applied (type: groups/adlists/deny/allow/local_dns/cname/clients, action: add/update/delete)
-- `forseti_reconcile_drift{target, type}` — gauge of items that differ from desired state at each cycle
-- `forseti_target_reachable{target}` — gauge (1 = reachable, 0 = unreachable)
-- `forseti_target_health{target}` — gauge of the worker health state (0 = healthy, 1 = degraded, 2 = down)
-- `forseti_session_active` — gauge of active sessions in pool
+- `forseti_reconcile_runs_total{target, status}` - counter of reconcile/sync runs per target (status: `success`, `partial`, `error`)
+- `forseti_reconcile_duration_seconds{target}` - histogram of run duration
+- `forseti_reconcile_changes_total{target, type, action}` - counter of changes applied (type: groups/adlists/deny/allow/local_dns/cname/clients, action: add/update/delete)
+- `forseti_reconcile_drift{target, type}` - gauge of items that differ from desired state at each cycle
+- `forseti_target_reachable{target}` - gauge (1 = reachable, 0 = unreachable)
+- `forseti_target_health{target}` - gauge of the worker health state (0 = healthy, 1 = degraded, 2 = down)
+- `forseti_session_active` - gauge of active sessions in pool
 
 Run status values: `success` when the run completed without errors; `partial` when the target was reached and its state read, but at least one item-level write failed; `error` when the run could not complete (session, readiness, state read, settings or content apply failure).
 

@@ -22,4 +22,4 @@ _(none)_
 
 - `internal/sync/syncer.go`: All sync methods gain group translation logic; `syncAdlists`, `syncDomains`, `syncClients` pass translated group IDs instead of `nil`
 - `internal/sync/syncer_test.go`: New test cases verifying group assignments are preserved
-- No config changes required — this is a correctness fix for existing sync behavior
+- No config changes required - this is a correctness fix for existing sync behavior

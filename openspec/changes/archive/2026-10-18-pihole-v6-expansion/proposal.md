@@ -35,4 +35,4 @@ Forseti covers ~60% of the Pi-hole v6 REST API. Pi-hole v6.7 exposes endpoints f
 - **Sync** (`internal/sync/`): new `allowlists` + `cnames` in state and sync loop
 - **Collector** (`internal/collector/`): four new collector goroutines
 - **Metrics** (`internal/metrics/`): new metric registrations
-- **No external dependency changes** — all new endpoints are Pi-hole v6 REST API
+- **No external dependency changes** - all new endpoints are Pi-hole v6 REST API

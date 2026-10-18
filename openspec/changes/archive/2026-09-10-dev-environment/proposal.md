@@ -13,7 +13,7 @@ There is no local development environment to test Forseti against real Pi-hole i
 
 ### New Capabilities
 
-None. This change is purely dev infrastructure — no new application capabilities are introduced.
+None. This change is purely dev infrastructure - no new application capabilities are introduced.
 
 ### Modified Capabilities
 

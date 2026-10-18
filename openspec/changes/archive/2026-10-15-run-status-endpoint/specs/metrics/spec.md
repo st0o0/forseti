@@ -3,10 +3,10 @@
 ### Requirement: Run freshness and failure metrics
 The system SHALL expose, per target, in both modes:
 
-- `forseti_reconcile_last_run_timestamp{target}` — unix time of the last completed (not skipped) run
-- `forseti_reconcile_last_success_timestamp{target}` — unix time of the last run with status `success` or `partial`
-- `forseti_target_consecutive_failures{target}` — number of consecutive failed runs (0 after a success)
-- `forseti_reconcile_item_errors_total{target, type}` — counter of failed item writes per resource type (`other` for errors not tied to a resource)
+- `forseti_reconcile_last_run_timestamp{target}` - unix time of the last completed (not skipped) run
+- `forseti_reconcile_last_success_timestamp{target}` - unix time of the last run with status `success` or `partial`
+- `forseti_target_consecutive_failures{target}` - number of consecutive failed runs (0 after a success)
+- `forseti_reconcile_item_errors_total{target, type}` - counter of failed item writes per resource type (`other` for errors not tied to a resource)
 
 #### Scenario: Alert on stale sync
 - **WHEN** replica `pihole-2` has not completed a successful run for 30 minutes

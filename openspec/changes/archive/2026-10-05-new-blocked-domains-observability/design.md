@@ -1,6 +1,6 @@
 ## Context
 
-Forseti's collector (`internal/collector/collector.go`) fetches aggregated stats per target (`GetStats`, `GetFTLInfo` via `internal/pihole/client.go`) on a shared TTL cache and exposes them as `GaugeVec`s keyed only by `target` (`internal/metrics/metrics.go`). Every metric follows this shape — none carry a `domain` label, since Prometheus/VictoriaMetrics cardinality grows with the number of distinct label value combinations, and domain counts are unbounded and attacker-influenced (anyone querying a blocked domain creates a new series).
+Forseti's collector (`internal/collector/collector.go`) fetches aggregated stats per target (`GetStats`, `GetFTLInfo` via `internal/pihole/client.go`) on a shared TTL cache and exposes them as `GaugeVec`s keyed only by `target` (`internal/metrics/metrics.go`). Every metric follows this shape - none carry a `domain` label, since Prometheus/VictoriaMetrics cardinality grows with the number of distinct label value combinations, and domain counts are unbounded and attacker-influenced (anyone querying a blocked domain creates a new series).
 
 Pi-hole v6 already retains long-term query history (observed: 84k+ entries spanning months) accessible via the REST API's `/api/queries` endpoint, with `from`/`until` as Unix timestamps and a `status` filter. Forseti authenticates against this API per target via a session pool (`internal/session`) and never touches Pi-hole's SQLite database directly.
 
@@ -16,29 +16,29 @@ Forseti already emits structured JSON logs via `slog` with a JSON handler (`cmd/
 
 **Non-Goals:**
 - No per-domain Prometheus metrics or labels.
-- No alerting/threshold logic inside Forseti (e.g., "only report if count_24h > N") — that belongs in Grafana/LogQL.
-- No cross-target merging of "new domain" results — each target is evaluated independently.
+- No alerting/threshold logic inside Forseti (e.g., "only report if count_24h > N") - that belongs in Grafana/LogQL.
+- No cross-target merging of "new domain" results - each target is evaluated independently.
 - No calendar-day ("since midnight") semantics.
 
 ## Decisions
 
 **1. Two-stage query via Pi-hole's own query history, not a Forseti-side ledger.**
-A single windowed query (`from=now-24h, until=now`) cannot distinguish "newly blocked" from "still being blocked" — every record it returns is, by construction, inside the window, so filtering by "first seen in window" on that result alone is a no-op. Each collection cycle therefore runs two stages:
+A single windowed query (`from=now-24h, until=now`) cannot distinguish "newly blocked" from "still being blocked" - every record it returns is, by construction, inside the window, so filtering by "first seen in window" on that result alone is a no-op. Each collection cycle therefore runs two stages:
 1. `GetQueries(status=blocked, from=now-24h, until=now)` to collect the set of domains blocked at all in the last 24h, with their count and earliest timestamp in that window.
-2. For each candidate domain, `GetQueries(status=blocked, until=now-24h, domain=<candidate>, length=1)` — an existence check: if this returns zero records, the domain has no blocked history before the window, i.e., it is genuinely new; if it returns any record, the domain was already being blocked before the window and is excluded.
+2. For each candidate domain, `GetQueries(status=blocked, until=now-24h, domain=<candidate>, length=1)` - an existence check: if this returns zero records, the domain has no blocked history before the window, i.e., it is genuinely new; if it returns any record, the domain was already being blocked before the window and is excluded.
 
-Forseti does not persist "domains seen before" itself — a container restart does not cause a false "everything is new" burst, because the source of truth is Pi-hole's own history, not Forseti's state.
+Forseti does not persist "domains seen before" itself - a container restart does not cause a false "everything is new" burst, because the source of truth is Pi-hole's own history, not Forseti's state.
 Alternatives considered:
-- Forseti maintains its own seen-domains set (in memory or on disk). Rejected — adds persistence/restart-recovery complexity for no benefit, since Pi-hole already has the data.
-- Single windowed query only (originally proposed). Rejected during implementation — found to be logically incapable of distinguishing "new" from "still active" (see above).
-- Full-history query every cycle (`until=now`, no `from`) instead of two stages. Rejected — would scale with total retained history (potentially months, 84k+ rows) on every cycle, whereas the two-stage approach scales with the number of distinct domains blocked in the last 24h (the existence check per candidate is a cheap, `length=1`-bounded lookup).
+- Forseti maintains its own seen-domains set (in memory or on disk). Rejected - adds persistence/restart-recovery complexity for no benefit, since Pi-hole already has the data.
+- Single windowed query only (originally proposed). Rejected during implementation - found to be logically incapable of distinguishing "new" from "still active" (see above).
+- Full-history query every cycle (`until=now`, no `from`) instead of two stages. Rejected - would scale with total retained history (potentially months, 84k+ rows) on every cycle, whereas the two-stage approach scales with the number of distinct domains blocked in the last 24h (the existence check per candidate is a cheap, `length=1`-bounded lookup).
 
 **2. Rolling window, not calendar-day.**
-`/api/queries` takes Unix `from`/`until` timestamps; there is no server-side "since midnight" concept. A rolling `now-24h` window requires no timezone handling or "last midnight" checkpoint state. Calendar-day semantics would require Forseti to track a reference point across runs — reintroducing the state problem Decision 1 avoids.
+`/api/queries` takes Unix `from`/`until` timestamps; there is no server-side "since midnight" concept. A rolling `now-24h` window requires no timezone handling or "last midnight" checkpoint state. Calendar-day semantics would require Forseti to track a reference point across runs - reintroducing the state problem Decision 1 avoids.
 
 **3. Separate collector with its own interval, not folded into the existing stats cycle.**
 `/api/queries` over a 24h window is a materially heavier call than `GetStats`/`GetFTLInfo` (summary endpoints). Running it on every scrape (`scrape_interval`, often short) would be wasteful since the new-domain set does not need sub-minute freshness. This follows the precedent set by the gravity scheduler (`internal/gravity`), which already runs on its own cadence independent of the collector loop.
-Alternative considered: run inside `collectTarget` on the shared TTL cache. Rejected — couples an expensive, infrequently-needed check to a cycle designed for cheap, frequent polling.
+Alternative considered: run inside `collectTarget` on the shared TTL cache. Rejected - couples an expensive, infrequently-needed check to a cycle designed for cheap, frequent polling.
 
 **4. Domain-level detail goes to structured logs; Prometheus gets only a count.**
 Emit `slog.Info("new_blocked_domain", "target", ..., "domain", ..., "first_seen", ..., "count_24h", ...)` per newly-seen domain, and set `forseti_new_blocked_domains_24h{target}` to the count of such domains for that cycle. This mirrors how Forseti already separates aggregated metrics (Prometheus) from detailed/exploratory data (logs via Alloy), and sidesteps the cardinality problem entirely rather than working around it.

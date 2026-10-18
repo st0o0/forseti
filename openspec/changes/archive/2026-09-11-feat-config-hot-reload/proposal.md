@@ -22,6 +22,6 @@ _(none)_
 ## Impact
 
 - `cmd/forseti/main.go`: watch loop gains config reload logic
-- `internal/config/config.go`: no changes needed — `Load()` is already stateless and re-entrant
+- `internal/config/config.go`: no changes needed - `Load()` is already stateless and re-entrant
 - `internal/metrics/server.go`: new reload counter metric
 - New dependency consideration: `fsnotify` vs poll-based (design decision)

@@ -19,7 +19,7 @@ The reconciler currently only detects add and delete operations. When a managed 
 
 ### Modified Capabilities
 
-_(none — no existing specs)_
+_(none - no existing specs)_
 
 ## Impact
 

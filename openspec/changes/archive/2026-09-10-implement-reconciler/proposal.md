@@ -1,6 +1,6 @@
 ## Why
 
-The reconciler is the core of Forseti — it computes the diff between desired state (YAML config) and actual state (Pi-hole API), then applies changes. With config and pihole client packages done, this is the critical piece that makes `plan` and `apply` commands functional.
+The reconciler is the core of Forseti - it computes the diff between desired state (YAML config) and actual state (Pi-hole API), then applies changes. With config and pihole client packages done, this is the critical piece that makes `plan` and `apply` commands functional.
 
 ## What Changes
 
@@ -25,6 +25,6 @@ None.
 
 ## Impact
 
-- `internal/reconcile/reconciler.go` — full implementation
-- `internal/reconcile/reconciler_test.go` — unit tests
+- `internal/reconcile/reconciler.go` - full implementation
+- `internal/reconcile/reconciler_test.go` - unit tests
 - Depends on `internal/config` and `internal/pihole`

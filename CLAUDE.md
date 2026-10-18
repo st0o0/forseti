@@ -47,7 +47,7 @@ docker build -t forseti:ci .
   (opt-in in config mode, default `true` in sync mode).
 - **Reconcile order**: groups -> adlists -> deny -> allow -> local DNS -> clients.
   Groups must exist before anything references them.
-- **Gravity trigger**: via gravity scheduler — on adlist changes (if
+- **Gravity trigger**: via gravity scheduler  - on adlist changes (if
   gravity_on_change: true) and on cron schedule per target. Never for
   domain/client/DNS changes alone.
 - **Session pool**: 1 persistent session per target, auto-reauth on 401.

@@ -1,6 +1,6 @@
 ## Why
 
-Eight Gauge metrics use the `_total` suffix which Prometheus reserves for Counters. PromQL linters flag these, and `rate()` / `increase()` applied by mistake on a Gauge silently produces wrong results. Additionally, the Collector and Session subsystems have zero instrumentation — when a scrape is slow or sessions churn, there is no way to diagnose the cause from metrics alone.
+Eight Gauge metrics use the `_total` suffix which Prometheus reserves for Counters. PromQL linters flag these, and `rate()` / `increase()` applied by mistake on a Gauge silently produces wrong results. Additionally, the Collector and Session subsystems have zero instrumentation - when a scrape is slow or sessions churn, there is no way to diagnose the cause from metrics alone.
 
 ## What Changes
 
@@ -22,11 +22,11 @@ Eight Gauge metrics use the `_total` suffix which Prometheus reserves for Counte
 
 ## Impact
 
-- `internal/metrics/metrics.go` — all renames, new metric registrations
-- `internal/metrics/metrics_test.go` — update expected metric names
-- `internal/collector/collector.go` — instrument Collect() with duration, fetch, and cache-hit metrics
-- `internal/collector/collector_test.go` — test new instrumentation
-- `internal/pihole/client.go` — add `OnReauth` callback hook
-- `internal/session/pool.go` — set callback, expose active count
-- `cmd/forseti/` — set build info metric at startup
+- `internal/metrics/metrics.go` - all renames, new metric registrations
+- `internal/metrics/metrics_test.go` - update expected metric names
+- `internal/collector/collector.go` - instrument Collect() with duration, fetch, and cache-hit metrics
+- `internal/collector/collector_test.go` - test new instrumentation
+- `internal/pihole/client.go` - add `OnReauth` callback hook
+- `internal/session/pool.go` - set callback, expose active count
+- `cmd/forseti/` - set build info metric at startup
 - Grafana dashboards / alert rules referencing old metric names (external, documented in breaking change)

@@ -13,8 +13,8 @@ The `inFlight` map already exists to prevent concurrent gravity runs per target.
 
 **Non-Goals:**
 - Changing the cron evaluation logic or tick interval
-- Adding gravity-reconcile coordination (database-lock avoidance) — separate concern
-- Changing the `TriggerNow` (synchronous) API — it's used by `forseti plan` and must remain blocking
+- Adding gravity-reconcile coordination (database-lock avoidance) - separate concern
+- Changing the `TriggerNow` (synchronous) API - it's used by `forseti plan` and must remain blocking
 
 ## Decisions
 
@@ -22,9 +22,9 @@ The `inFlight` map already exists to prevent concurrent gravity runs per target.
 
 **Decision**: `triggerLocked` sets `inFlight[target] = true` under the mutex, then spawns a goroutine that does all I/O (Acquire, Get, TriggerGravity) and clears `inFlight` when done. The caller returns immediately.
 
-**Rationale**: The `inFlight` guard already has the right semantics — it prevents double runs per target while allowing independent targets to run concurrently. Making the I/O async is the minimal change to unblock the event loop.
+**Rationale**: The `inFlight` guard already has the right semantics - it prevents double runs per target while allowing independent targets to run concurrently. Making the I/O async is the minimal change to unblock the event loop.
 
-**Alternative considered**: Dedicated worker goroutine per target with a trigger channel. Rejected — adds complexity without benefit since `inFlight` already handles deduplication.
+**Alternative considered**: Dedicated worker goroutine per target with a trigger channel. Rejected - adds complexity without benefit since `inFlight` already handles deduplication.
 
 ### WaitGroup for shutdown
 
@@ -36,7 +36,7 @@ The `inFlight` map already exists to prevent concurrent gravity runs per target.
 
 **Decision**: `processAsync` delegates to the same async `triggerLocked` for targets with a schedule entry. For targets without an entry, it creates a temporary entry-like call to the same async mechanism. This eliminates the manual `mu.Unlock()` / deferred `mu.Lock()` pattern.
 
-**Rationale**: The current code has two paths with different lock disciplines — one calls `triggerLocked` (sync under lock), the other manually unlocks and re-locks with defers. Both should use the same async pattern.
+**Rationale**: The current code has two paths with different lock disciplines - one calls `triggerLocked` (sync under lock), the other manually unlocks and re-locks with defers. Both should use the same async pattern.
 
 ### `TriggerNow` stays synchronous
 
@@ -46,5 +46,5 @@ The `inFlight` map already exists to prevent concurrent gravity runs per target.
 
 ## Risks / Trade-offs
 
-- [Low] Goroutine per trigger adds concurrency — but the `inFlight` guard and per-target pool semaphore prevent races. The existing tests for concurrent/in-flight behavior validate this.
-- [Low] Multiple targets can run gravity concurrently now — previously they were serialized. This is desired behavior but increases momentary Pi-hole load.
+- [Low] Goroutine per trigger adds concurrency - but the `inFlight` guard and per-target pool semaphore prevent races. The existing tests for concurrent/in-flight behavior validate this.
+- [Low] Multiple targets can run gravity concurrently now - previously they were serialized. This is desired behavior but increases momentary Pi-hole load.

@@ -24,6 +24,6 @@ None.
 
 ## Impact
 
-- `internal/pihole/client.go` — full implementation replacing the empty stub
-- `internal/pihole/client_test.go` — new test file
-- `go.mod` — no new dependencies (uses stdlib `net/http` and `encoding/json`)
+- `internal/pihole/client.go` - full implementation replacing the empty stub
+- `internal/pihole/client_test.go` - new test file
+- `go.mod` - no new dependencies (uses stdlib `net/http` and `encoding/json`)

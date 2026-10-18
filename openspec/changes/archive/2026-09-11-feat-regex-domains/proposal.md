@@ -17,7 +17,7 @@ Pi-hole v6 supports four domain list kinds: `exact` and `regex` for both `deny` 
 
 ### Modified Capabilities
 
-_(none — no existing specs)_
+_(none - no existing specs)_
 
 ## Impact
 

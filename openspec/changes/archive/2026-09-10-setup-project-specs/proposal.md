@@ -14,17 +14,17 @@ The repo has solid CI/CD, release pipelines, and project scaffolding, but all do
 ### New Capabilities
 
 - `config`: YAML config format, env-var expansion, validation, multi-target support
-- `pihole-api`: Pi-hole v6 REST API client contract — session auth, CRUD endpoints, batch operations, stats, constraints
-- `reconciler`: Reconcile logic — marker-based ownership, three-way diff, ordering constraints, gravity trigger, plan/apply/watch modes
-- `metrics`: Prometheus metrics endpoint — forseti_* and pihole_* metric families, labels, scrape configuration
+- `pihole-api`: Pi-hole v6 REST API client contract - session auth, CRUD endpoints, batch operations, stats, constraints
+- `reconciler`: Reconcile logic - marker-based ownership, three-way diff, ordering constraints, gravity trigger, plan/apply/watch modes
+- `metrics`: Prometheus metrics endpoint - forseti_* and pihole_* metric families, labels, scrape configuration
 
 ### Modified Capabilities
 
-_None — this is a greenfield project with no existing specs._
+_None - this is a greenfield project with no existing specs._
 
 ## Impact
 
-- No code changes — this is purely documentation and project configuration
+- No code changes - this is purely documentation and project configuration
 - `pihole-gitops-controller.md` is deleted (content redistributed, recoverable from git history)
 - All future OpenSpec changes gain project context and can reference capability specs
 - Claude Code gains always-loaded project awareness via CLAUDE.md

@@ -407,9 +407,9 @@ Forseti logs one line per event to stdout (`plan` and `apply` log to stderr so t
 | `config loaded` | info | `mode`, `targets`, `interval`; sync: `primary`, `replicas`, `resources`; config: resource counts |
 | `config warning` | warn | `target`, `reason` |
 | `http server listening` | info | `addr`, `endpoints` |
-| `target connected` / `target unreachable` | info / warn | `target`, `source`, `error` — logged on change only |
+| `target connected` / `target unreachable` | info / warn | `target`, `source`, `error`  - logged on change only |
 | `run finished` | debug (no changes) / info (changes) / warn (partial) / error (failed) | `target`, `role`, `status`, `stage`, `added`, `updated`, `deleted`, `failed`, `<resource>.<action>`, `errors` |
-| `cycle complete` | info | `mode`, `targets`, `ok`, `partial`, `failed`, `skipped`, `changes`, `next_run` — every cycle, also when nothing changed |
+| `cycle complete` | info | `mode`, `targets`, `ok`, `partial`, `failed`, `skipped`, `changes`, `next_run`  - every cycle, also when nothing changed |
 | `target degraded` / `target down` / `target recovered` | warn / error / info | `target`, `consecutive_failures`, `retry_at`, `failures`, `downtime` |
 | `config reloaded` / `config reload failed` | info / error | `changed`, `targets_added`, `targets_removed` / `error` |
 | `gravity scheduled` / `gravity started` / `gravity finished` | info (finished with error: error) | `target`, `schedule`, `next_run`, `reason`, `status`, `duration` |
@@ -439,8 +439,8 @@ URL credentials and query values (e.g. `?token=`) are redacted in logs and error
 
 The metrics port also serves a read-only JSON view of recent activity, kept in memory (last 1440 runs per target and 1440 cycles; lost on restart, not an audit log):
 
-- `GET /status` — version, mode, uptime, last config reload, last cycle and next run, and per target: role, health, consecutive failures, last success, backoff, last error and last run with per-resource counts.
-- `GET /status/history?target=<name>&since=24h&limit=500` — runs of one target, oldest first. Without `target`: cycle summaries.
+- `GET /status`  - version, mode, uptime, last config reload, last cycle and next run, and per target: role, health, consecutive failures, last success, backoff, last error and last run with per-resource counts.
+- `GET /status/history?target=<name>&since=24h&limit=500`  - runs of one target, oldest first. Without `target`: cycle summaries.
 
 ```json
 {
@@ -469,7 +469,7 @@ time() - forseti_reconcile_last_success_timestamp > 3 * 300   # 3 missed 5m inte
 
 ## Health check
 
-The metrics server also serves `GET /healthz`: `200 {"status":"ok"}` while the watch loop completes cycles, `503 {"status":"stalled"}` if no cycle finished within `max(3 × interval, interval + 2m)`. It reflects Forseti's own liveness, not Pi-hole reachability — use `forseti_target_reachable` / `forseti_target_health` for that. The image's Docker `HEALTHCHECK` runs `forseti healthcheck`, which probes this endpoint (port from `metrics.port`, default 9099) and keeps working while an invalid config edit is pending.
+The metrics server also serves `GET /healthz`: `200 {"status":"ok"}` while the watch loop completes cycles, `503 {"status":"stalled"}` if no cycle finished within `max(3 × interval, interval + 2m)`. It reflects Forseti's own liveness, not Pi-hole reachability  - use `forseti_target_reachable` / `forseti_target_health` for that. The image's Docker `HEALTHCHECK` runs `forseti healthcheck`, which probes this endpoint (port from `metrics.port`, default 9099) and keeps working while an invalid config edit is pending.
 
 Do not expose port 9099 publicly; `/metrics`, `/healthz` and `/status` are unauthenticated.
 

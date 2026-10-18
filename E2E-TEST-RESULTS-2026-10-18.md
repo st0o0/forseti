@@ -29,7 +29,7 @@
 |------|--------|-------|
 | go test ./... | PASS | 758 tests across 16 packages |
 
-### Phase 2: Metrics — Always Present
+### Phase 2: Metrics  - Always Present
 
 | Test | Status | Notes |
 |------|--------|-------|
@@ -42,7 +42,7 @@
 | forseti_config_allow_domains | PASS | >= 1 |
 | forseti_collector_fetches_total success | PASS | |
 
-### Phase 2: Metrics — Stats
+### Phase 2: Metrics  - Stats
 
 | Test | Status | Notes |
 |------|--------|-------|
@@ -55,7 +55,7 @@
 | forseti_queries_forwarded | PASS | |
 | forseti_queries_cached | PASS | |
 
-### Phase 2: Metrics — Blocking / DHCP / Reconcile
+### Phase 2: Metrics  - Blocking / DHCP / Reconcile
 
 | Test | Status | Notes |
 |------|--------|-------|
@@ -66,7 +66,7 @@
 | forseti_reconcile_last_run_timestamp | PASS | > 0 |
 | forseti_reconcile_last_success_timestamp | PASS | > 0 |
 
-### Phase 2: Metrics — System Info (NEW, toggle: system)
+### Phase 2: Metrics  - System Info (NEW, toggle: system)
 
 | Test | Status | Notes |
 |------|--------|-------|
@@ -76,20 +76,20 @@
 | forseti_pihole_load_5m | PASS | >= 0 per target |
 | forseti_pihole_load_15m | PASS | >= 0 per target |
 
-Note: forseti_pihole_temperature_celsius not emitted — expected for Docker containers (no hardware temp sensor).
+Note: forseti_pihole_temperature_celsius not emitted  - expected for Docker containers (no hardware temp sensor).
 
-### Phase 2: Metrics — History (NEW, toggle: history)
+### Phase 2: Metrics  - History (NEW, toggle: history)
 
 | Test | Status | Notes |
 |------|--------|-------|
 | forseti_query_history_total | PASS | Per target (value=0, no DNS traffic) |
 | forseti_query_history_blocked | PASS | Per target (value=0, no DNS traffic) |
 
-### Phase 2: Metrics — Top Stats (NEW, toggles: top_domains, top_clients)
+### Phase 2: Metrics  - Top Stats (NEW, toggles: top_domains, top_clients)
 
-No data points emitted — Pi-hole dev instances have zero DNS traffic. The toggles are enabled and metrics are registered, but GaugeVec only appears when populated. This is correct behavior.
+No data points emitted  - Pi-hole dev instances have zero DNS traffic. The toggles are enabled and metrics are registered, but GaugeVec only appears when populated. This is correct behavior.
 
-### Phase 3: Config Mode — Reconcile Verification
+### Phase 3: Config Mode  - Reconcile Verification
 
 | Test | Status | Notes |
 |------|--------|-------|
@@ -109,7 +109,7 @@ No data points emitted — Pi-hole dev instances have zero DNS traffic. The togg
 | /status has target info | PASS | Both targets health=healthy |
 | /status/history returns JSON | PASS | History entries available |
 
-### Phase 5: Config Mode — Recovery Test
+### Phase 5: Config Mode  - Recovery Test
 
 | Test | Status | Notes |
 |------|--------|-------|
@@ -132,7 +132,7 @@ No data points emitted — Pi-hole dev instances have zero DNS traffic. The togg
 | Forseti sync mode started | PASS | Using docker-compose.sync.yml override |
 | First sync cycle complete | PASS | Logged in sync mode |
 
-### Phase 7: Sync — Resource Verification on Replica (Beta)
+### Phase 7: Sync  - Resource Verification on Replica (Beta)
 
 | Test | Status | Notes |
 |------|--------|-------|
@@ -147,19 +147,19 @@ No data points emitted — Pi-hole dev instances have zero DNS traffic. The togg
 | CNAME records synced | PASS | app.sync.lan + web.sync.lan |
 | Clients synced | PASS | 10.0.0.0/8 with [forseti-sync] |
 
-### Phase 7: Sync — CNAME Behavior
+### Phase 7: Sync  - CNAME Behavior
 
 | Test | Status | Notes |
 |------|--------|-------|
 | FTL restart warning logged | PASS | "CNAME changes will trigger FTL restart" in Forseti logs |
 
-### Phase 7: Sync — Recovery Tests
+### Phase 7: Sync  - Recovery Tests
 
 | Test | Status | Notes |
 |------|--------|-------|
 | Replica paused → beta degrades | PASS | target_health=1, alpha stays 0 |
 | Replica unpaused → recovers | PASS | target_health back to 0 |
-| Primary paused → snapshot fails | PASS | `failed=1 skipped=1` — replica skipped |
+| Primary paused → snapshot fails | PASS | `failed=1 skipped=1`  - replica skipped |
 | Primary degraded log | PASS | `target degraded` with backoff timer |
 | Primary unpaused → recovers | PASS | target_health back to 0, sync resumes |
 | Normal sync after recovery | PASS | `ok=2` in cycle log |

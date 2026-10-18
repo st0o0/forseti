@@ -1,6 +1,6 @@
 ## Context
 
-The sync engine replicates resources from a primary Pi-hole to one or more replicas. Groups are synced first (by name), then adlists, domains, and clients. Each resource type has a `Groups []int` field with group IDs, but these IDs are instance-specific — group "ads" might be ID 2 on the primary and ID 5 on the replica. Currently all sync methods pass `nil` for groups, losing assignments.
+The sync engine replicates resources from a primary Pi-hole to one or more replicas. Groups are synced first (by name), then adlists, domains, and clients. Each resource type has a `Groups []int` field with group IDs, but these IDs are instance-specific - group "ads" might be ID 2 on the primary and ID 5 on the replica. Currently all sync methods pass `nil` for groups, losing assignments.
 
 ## Goals / Non-Goals
 
@@ -24,7 +24,7 @@ After `syncGroups` runs, re-fetch the replica's groups to get the authoritative 
 
 A shared `translateGroupIDs(primaryIDs []int, primaryIDToName map[int]string, replicaNameToID map[string]int) []int` function used by all three sync methods.
 
-**Why**: Avoids duplicating the translation logic. Returns only IDs that resolved successfully — unresolvable groups are silently skipped (the group either doesn't exist or was a default group).
+**Why**: Avoids duplicating the translation logic. Returns only IDs that resolved successfully - unresolvable groups are silently skipped (the group either doesn't exist or was a default group).
 
 ### 3. Pass translated groups to Create calls
 

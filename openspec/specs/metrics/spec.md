@@ -18,13 +18,13 @@ The system SHALL expose a Prometheus-compatible `/metrics` endpoint. Port and pa
 ### Requirement: Forseti reconciliation metrics
 The system SHALL expose reconciliation telemetry:
 
-- `forseti_reconcile_runs_total{target, status}` — counter of reconcile/sync runs per target (status: `success`, `partial`, `error`)
-- `forseti_reconcile_duration_seconds{target}` — histogram of run duration
-- `forseti_reconcile_changes_total{target, type, action}` — counter of changes applied (type: groups/adlists/deny/allow/local_dns/cname/clients, action: add/update/delete)
-- `forseti_reconcile_drift{target, type}` — gauge of items that differ from desired state at each cycle
-- `forseti_target_reachable{target}` — gauge (1 = reachable, 0 = unreachable)
-- `forseti_target_health{target}` — gauge of the worker health state (0 = healthy, 1 = degraded, 2 = down)
-- `forseti_session_active` — gauge of active sessions in pool
+- `forseti_reconcile_runs_total{target, status}`  - counter of reconcile/sync runs per target (status: `success`, `partial`, `error`)
+- `forseti_reconcile_duration_seconds{target}`  - histogram of run duration
+- `forseti_reconcile_changes_total{target, type, action}`  - counter of changes applied (type: groups/adlists/deny/allow/local_dns/cname/clients, action: add/update/delete)
+- `forseti_reconcile_drift{target, type}`  - gauge of items that differ from desired state at each cycle
+- `forseti_target_reachable{target}`  - gauge (1 = reachable, 0 = unreachable)
+- `forseti_target_health{target}`  - gauge of the worker health state (0 = healthy, 1 = degraded, 2 = down)
+- `forseti_session_active`  - gauge of active sessions in pool
 
 Run status values: `success` when the run completed without errors; `partial` when the target was reached and its state read, but at least one item-level write failed; `error` when the run could not complete (session, readiness, state read, settings or content apply failure).
 
@@ -67,9 +67,9 @@ After each reconcile cycle, `forseti_reconcile_drift` SHALL be set for all resou
 ### Requirement: Forseti config metrics
 The system SHALL expose static config gauges:
 
-- `forseti_config_adlists` — number of configured adlists
-- `forseti_config_deny_domains` — number of configured deny domains
-- `forseti_config_allow_domains` — number of configured allow domains
+- `forseti_config_adlists`  - number of configured adlists
+- `forseti_config_deny_domains`  - number of configured deny domains
+- `forseti_config_allow_domains`  - number of configured allow domains
 
 #### Scenario: Config loaded
 - **WHEN** config defines 10 adlists and 5 deny domains
@@ -78,12 +78,12 @@ The system SHALL expose static config gauges:
 ### Requirement: Pi-hole stats metrics
 The system SHALL scrape Pi-hole stats endpoints and expose per-target metrics under the `forseti_*` namespace:
 
-- `forseti_dns_queries{target}` — total queries
-- `forseti_dns_queries_blocked{target}` — total blocked queries
-- `forseti_blocked_percentage{target}` — block percentage
-- `forseti_gravity_last_update_timestamp{target}` — unix timestamp of last gravity update
-- `forseti_blocking_status{target}` — blocking status (1 = enabled, 0 = disabled)
-- `forseti_domains_blocked{target}` — unique domains on blocklists
+- `forseti_dns_queries{target}`  - total queries
+- `forseti_dns_queries_blocked{target}`  - total blocked queries
+- `forseti_blocked_percentage{target}`  - block percentage
+- `forseti_gravity_last_update_timestamp{target}`  - unix timestamp of last gravity update
+- `forseti_blocking_status{target}`  - blocking status (1 = enabled, 0 = disabled)
+- `forseti_domains_blocked{target}`  - unique domains on blocklists
 
 Extended metrics are defined in the `pihole-prometheus-metrics` and `pihole-stats-collection` specs.
 
@@ -152,10 +152,10 @@ The metrics server SHALL support `forseti_dhcp_leases_active{target}` as a gauge
 ### Requirement: Run freshness and failure metrics
 The system SHALL expose, per target, in both modes:
 
-- `forseti_reconcile_last_run_timestamp{target}` — unix time of the last completed (not skipped) run
-- `forseti_reconcile_last_success_timestamp{target}` — unix time of the last run with status `success` or `partial`
-- `forseti_target_consecutive_failures{target}` — number of consecutive failed runs (0 after a success)
-- `forseti_reconcile_item_errors_total{target, type}` — counter of failed item writes per resource type (`other` for errors not tied to a resource)
+- `forseti_reconcile_last_run_timestamp{target}`  - unix time of the last completed (not skipped) run
+- `forseti_reconcile_last_success_timestamp{target}`  - unix time of the last run with status `success` or `partial`
+- `forseti_target_consecutive_failures{target}`  - number of consecutive failed runs (0 after a success)
+- `forseti_reconcile_item_errors_total{target, type}`  - counter of failed item writes per resource type (`other` for errors not tied to a resource)
 
 #### Scenario: Alert on stale sync
 - **WHEN** replica `pihole-2` has not completed a successful run for 30 minutes

@@ -1,6 +1,6 @@
 ## Context
 
-The CLI has stub commands. All internal packages are ready. This is pure wiring — no new logic, just connecting config loading, pihole clients, reconciler, and metrics server.
+The CLI has stub commands. All internal packages are ready. This is pure wiring - no new logic, just connecting config loading, pihole clients, reconciler, and metrics server.
 
 ## Goals / Non-Goals
 

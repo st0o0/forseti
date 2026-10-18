@@ -14,7 +14,7 @@ Pi-hole v6 exposes the full `pihole.toml` configuration tree via its REST API at
 - Backwards compatibility: existing configs without `settings:` or `file:` work unchanged
 
 **Non-Goals:**
-- Full 1:1 mapping of all pihole.toml keys — only a curated, operationally relevant subset
+- Full 1:1 mapping of all pihole.toml keys - only a curated, operationally relevant subset
 - Cascading multi-layer overrides (only two layers: global + target)
 - Managing pihole.toml keys that require FTL restart (beyond CNAME which already does this)
 - Config file generation or templating features (Helm-style)
@@ -31,7 +31,7 @@ The effective config for a target is computed by merging the global config with 
 
 Each target entry can optionally declare `file: path/to/overrides.yaml`. The path is relative to the main config file's directory. The override file has the same top-level structure as the global config for content sections (groups, adlists, deny, allow, local_dns, cname, clients) and settings, plus an `exclude:` block.
 
-**Why explicit `file:` over convention-based:** Explicit linking is visible in the main config — you can see at a glance which targets have overrides. Convention-based (e.g., `targets/<name>.yaml`) hides this relationship and introduces magic path resolution.
+**Why explicit `file:` over convention-based:** Explicit linking is visible in the main config - you can see at a glance which targets have overrides. Convention-based (e.g., `targets/<name>.yaml`) hides this relationship and introduces magic path resolution.
 
 ### 3. Merge semantics: append for lists, deep merge for settings, exclude for removals
 
@@ -65,7 +65,7 @@ Settings reconciliation uses `GET /api/config` to read current values and `PATCH
 
 ### 6. Effective config computed at load time
 
-The merge engine runs during `config.Load()`. After loading, each target carries its fully resolved effective config. Downstream code (reconciler, plan, apply) does not need to know about overrides — it receives a flat, resolved config per target.
+The merge engine runs during `config.Load()`. After loading, each target carries its fully resolved effective config. Downstream code (reconciler, plan, apply) does not need to know about overrides - it receives a flat, resolved config per target.
 
 **Implementation:** `config.Load()` parses the main file, then for each target with a `file:` field, parses the override file and merges it. The result is a `ResolvedTarget` that contains the target's connection info plus its effective content lists and settings.
 

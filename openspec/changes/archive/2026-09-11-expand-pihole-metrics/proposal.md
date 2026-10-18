@@ -5,10 +5,10 @@ Forseti exposes Pi-hole stats via Prometheus, but only 5 of 11 registered pihole
 ## What Changes
 
 - **Fix dead metrics**: Populate the 6 registered-but-empty gauges (gravity_size, cache_size, cache_inserted, cache_evicted, status, ftl_memory_bytes) or remove them if the Pi-hole v6 API doesn't expose the data
-- **Expand Stats struct**: Parse all fields from `/api/stats/summary` — forwarded, cached, unique_domains, frequency, clients (active/total), query types map, query status map, reply types map
+- **Expand Stats struct**: Parse all fields from `/api/stats/summary` - forwarded, cached, unique_domains, frequency, clients (active/total), query types map, query status map, reply types map
 - **New summary-based metrics**: `pihole_queries_forwarded`, `pihole_queries_cached`, `pihole_unique_domains`, `pihole_clients_active`, `pihole_clients_total`, `pihole_query_types` (by DNS type), `pihole_query_status` (by status), `pihole_reply_types` (by reply type), `pihole_request_frequency`
 - **New upstream metrics**: Call `/api/stats/upstreams` to expose `pihole_upstream_queries_total`, `pihole_upstream_response_seconds`, `pihole_upstream_response_variance` per upstream resolver
-- **Deliberately excluded**: Top queries/blocked/clients — high-cardinality metrics that are a Prometheus anti-pattern
+- **Deliberately excluded**: Top queries/blocked/clients - high-cardinality metrics that are a Prometheus anti-pattern
 
 ## Capabilities
 
@@ -18,7 +18,7 @@ Forseti exposes Pi-hole stats via Prometheus, but only 5 of 11 registered pihole
 
 ### Modified Capabilities
 
-_(none — no existing spec-level behavior changes)_
+_(none - no existing spec-level behavior changes)_
 
 ## Impact
 

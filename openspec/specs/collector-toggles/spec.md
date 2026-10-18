@@ -10,16 +10,16 @@ Per-area boolean switches in `metrics.collectors` that control which metric grou
 The system SHALL accept a `metrics.collectors` section in the config file with boolean toggles for each metric area. Each toggle controls whether the corresponding metrics are registered and whether the associated Pi-hole API calls are made during collection.
 
 The supported toggles SHALL be:
-- `stats` — summary query metrics (dns_queries, blocked, forwarded, cached, clients, etc.)
-- `upstreams` — upstream resolver metrics
-- `query_types` — query type/status/reply breakdown metrics
-- `blocking` — blocking status metric
-- `reconcile` — reconciliation telemetry metrics
-- `gravity` — gravity update metrics
-- `sessions` — session pool metrics
-- `settings_drift` — settings drift detection metric
-- `dhcp` — DHCP lease metrics
-- `new_domains` — new blocked domain detection (structured log events plus an aggregated count gauge); unlike the other toggles, this collector runs on its own configurable interval rather than `metrics.scrape_interval`
+- `stats`  - summary query metrics (dns_queries, blocked, forwarded, cached, clients, etc.)
+- `upstreams`  - upstream resolver metrics
+- `query_types`  - query type/status/reply breakdown metrics
+- `blocking`  - blocking status metric
+- `reconcile`  - reconciliation telemetry metrics
+- `gravity`  - gravity update metrics
+- `sessions`  - session pool metrics
+- `settings_drift`  - settings drift detection metric
+- `dhcp`  - DHCP lease metrics
+- `new_domains`  - new blocked domain detection (structured log events plus an aggregated count gauge); unlike the other toggles, this collector runs on its own configurable interval rather than `metrics.scrape_interval`
 
 #### Scenario: All collectors enabled by default
 - **WHEN** the config file omits the `metrics.collectors` section entirely
@@ -38,7 +38,7 @@ The supported toggles SHALL be:
 - **THEN** the system SHALL NOT register `forseti_new_blocked_domains_24h`, SHALL NOT emit `new_blocked_domain` log events, and SHALL NOT call the query-history API on any target
 
 ### Requirement: Conditional metric registration
-When a collector toggle is disabled, the system SHALL NOT register the corresponding Prometheus metrics with the registry. Disabled collectors SHALL produce no metrics in the `/metrics` output — not zero-value metrics, but absent metrics.
+When a collector toggle is disabled, the system SHALL NOT register the corresponding Prometheus metrics with the registry. Disabled collectors SHALL produce no metrics in the `/metrics` output  - not zero-value metrics, but absent metrics.
 
 #### Scenario: Disabled collector produces no output
 - **WHEN** `metrics.collectors.query_types` is `false`

@@ -16,9 +16,9 @@ The existing metrics spec already references `pihole_reply_type_total` and `piho
 - Achieve metric parity with eko/pihole-exporter and bazmonk/pihole6_exporter
 
 **Non-Goals:**
-- Top-N metrics (top queries, top blocked, top clients) — high cardinality, Prometheus anti-pattern
-- Per-minute windowed metrics (bazmonk's `_1m` series) — adds complexity, limited value with Prometheus rate()
-- Grafana dashboard creation — separate concern
+- Top-N metrics (top queries, top blocked, top clients) - high cardinality, Prometheus anti-pattern
+- Per-minute windowed metrics (bazmonk's `_1m` series) - adds complexity, limited value with Prometheus rate()
+- Grafana dashboard creation - separate concern
 - Changes to reconcile or config metrics
 
 ## Decisions
@@ -27,15 +27,15 @@ The existing metrics spec already references `pihole_reply_type_total` and `piho
 
 **Decision**: Expand the existing `Stats` struct with new fields and extend `UnmarshalJSON`.
 
-**Why**: The data comes from a single API call (`/api/stats/summary`). A single struct keeps the client interface simple — one call, one return value. The maps for types/status/replies use `map[string]int` which is flexible enough for any keys Pi-hole returns.
+**Why**: The data comes from a single API call (`/api/stats/summary`). A single struct keeps the client interface simple - one call, one return value. The maps for types/status/replies use `map[string]int` which is flexible enough for any keys Pi-hole returns.
 
-**Alternative**: Separate structs per section (QueryStats, ClientStats, etc.) — rejected because it fragments a single API response unnecessarily.
+**Alternative**: Separate structs per section (QueryStats, ClientStats, etc.) - rejected because it fragments a single API response unnecessarily.
 
 ### 2. New GetUpstreams method + UpstreamStats struct
 
 **Decision**: Add a dedicated `GetUpstreams() ([]UpstreamStats, error)` method calling `/api/stats/upstreams`.
 
-**Why**: This is a separate API endpoint with a different shape. Mixing it into Stats would conflate two API calls. The caller decides whether to make the extra call (it's optional — summary metrics work without it).
+**Why**: This is a separate API endpoint with a different shape. Mixing it into Stats would conflate two API calls. The caller decides whether to make the extra call (it's optional - summary metrics work without it).
 
 ### 3. Dead metrics: cache_size, cache_inserted, cache_evicted, ftl_memory_bytes
 
@@ -43,7 +43,7 @@ The existing metrics spec already references `pihole_reply_type_total` and `piho
 
 **Why**: Keeping registered-but-never-populated metrics is misleading. If a future Pi-hole version exposes this data, we can add them back with the correct source.
 
-**Alternative**: Call `/api/info/ftl` or `/api/info/system` for FTL memory — rejected for now because those endpoints aren't documented for this purpose and would add API calls for marginal value.
+**Alternative**: Call `/api/info/ftl` or `/api/info/system` for FTL memory - rejected for now because those endpoints aren't documented for this purpose and would add API calls for marginal value.
 
 ### 4. Blocking status via /api/dns/blocking
 
@@ -54,10 +54,10 @@ The existing metrics spec already references `pihole_reply_type_total` and `piho
 ### 5. GaugeVec label design for typed metrics
 
 **Decision**: Use consistent label naming:
-- `pihole_query_types{target, query_type}` — DNS record type (A, AAAA, PTR, etc.)
-- `pihole_query_status{target, status}` — query resolution status (GRAVITY, FORWARDED, CACHE, etc.)
-- `pihole_reply_types{target, reply_type}` — reply type (CNAME, IP, NXDOMAIN, etc.)
-- `pihole_upstream_queries_total{target, upstream, name, port}` — per-upstream
+- `pihole_query_types{target, query_type}` - DNS record type (A, AAAA, PTR, etc.)
+- `pihole_query_status{target, status}` - query resolution status (GRAVITY, FORWARDED, CACHE, etc.)
+- `pihole_reply_types{target, reply_type}` - reply type (CNAME, IP, NXDOMAIN, etc.)
+- `pihole_upstream_queries_total{target, upstream, name, port}` - per-upstream
 
 **Why**: Explicit label names avoid collision (e.g., `type` is ambiguous). The `target` label is consistent with all existing pihole_* metrics for multi-instance support.
 
@@ -69,7 +69,7 @@ The existing metrics spec already references `pihole_reply_type_total` and `piho
 
 ### 7. gravity_size vs. domains_blocked
 
-**Decision**: Remove `pihole_gravity_size` (never populated) and keep `pihole_domains_blocked` (already populated from `gravity.domains_being_blocked`). These were redundant — both intended to represent "domains on blocklist".
+**Decision**: Remove `pihole_gravity_size` (never populated) and keep `pihole_domains_blocked` (already populated from `gravity.domains_being_blocked`). These were redundant - both intended to represent "domains on blocklist".
 
 **Why**: One metric for this concept is enough. `pihole_domains_blocked` is already live and named consistently with other exporters' `pihole_domains_being_blocked`.
 

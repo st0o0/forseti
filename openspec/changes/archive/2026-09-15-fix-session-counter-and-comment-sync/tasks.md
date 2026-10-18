@@ -7,10 +7,10 @@
 
 ## 2. Fix comment/marker sync in diff functions
 
-- [x] 2.1 In `diffAdlists`: when URL matches and groups match, also check `strings.Contains(actual.Comment, marker)` — if marker is missing, emit Update instead of Unchanged
-- [x] 2.2 In `diffDomains` (deny): when domain matches, check marker in comment — if missing, emit Update
+- [x] 2.1 In `diffAdlists`: when URL matches and groups match, also check `strings.Contains(actual.Comment, marker)` - if marker is missing, emit Update instead of Unchanged
+- [x] 2.2 In `diffDomains` (deny): when domain matches, check marker in comment - if missing, emit Update
 - [x] 2.3 In `diffAllowDomains`: same marker check as deny
-- [x] 2.4 In `diffClients`: when client IP matches and groups match, check marker — if missing, emit Update
+- [x] 2.4 In `diffClients`: when client IP matches and groups match, check marker - if missing, emit Update
 - [x] 2.5 Add tests in `internal/reconcile/reconciler_test.go` for each diff function: entry exists with correct groups but wrong comment → should be Update, not Unchanged
 
 ## 3. Verify

@@ -8,10 +8,10 @@ and a mode-exclusive operational core (config or sync).
 
 ## Motivation
 
-- Stats collection is coupled to the reconcile loop — data is only as fresh as `reconcile.interval`
+- Stats collection is coupled to the reconcile loop - data is only as fresh as `reconcile.interval`
 - Double login per target per tick wastes sessions (max 16 concurrent on Pi-hole)
 - `scrape_interval` config field exists but is unused
-- No scheduled gravity updates — only triggered on adlist changes
+- No scheduled gravity updates - only triggered on adlist changes
 - No NebulaSync-equivalent (primary → replica sync)
 
 ## Modes
@@ -106,11 +106,11 @@ sync:
 internal/
   config/       Config parsing + validation (mode-aware)
   pihole/       Pi-hole v6 REST API client (unchanged)
-  session/      NEW — Session Pool (persistent, auto-reauth)
+  session/      NEW - Session Pool (persistent, auto-reauth)
   reconcile/    GitOps reconciler (mode: config, refactored to use session pool)
-  sync/         NEW — Primary → Replica sync (mode: sync)
-  collector/    NEW — Stats Collector (collect-on-scrape + TTL cache)
-  gravity/      NEW — Cron-based Gravity Scheduler per target
+  sync/         NEW - Primary → Replica sync (mode: sync)
+  collector/    NEW - Stats Collector (collect-on-scrape + TTL cache)
+  gravity/      NEW - Cron-based Gravity Scheduler per target
   metrics/      Registry + metric definitions (slimmed down, no collection logic)
 ```
 
@@ -152,10 +152,10 @@ forseti_gravity_errors_total{target}
 
 ## Implementation Order
 
-1. **Session Pool** — foundation for everything else
-2. **Stats Collector** — decouple from reconcile, implement scrape+cache
-3. **Gravity Scheduler** — cron per target
-4. **Mode: sync** — NebulaSync replacement
+1. **Session Pool** - foundation for everything else
+2. **Stats Collector** - decouple from reconcile, implement scrape+cache
+3. **Gravity Scheduler** - cron per target
+4. **Mode: sync** - NebulaSync replacement
 
 ## Design Decisions
 

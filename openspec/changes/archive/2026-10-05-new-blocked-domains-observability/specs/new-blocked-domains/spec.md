@@ -16,7 +16,7 @@ The system SHALL, on its own collection interval, query each target's blocked DN
 - **THEN** the system SHALL report each target's set independently, without combining them into a single cross-target result
 
 ### Requirement: Structured log event for domain detail
-For each domain detected as newly blocked, the system SHALL emit a structured log event (via the existing JSON log handler) named `new_blocked_domain`, carrying at minimum: the target name, the domain, its first-seen timestamp within the window, and the number of times it was queried within the window (`count_24h`). The system SHALL NOT apply any threshold or filtering to which domains are logged — every newly-seen domain within the window SHALL be reported.
+For each domain detected as newly blocked, the system SHALL emit a structured log event (via the existing JSON log handler) named `new_blocked_domain`, carrying at minimum: the target name, the domain, its first-seen timestamp within the window, and the number of times it was queried within the window (`count_24h`). The system SHALL NOT apply any threshold or filtering to which domains are logged - every newly-seen domain within the window SHALL be reported.
 
 #### Scenario: Newly blocked domain is logged
 - **WHEN** domain `click.example.com` is newly blocked on target `pizero` with 14 occurrences in the last 24h

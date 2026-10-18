@@ -15,9 +15,9 @@
 ## 3. Session Pool: Per-Target Gate
 
 - [x] 3.1 Add `gates map[string]chan struct{}` and `apiConfig map[string]config.APIConfig` to `session.Pool`
-- [x] 3.2 Implement `Acquire(name string)` — blocking acquire on the target's semaphore channel
-- [x] 3.3 Implement `TryAcquire(name string) bool` — non-blocking acquire via select/default
-- [x] 3.4 Implement `Release(name string)` — idempotent release, no-op for unknown targets
+- [x] 3.2 Implement `Acquire(name string)` - blocking acquire on the target's semaphore channel
+- [x] 3.3 Implement `TryAcquire(name string) bool` - non-blocking acquire via select/default
+- [x] 3.4 Implement `Release(name string)` - idempotent release, no-op for unknown targets
 - [x] 3.5 Create gate lazily on first `Acquire`/`TryAcquire` using the target's `MaxConcurrent` config
 - [x] 3.6 Add `SetAPIConfig(configs map[string]config.APIConfig)` for hot-reload updates
 - [x] 3.7 Pass target's `api.timeout` to `pihole.NewClient` inside `Pool.Get`
@@ -37,7 +37,7 @@
 ## 6. Collector: Stale-on-Busy and Per-Target Timeout
 
 - [x] 6.1 Store target API configs in the collector (pass via constructor or update method)
-- [x] 6.2 Change `collectTarget` to call `TryAcquire` before API calls — on failure, serve stale cache and return
+- [x] 6.2 Change `collectTarget` to call `TryAcquire` before API calls - on failure, serve stale cache and return
 - [x] 6.3 Replace the single `ctx` with per-target `context.WithTimeout` using each target's `api.timeout`
 - [x] 6.4 Add `defer Release` after successful `TryAcquire`
 - [x] 6.5 Add tests: stale-on-busy behavior, per-target timeout applied, gate released after collect

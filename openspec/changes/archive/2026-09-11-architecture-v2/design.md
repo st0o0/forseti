@@ -102,12 +102,12 @@ On fire: calls `pool.Get(target).TriggerGravity()`, records metrics.
 ### Cron library
 
 Use `github.com/robfig/cron/v3` for parsing. Only need `cron.ParseStandard()`
-to get a `Schedule` interface — no need for the full cron runner.
+to get a `Schedule` interface - no need for the full cron runner.
 
 ## Metrics Server (`internal/metrics`)
 
 Slimmed down: only holds metric definitions and the registry.
-No collection logic — that moves to `internal/collector`.
+No collection logic - that moves to `internal/collector`.
 
 ### New gravity metrics
 
@@ -123,7 +123,7 @@ gravityErrors   *prometheus.CounterVec   // labels: target
 Replace `GaugeVec.Reset()` + re-set pattern with direct `WithLabelValues().Set()`.
 Track known label sets and delete stale ones explicitly instead of resetting all.
 
-## Mode: sync (`internal/sync`) — Phase 4
+## Mode: sync (`internal/sync`) - Phase 4
 
 ### Sync loop
 

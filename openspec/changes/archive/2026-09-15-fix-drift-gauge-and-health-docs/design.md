@@ -24,7 +24,7 @@ Separately, `forseti_target_health` uses an enum encoding (0=healthy, 1=degraded
 
 **Decision**: Always emit all 7 resource type keys in `buildDriftMap`, with count 0 when there is no drift.
 
-**Rationale**: The fix belongs in `buildDriftMap` rather than in `RecordReconcile` because the map is the contract between worker and metrics — it should represent the complete current state, not a sparse delta. This keeps `RecordReconcile` a simple pass-through without needing to know the set of resource type names.
+**Rationale**: The fix belongs in `buildDriftMap` rather than in `RecordReconcile` because the map is the contract between worker and metrics - it should represent the complete current state, not a sparse delta. This keeps `RecordReconcile` a simple pass-through without needing to know the set of resource type names.
 
 **Alternative considered**: Reset all drift labels to 0 inside `RecordReconcile` before iterating the map. Rejected because it couples the metrics layer to knowledge of resource type names and adds an extra loop.
 

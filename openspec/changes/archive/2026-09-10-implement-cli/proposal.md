@@ -20,5 +20,5 @@ None. Wires existing implementations to the CLI stubs.
 None.
 
 ## Impact
-- `cmd/forseti/main.go` — full implementation replacing stubs
+- `cmd/forseti/main.go` - full implementation replacing stubs
 - No new dependencies (uses stdlib `flag`, `os/signal`)

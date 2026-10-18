@@ -24,6 +24,6 @@
 
 ## 5. Verify and lint
 
-- [x] 5.1 Run `go test -race ./internal/reconcile/...` — all tests pass
-- [x] 5.2 Run `go vet ./...` — no issues
-- [x] 5.3 Run `golangci-lint run` — no new warnings
+- [x] 5.1 Run `go test -race ./internal/reconcile/...` - all tests pass
+- [x] 5.2 Run `go vet ./...` - no issues
+- [x] 5.3 Run `golangci-lint run` - no new warnings

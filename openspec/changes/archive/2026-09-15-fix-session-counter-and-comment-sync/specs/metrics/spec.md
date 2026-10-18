@@ -3,12 +3,12 @@
 ### Requirement: Forseti reconciliation metrics
 The system SHALL expose reconciliation telemetry:
 
-- `forseti_reconcile_runs_total{target, status}` — counter of reconcile cycles (status: success/error)
-- `forseti_reconcile_duration_seconds{target}` — histogram of reconcile cycle duration
-- `forseti_reconcile_changes_total{target, type, action}` — counter of changes applied (type: adlist/deny/allow/dns/group/client, action: add/delete)
-- `forseti_reconcile_drift{target, type}` — gauge of items that differ from desired state at each cycle
-- `forseti_target_reachable{target}` — gauge (1 = reachable, 0 = unreachable)
-- `forseti_session_active` — gauge of active sessions in pool
+- `forseti_reconcile_runs_total{target, status}` - counter of reconcile cycles (status: success/error)
+- `forseti_reconcile_duration_seconds{target}` - histogram of reconcile cycle duration
+- `forseti_reconcile_changes_total{target, type, action}` - counter of changes applied (type: adlist/deny/allow/dns/group/client, action: add/delete)
+- `forseti_reconcile_drift{target, type}` - gauge of items that differ from desired state at each cycle
+- `forseti_target_reachable{target}` - gauge (1 = reachable, 0 = unreachable)
+- `forseti_session_active` - gauge of active sessions in pool
 
 `forseti_session_active` SHALL increment when a new session is created and decrement when a session is invalidated. It SHALL reset to 0 when the pool is closed. The gauge MUST accurately reflect the number of live sessions at all times.
 

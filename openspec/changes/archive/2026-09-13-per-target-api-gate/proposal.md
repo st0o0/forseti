@@ -1,6 +1,6 @@
 ## Why
 
-All three subsystems (reconciler, collector, gravity) independently hit each Pi-hole's API without coordination. On resource-constrained targets like a Pi Zero, concurrent requests overwhelm FTL — the slow target goes dark first, then contention spills over to healthy targets. The collector has a hardcoded 10s scrape timeout too short for slow hardware, and the HTTP client timeout (30s) cannot be tuned per target. Result: permanent metric blackouts and cascading reconcile failures.
+All three subsystems (reconciler, collector, gravity) independently hit each Pi-hole's API without coordination. On resource-constrained targets like a Pi Zero, concurrent requests overwhelm FTL - the slow target goes dark first, then contention spills over to healthy targets. The collector has a hardcoded 10s scrape timeout too short for slow hardware, and the HTTP client timeout (30s) cannot be tuned per target. Result: permanent metric blackouts and cascading reconcile failures.
 
 ## What Changes
 
@@ -30,6 +30,6 @@ All three subsystems (reconciler, collector, gravity) independently hit each Pi-
 - **Config**: New optional `api` block on each target (backward-compatible, defaults to current behavior)
 - **Session pool**: Gets semaphore map and `Acquire`/`TryAcquire`/`Release` methods
 - **Worker interfaces**: `SessionManager` extended with gate methods
-- **Collector**: Behavioral change — prefers stale data over no data when target is busy
+- **Collector**: Behavioral change - prefers stale data over no data when target is busy
 - **Gravity scheduler**: Acquires gate before triggering (replaces internal-only `inFlight` guard)
 - **Metrics endpoint**: Scrape timeout derived from target config instead of hardcoded 10s

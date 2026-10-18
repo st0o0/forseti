@@ -2,7 +2,7 @@
 
 Production shows a vicious cycle: every reconcile cycle, the diff finds adlists to delete, batchDelete returns 404, but `NeedsGravity` is still true because it's computed from the diff entries (not actual outcomes). Gravity triggers, times out, and the cycle repeats. On pizero, gravity corruption ("no such table") persists across cycles.
 
-The gravity scheduler has no deduplication — concurrent triggers from the scheduler cron and the reconcile path can overlap, and gravity runs synchronously under the scheduler's mutex, blocking all scheduled operations.
+The gravity scheduler has no deduplication - concurrent triggers from the scheduler cron and the reconcile path can overlap, and gravity runs synchronously under the scheduler's mutex, blocking all scheduled operations.
 
 ## Goals / Non-Goals
 
@@ -12,7 +12,7 @@ The gravity scheduler has no deduplication — concurrent triggers from the sche
 - Detect gravity DB corruption and skip reconcile for degraded targets
 
 **Non-Goals:**
-- Fixing the Pi-hole batchDelete address mismatch (likely a Pi-hole bug — Forseti sends the exact address Pi-hole returned)
+- Fixing the Pi-hole batchDelete address mismatch (likely a Pi-hole bug - Forseti sends the exact address Pi-hole returned)
 - Async gravity execution (separate change, larger refactor)
 - Investigating why pizero's gravity.db is corrupted (infrastructure issue)
 
@@ -22,7 +22,7 @@ The gravity scheduler has no deduplication — concurrent triggers from the sche
 
 **Decision**: Track `adlistsChanged bool` in the Apply function. Set it true only when a CreateAdlist or UpdateAdlist call succeeds, or when DeleteAdlists succeeds (not 404). Set `report.Diff.NeedsGravity` from this flag instead of `HasChanges()`.
 
-**Why?** The diff shows intent, not outcomes. A 404 delete means nothing changed — gravity is unnecessary. With our idempotent delete fix, 404s are suppressed, but HasChanges() still counts them.
+**Why?** The diff shows intent, not outcomes. A 404 delete means nothing changed - gravity is unnecessary. With our idempotent delete fix, 404s are suppressed, but HasChanges() still counts them.
 
 ### 2. Gravity in-flight tracking
 

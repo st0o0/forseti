@@ -20,7 +20,7 @@ Forseti's Pi-hole client already implements `ListCNAMERecords`, `AddCNAMERecord`
 
 ### Modified Capabilities
 
-_(none — no existing specs)_
+_(none - no existing specs)_
 
 ## Impact
 

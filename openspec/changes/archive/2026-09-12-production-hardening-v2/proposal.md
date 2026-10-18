@@ -30,11 +30,11 @@ After the worker architecture refactor, several gaps remain: plan/apply commands
 
 ## Impact
 
-- `internal/pihole/client.go` — structured error parsing, individual delete, readiness tests
-- `internal/worker/worker.go` — async gravity, health metrics
-- `internal/gravity/scheduler.go` — channel-based trigger
-- `internal/collector/collector.go` — hot-reload support
-- `internal/metrics/metrics.go` — health state gauges
-- `cmd/forseti/main.go` — readiness in plan/apply, collector sync on reload
-- `internal/reconcile/reconciler.go` — write retry on transient errors
+- `internal/pihole/client.go` - structured error parsing, individual delete, readiness tests
+- `internal/worker/worker.go` - async gravity, health metrics
+- `internal/gravity/scheduler.go` - channel-based trigger
+- `internal/collector/collector.go` - hot-reload support
+- `internal/metrics/metrics.go` - health state gauges
+- `cmd/forseti/main.go` - readiness in plan/apply, collector sync on reload
+- `internal/reconcile/reconciler.go` - write retry on transient errors
 - New integration test infrastructure

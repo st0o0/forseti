@@ -9,10 +9,10 @@ Registering and populating the full set of forseti_* Prometheus metrics from col
 ### Requirement: Summary-derived query metrics
 The metrics server SHALL register and populate the following gauges from Stats data:
 
-- `forseti_queries_forwarded{target}` — forwarded query count
-- `forseti_queries_cached{target}` — cached query count
-- `forseti_unique_domains{target}` — distinct domains queried
-- `forseti_request_frequency{target}` — DNS requests per second
+- `forseti_queries_forwarded{target}`  - forwarded query count
+- `forseti_queries_cached{target}`  - cached query count
+- `forseti_unique_domains{target}`  - distinct domains queried
+- `forseti_request_frequency{target}`  - DNS requests per second
 
 #### Scenario: Summary metrics populated
 - **WHEN** UpdateStats is called with Stats containing forwarded=8000, cached=3000, unique_domains=5678, frequency=1.5
@@ -21,8 +21,8 @@ The metrics server SHALL register and populate the following gauges from Stats d
 ### Requirement: Client count metrics
 The metrics server SHALL register and populate:
 
-- `forseti_clients_active{target}` — currently active clients (24h window)
-- `forseti_clients_seen{target}` — cumulative unique clients ever seen
+- `forseti_clients_active{target}`  - currently active clients (24h window)
+- `forseti_clients_seen{target}`  - cumulative unique clients ever seen
 
 #### Scenario: Client metrics populated
 - **WHEN** UpdateStats is called with Stats containing clients active=15, total=42
@@ -56,9 +56,9 @@ The metrics server SHALL register `forseti_dns_replies_by_type{target, reply_typ
 ### Requirement: Upstream resolver metrics
 The metrics server SHALL provide an `UpdateUpstreams(target string, upstreams []UpstreamStats)` method that registers and populates:
 
-- `forseti_upstream_queries{target, upstream, name, port}` — queries routed to each upstream
-- `forseti_upstream_response_seconds{target, upstream, name, port}` — average response time
-- `forseti_upstream_response_variance{target, upstream, name, port}` — response time variance
+- `forseti_upstream_queries{target, upstream, name, port}`  - queries routed to each upstream
+- `forseti_upstream_response_seconds{target, upstream, name, port}`  - average response time
+- `forseti_upstream_response_variance{target, upstream, name, port}`  - response time variance
 
 #### Scenario: Upstream metrics populated
 - **WHEN** UpdateUpstreams is called with two upstreams (1.1.1.1:53 avg 25ms, 8.8.8.8:53 avg 30ms)

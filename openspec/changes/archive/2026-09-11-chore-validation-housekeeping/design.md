@@ -1,6 +1,6 @@
 ## Context
 
-The `validate()` function in `internal/config/config.go` checks for missing targets, duplicate names, invalid domains, and mode-specific constraints. Duration fields are defaulted in `applyDefaults()` but never checked for validity — a user-supplied `interval: -5m` passes through silently.
+The `validate()` function in `internal/config/config.go` checks for missing targets, duplicate names, invalid domains, and mode-specific constraints. Duration fields are defaulted in `applyDefaults()` but never checked for validity - a user-supplied `interval: -5m` passes through silently.
 
 ## Goals / Non-Goals
 
@@ -21,7 +21,7 @@ Validation runs after `applyDefaults()`, so only explicitly negative values and 
 
 ### 2. Minimum bounds: 10s reconcile/sync, 5s scrape
 
-These prevent accidental tight loops while allowing fast iteration for testing. The bounds are hardcoded constants — no need for configurability.
+These prevent accidental tight loops while allowing fast iteration for testing. The bounds are hardcoded constants - no need for configurability.
 
 ### 3. Straightforward `.gitignore`
 

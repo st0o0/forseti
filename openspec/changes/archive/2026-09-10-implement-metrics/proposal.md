@@ -20,6 +20,6 @@ None. Implements the existing `metrics` spec.
 None.
 
 ## Impact
-- `internal/metrics/metrics.go` — full implementation
-- `internal/metrics/metrics_test.go` — unit tests
-- `go.mod` — `prometheus/client_golang` dependency restored
+- `internal/metrics/metrics.go` - full implementation
+- `internal/metrics/metrics_test.go` - unit tests
+- `go.mod` - `prometheus/client_golang` dependency restored

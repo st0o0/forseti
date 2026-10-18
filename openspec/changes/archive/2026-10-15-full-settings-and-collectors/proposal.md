@@ -1,6 +1,6 @@
 ## Why
 
-Forseti currently manages only 7 of ~50+ Pi-hole v6 pihole.toml settings (DNS upstream, cache, rate limit, blocking mode, privacy level). Users who want full declarative control over their Pi-hole instances still need to manage DHCP, webserver, advanced DNS, and misc settings outside of Forseti. Additionally, all Prometheus metrics are always registered and collected — there is no way to disable unused metric groups — and the metric prefix is split between `pihole_*` and `forseti_*`, making the namespace inconsistent.
+Forseti currently manages only 7 of ~50+ Pi-hole v6 pihole.toml settings (DNS upstream, cache, rate limit, blocking mode, privacy level). Users who want full declarative control over their Pi-hole instances still need to manage DHCP, webserver, advanced DNS, and misc settings outside of Forseti. Additionally, all Prometheus metrics are always registered and collected - there is no way to disable unused metric groups - and the metric prefix is split between `pihole_*` and `forseti_*`, making the namespace inconsistent.
 
 ## What Changes
 
@@ -26,7 +26,7 @@ Forseti currently manages only 7 of ~50+ Pi-hole v6 pihole.toml settings (DNS up
 
 ## Impact
 
-- **Breaking**: All `pihole_*` Prometheus metric names change to `forseti_*` — existing Grafana dashboards and alerts need updating
+- **Breaking**: All `pihole_*` Prometheus metric names change to `forseti_*` - existing Grafana dashboards and alerts need updating
 - **Config schema**: New fields in `settings` and `metrics.collectors` sections (additive, existing configs remain valid)
 - **API client**: New methods for DHCP lease fetching
 - **Collector**: Conditional metric registration and API call skipping based on collector toggles

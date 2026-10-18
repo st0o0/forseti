@@ -1,6 +1,6 @@
 ## Context
 
-Forseti reconciles six resource types against Pi-hole: groups, adlists, deny domains, allow domains, local DNS, and clients. Five of these use the Pi-hole comment field with a `[forseti]` / `[forseti-sync]` marker to distinguish managed entries from manual ones. Local DNS records are the exception — the Pi-hole v6 API stores them as flat `"IP Domain"` strings under `/api/config/dns/hosts` with no metadata or comment support.
+Forseti reconciles six resource types against Pi-hole: groups, adlists, deny domains, allow domains, local DNS, and clients. Five of these use the Pi-hole comment field with a `[forseti]` / `[forseti-sync]` marker to distinguish managed entries from manual ones. Local DNS records are the exception - the Pi-hole v6 API stores them as flat `"IP Domain"` strings under `/api/config/dns/hosts` with no metadata or comment support.
 
 Currently `diffDNS` treats all actual DNS records as managed, deleting anything not in the desired state. This can destroy manually created DNS entries.
 
@@ -9,7 +9,7 @@ Separately, `main.go:165` checks for server shutdown with a string comparison in
 ## Goals / Non-Goals
 
 **Goals:**
-- Make DNS reconciliation safe by default — never delete entries forseti didn't create
+- Make DNS reconciliation safe by default - never delete entries forseti didn't create
 - Provide an opt-in purge mode for users who want forseti to fully own DNS records
 - Fix the fragile error string comparison
 
@@ -35,7 +35,7 @@ Additive-only is the simplest safe default. Users who want full DNS ownership ad
 
 **Choice**: Change `diffDNS(desired, actual)` → `diffDNS(desired, actual, purge bool)`. When `purge` is false, `Deletes` is always empty.
 
-**Why**: Keeps the diff logic self-contained. The reconciler already passes `marker` to `diffClients` and `diffGroups` — this follows the same pattern of parameterizing diff behavior.
+**Why**: Keeps the diff logic self-contained. The reconciler already passes `marker` to `diffClients` and `diffGroups` - this follows the same pattern of parameterizing diff behavior.
 
 ### 3. `errors.Is` for shutdown check
 

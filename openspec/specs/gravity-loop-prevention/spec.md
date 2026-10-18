@@ -20,7 +20,7 @@ The reconciler SHALL only set `NeedsGravity` to true when at least one adlist cr
 - **THEN** `NeedsGravity` SHALL be true
 
 ### Requirement: No concurrent gravity per target
-The gravity scheduler SHALL prevent concurrent gravity triggers for the same target. If gravity is already running for a target, a new trigger request SHALL be skipped and logged at WARN. Gravity execution SHALL NOT block the scheduler event loop — scheduled triggers and async requests for other targets MUST continue to be processed while gravity runs.
+The gravity scheduler SHALL prevent concurrent gravity triggers for the same target. If gravity is already running for a target, a new trigger request SHALL be skipped and logged at WARN. Gravity execution SHALL NOT block the scheduler event loop  - scheduled triggers and async requests for other targets MUST continue to be processed while gravity runs.
 
 #### Scenario: Scheduled gravity while reconcile gravity runs
 - **WHEN** the reconcile path triggers gravity for target "pizero" and the scheduler attempts a scheduled trigger for "pizero"

@@ -26,7 +26,7 @@ The drift metric is set before apply runs and never refreshed afterward, so fail
 
 Remove `boolToInt()` entirely. `BuildDesiredSettingsList` will store actual `bool` values in `SettingMapping.Value`. The PATCH call (`api.PatchConfig`) will send the native Go `bool`, which `encoding/json` marshals to JSON `true`/`false`.
 
-**Alternative considered**: Keep `boolToInt()` for comparison only and convert back to bool before PATCH. Rejected — adds complexity, the comparison layer should handle mixed types directly.
+**Alternative considered**: Keep `boolToInt()` for comparison only and convert back to bool before PATCH. Rejected - adds complexity, the comparison layer should handle mixed types directly.
 
 ### D2: Update `normalizeValue()` for symmetric comparison
 
@@ -51,7 +51,7 @@ In `settingsNeedUpdate()`, when both normalized values are strings, use `strings
 
 ### D4: Post-apply drift metric update
 
-After `ApplySettings` succeeds (no error), re-run `DiffSettings` and update the drift metric with the post-apply state. If apply returns an error, keep the pre-apply drift reading (correct — things are still drifted).
+After `ApplySettings` succeeds (no error), re-run `DiffSettings` and update the drift metric with the post-apply state. If apply returns an error, keep the pre-apply drift reading (correct - things are still drifted).
 
 ```
 DiffSettings()           → pre-apply drift
@@ -62,7 +62,7 @@ if apply succeeded:
   UpdateSettingsDrift()  → report post-apply (should be all zeros)
 ```
 
-### D5: Healthcheck — scratch image investigation
+### D5: Healthcheck - scratch image investigation
 
 The Dockerfile healthcheck uses the forseti binary directly (`CMD ["/forseti", "healthcheck", ...]`), not wget/curl. The exec form JSON array should work on scratch without a shell. Likely runtime causes:
 - Pi-hole not ready within start-period (15s may be tight)
@@ -75,4 +75,4 @@ Fix: increase `--start-period` to 30s and add `depends_on` with `condition: serv
 
 - **[Breaking change for Pi-hole versions < v6]** → Mitigation: Forseti only supports Pi-hole v6, this is documented. The current int coercion was never correct for v6.
 - **[API response format may vary across Pi-hole versions]** → Mitigation: `settingsNeedUpdate()` handles bool, int, float64, and string comparison generically. New types would need additions.
-- **[Double DiffSettings call per cycle]** → Mitigation: Only runs when apply actually made changes. One extra GET /api/config call per cycle with changes — negligible overhead.
+- **[Double DiffSettings call per cycle]** → Mitigation: Only runs when apply actually made changes. One extra GET /api/config call per cycle with changes - negligible overhead.

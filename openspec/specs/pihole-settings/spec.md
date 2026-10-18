@@ -7,7 +7,7 @@ Forseti-native settings format, mapping to Pi-hole v6 config API, settings recon
 ## Requirements
 
 ### Requirement: Settings configuration format
-The system SHALL accept a `settings` section at the top level of the config file. This section uses Forseti's own format — a curated subset of Pi-hole FTL configuration values, not a 1:1 mirror of pihole.toml.
+The system SHALL accept a `settings` section at the top level of the config file. This section uses Forseti's own format  - a curated subset of Pi-hole FTL configuration values, not a 1:1 mirror of pihole.toml.
 
 #### Scenario: Settings with DNS and blocking config
 - **WHEN** the config file contains a `settings:` section with `dns.upstream`, `dns.cache.size`, and `blocking.mode`
@@ -15,7 +15,7 @@ The system SHALL accept a `settings` section at the top level of the config file
 
 #### Scenario: No settings section
 - **WHEN** the config file omits the `settings:` section
-- **THEN** the system SHALL skip settings reconciliation entirely — existing Pi-hole settings are not touched
+- **THEN** the system SHALL skip settings reconciliation entirely  - existing Pi-hole settings are not touched
 
 ### Requirement: Settings field mapping
 Each Forseti setting SHALL map to a specific Pi-hole v6 config API path. The supported settings SHALL be:
