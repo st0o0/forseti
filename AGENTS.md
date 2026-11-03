@@ -1,4 +1,4 @@
-# Forseti
+# forseti
 
 Declarative GitOps controller and sync tool for Pi-hole v6. Two modes:
 **config** (YAML -> Pi-hole reconciliation) and **sync** (primary -> replica
