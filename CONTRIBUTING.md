@@ -21,7 +21,7 @@ docker build -t forseti:ci .
 
 ## Pull requests
 
-- Branch from `main` and open a PR -- CI (test, lint, build) runs on pull
+- Branch from `main` and open a PR - CI (test, lint, build) runs on pull
   requests.
 - Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/)
   (`feat:`, `fix:`, `docs:`, `ci:`, `chore:`, ...); commitlint enforces this and

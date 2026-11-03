@@ -10,24 +10,24 @@ Two modes: **config** reconciles a YAML file against one or more Pi-hole instanc
 **sync** replicates a primary Pi-hole to any number of replicas.
 Both include a built-in Prometheus metrics endpoint for Pi-hole stats, reconciliation telemetry, and settings drift detection.
 
-Named after [Forseti](https://en.wikipedia.org/wiki/Forseti), the Norse god of justice -- he reconciles desired state with actual state and ensures every instance is in order.
+Named after [Forseti](https://en.wikipedia.org/wiki/Forseti), the Norse god of justice - he reconciles desired state with actual state and ensures every instance is in order.
 
 ## Features
 
-- **Declarative config** -- adlists, allowlists, allow/deny domains, local DNS, CNAME records, groups, clients, and Pi-hole settings defined in one YAML file
-- **Sync mode** -- replicate a primary Pi-hole to any number of replicas, including CNAME records (NebulaSync replacement)
-- **Multi-instance** -- manage any number of Pi-hole v6 targets from one config
-- **Per-target API control** -- configurable timeouts and concurrency limits per target, preventing overload on resource-constrained hardware
-- **Managed-marker safety** -- only touches entries it created (`[forseti]` / `[forseti-sync]` tag), manual UI changes are left alone
-- **Diff-based** -- compares desired vs actual state and applies the minimum set of changes
-- **Settings reconciliation** -- manage DNS cache, rate limits, blocking mode, privacy level, and more
-- **Gravity scheduling** -- per-target cron schedules and automatic gravity updates on adlist changes
-- **Built-in Prometheus metrics** -- `/metrics` endpoint with Pi-hole stats, reconciliation telemetry, settings drift, session health, and collector stale-serve tracking
-- **Readable logs** -- a startup summary, one line per run and cycle (also when nothing changed), and health/reachability transitions instead of repeated errors
-- **Status API** -- `/status` and `/status/history` show per-target health, last success and recent runs; example Grafana dashboard included
-- **Plan/Apply workflow** -- dry-run before committing changes
-- **Watch mode** -- daemon with periodic reconcile loop, config hot-reload, and metrics server
-- **Environment variable expansion** -- `${VAR}` syntax in YAML values for secrets management
+- **Declarative config** - adlists, allowlists, allow/deny domains, local DNS, CNAME records, groups, clients, and Pi-hole settings defined in one YAML file
+- **Sync mode** - replicate a primary Pi-hole to any number of replicas, including CNAME records (NebulaSync replacement)
+- **Multi-instance** - manage any number of Pi-hole v6 targets from one config
+- **Per-target API control** - configurable timeouts and concurrency limits per target, preventing overload on resource-constrained hardware
+- **Managed-marker safety** - only touches entries it created (`[forseti]` / `[forseti-sync]` tag), manual UI changes are left alone
+- **Diff-based** - compares desired vs actual state and applies the minimum set of changes
+- **Settings reconciliation** - manage DNS cache, rate limits, blocking mode, privacy level, and more
+- **Gravity scheduling** - per-target cron schedules and automatic gravity updates on adlist changes
+- **Built-in Prometheus metrics** - `/metrics` endpoint with Pi-hole stats, reconciliation telemetry, settings drift, session health, and collector stale-serve tracking
+- **Readable logs** - a startup summary, one line per run and cycle (also when nothing changed), and health/reachability transitions instead of repeated errors
+- **Status API** - `/status` and `/status/history` show per-target health, last success and recent runs; example Grafana dashboard included
+- **Plan/Apply workflow** - dry-run before committing changes
+- **Watch mode** - daemon with periodic reconcile loop, config hot-reload, and metrics server
+- **Environment variable expansion** - `${VAR}` syntax in YAML values for secrets management
 
 ## Quick start
 
@@ -160,7 +160,7 @@ sync:
 ### Full configuration reference
 
 All values support `${VAR}` environment variable expansion.
-Fields marked with `*` are pointers -- omit them to keep Pi-hole's existing value.
+Fields marked with `*` are pointers - omit them to keep Pi-hole's existing value.
 
 #### Top-level
 

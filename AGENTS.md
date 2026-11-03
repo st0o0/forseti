@@ -59,7 +59,7 @@ docker build -t forseti:ci .
 
 ## Security-sensitive areas
 
-- `internal/pihole/` -- Pi-hole API client, handles passwords and session tokens
-- `internal/session/` -- session pool with persistent authenticated sessions
-- `internal/config/` -- env var expansion (may contain secrets)
-- `internal/redact/` -- URL credential and query value redaction
+- `internal/pihole/` - Pi-hole API client, handles passwords and session tokens
+- `internal/session/` - session pool with persistent authenticated sessions
+- `internal/config/` - env var expansion (may contain secrets)
+- `internal/redact/` - URL credential and query value redaction
