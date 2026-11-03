@@ -1,8 +1,8 @@
-# Forseti
+# forseti
 
 [![Release](https://img.shields.io/github/v/release/st0o0/forseti?sort=semver&style=flat-square)](https://github.com/st0o0/forseti/releases)
 [![GHCR](https://img.shields.io/badge/ghcr.io-st0o0%2Fforseti-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/st0o0/forseti/pkgs/container/forseti)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE.md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
 
 Declarative GitOps controller and sync tool for [Pi-hole v6](https://pi-hole.net/).
 
@@ -619,4 +619,4 @@ docker build -t forseti .
 
 ## License
 
-[MIT](LICENSE.md)
+[MIT](LICENSE)
