@@ -1,6 +1,6 @@
 module github.com/st0o0/forseti
 
-go 1.26.1
+go 1.27
 
 require (
 	github.com/prometheus/client_golang v1.25.0
