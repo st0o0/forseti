@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -389,7 +390,7 @@ func TestStartAndShutdown(t *testing.T) {
 	}
 
 	err := <-errCh
-	if err != nil && err.Error() != "http: Server closed" {
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		t.Errorf("Start() unexpected error: %v", err)
 	}
 }
@@ -427,7 +428,9 @@ func TestScrapeCallsCollectFunc(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_ = s.Shutdown(ctx)
-	<-errCh
+	if err := <-errCh; err != nil && !errors.Is(err, http.ErrServerClosed) {
+		t.Errorf("Serve() unexpected error: %v", err)
+	}
 }
 
 func TestScrapeWithoutCollectFunc(t *testing.T) {
@@ -456,7 +459,9 @@ func TestScrapeWithoutCollectFunc(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_ = s.Shutdown(ctx)
-	<-errCh
+	if err := <-errCh; err != nil && !errors.Is(err, http.ErrServerClosed) {
+		t.Errorf("Serve() unexpected error: %v", err)
+	}
 }
 
 func TestUpdateStatsStaleKeysCleanup(t *testing.T) {

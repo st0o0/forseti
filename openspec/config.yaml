@@ -6,7 +6,7 @@ context: |
   from a single YAML config against one or more Pi-hole instances via REST API.
   Built-in Prometheus metrics endpoint for Pi-hole stats and reconciliation telemetry.
 
-  Tech stack: Go 1.26, Pi-hole v6 REST API (session auth),
+  Tech stack: Go 1.27, Pi-hole v6 REST API (session auth),
   prometheus/client_golang, gopkg.in/yaml.v3, scratch Docker image
 
   Conventions: Conventional Commits (commitlint enforced), golangci-lint v2,
