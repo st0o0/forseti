@@ -15,6 +15,8 @@ FROM scratch
 COPY --from=build /forseti /forseti
 COPY LICENSE /
 
+USER 65534:65534
+
 EXPOSE 9099
 
 HEALTHCHECK --interval=30s --timeout=10s \
