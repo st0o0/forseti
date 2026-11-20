@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.2.1](https://github.com/st0o0/forseti/compare/v0.2.0...v0.2.1) (2026-11-20)
+
+
+### Features
+
+* **security:** add source scan on PR/push, registry scan after release ([f04fbe6](https://github.com/st0o0/forseti/commit/f04fbe63002677df70d9a048d3a0026462ae3533))
+
+
+### Bug Fixes
+
+* **security:** add non-root USER and wire trivy-config in security workflow ([94b1395](https://github.com/st0o0/forseti/commit/94b13953c4e8e40cf8d6d1e24a3771e396e28161))
+* **security:** add packages:read permission for reusable workflow compatibility ([5b9e39b](https://github.com/st0o0/forseti/commit/5b9e39b2d26b0b3f8ee283013c0ff591c9496f61))
+
+
+### Refactoring
+
+* **security:** remove unused trivy.yaml placeholder ([5c041ca](https://github.com/st0o0/forseti/commit/5c041cae9cc46628783e247fb8c18ab664301084))
+* **security:** simplify to fs scan on PR/push and local image scan on schedule ([e456093](https://github.com/st0o0/forseti/commit/e45609361ad8f301a05616f24c046f8ec4d66f65))
+
 ## [0.2.0](https://github.com/st0o0/forseti/compare/v0.1.9...v0.2.0) (2026-10-18)
 
 
